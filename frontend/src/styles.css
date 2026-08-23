@@ -665,6 +665,45 @@ body {
   line-height: 1.4;
 }
 
+.export-page .ant-card-body {
+  padding: 24px;
+}
+
+.export-hero p,
+.interview-delivery p {
+  color: #64748b;
+  line-height: 1.75;
+}
+
+.delivery-card {
+  height: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 16px 18px;
+}
+
+.delivery-card strong {
+  display: block;
+  color: #111827;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.delivery-card ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: #334155;
+  line-height: 1.7;
+}
+
+.delivery-card p {
+  margin: 0;
+  color: #64748b;
+}
+
 .resume-preview-panel .project-preview {
   margin-top: 18px;
 }

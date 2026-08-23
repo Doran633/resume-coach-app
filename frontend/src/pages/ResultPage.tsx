@@ -22,6 +22,14 @@ const displayReplacements: Array<[RegExp, string]> = [
   [/\btime\s*[:：]/gi, "项目时间："]
 ];
 
+const genericMissingQuestions = [
+  "项目数据口径是否清楚？例如用户数、访问量、star、性能指标分别怎么统计。",
+  "个人负责边界是否能讲清？哪些是你独立完成，哪些是团队协作。",
+  "技术实现细节是否能展开？至少准备一个核心模块的流程、难点和取舍。",
+  "是否有截图、日志、仓库、文档等证据，可以支撑简历里的强表达。",
+  "哪些表达需要准备降级说法？遇到追问时可以稳妥承认边界。"
+];
+
 function compactText(text: string, fallback = "暂未生成") {
   return text?.trim() || fallback;
 }
@@ -241,10 +249,16 @@ function InterviewCards({ items }: { items: string[] }) {
 }
 
 function MissingQuestionCards({ items }: { items: string[] }) {
-  if (!items.length) return <p className="empty-hint">当前信息已经比较完整，也可以补充数据证据、技术细节或项目边界继续强化。</p>;
+  const filledItems = [...items];
+  for (const question of genericMissingQuestions) {
+    if (filledItems.length >= 6) break;
+    if (!filledItems.includes(question)) filledItems.push(question);
+  }
+
+  if (!filledItems.length) return <p className="empty-hint">当前信息已经比较完整，也可以补充数据证据、技术细节或项目边界继续强化。</p>;
   return (
     <div className="interview-card-list">
-      {items.slice(0, 6).map((item, index) => (
+      {filledItems.slice(0, 6).map((item, index) => (
         <div className="interview-card question-card" key={`${item}-${index}`}>
           <small>追问 {index + 1}</small>
           <p>{cleanDisplayText(item)}</p>
@@ -412,9 +426,6 @@ export default function ResultPage() {
               </Card>
             </Col>
           </Row>
-          <Card className="panel knowledge-panel" title="知识补齐清单">
-            <KnowledgeList items={result.knowledge_checklist} />
-          </Card>
         </Space>
       )
     },
