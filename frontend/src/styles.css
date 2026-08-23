@@ -62,6 +62,11 @@ body {
   width: 100%;
 }
 
+.privacy-reminder {
+  margin: 2px 0 18px;
+  border-radius: 6px;
+}
+
 .result-view .ant-card-body {
   padding: 24px;
 }

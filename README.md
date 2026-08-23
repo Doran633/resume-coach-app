@@ -98,6 +98,52 @@ http://127.0.0.1:5173
 - SQLite 数据库保存到 `backend/data/resume_coach.db`。
 - LLM 调用日志保存到 `backend/logs/llm_calls.jsonl`，并写入 `llm_call_logs` 表。
 
+## 数据汇总与导出
+
+v0.1.1 提供轻量数据导出脚本，用于把 SQLite 埋点数据整理成 Markdown 和 CSV 报告。
+
+本地运行：
+
+```powershell
+cd C:\Users\lbc\Documents\Resume-coach\resume-coach-app
+python scripts\export_analytics.py
+```
+
+服务器运行：
+
+```bash
+cd /www/wwwroot/resume-coach-app
+.venv/bin/python scripts/export_analytics.py
+```
+
+只统计最近 7 天：
+
+```bash
+.venv/bin/python scripts/export_analytics.py --days 7
+```
+
+自定义数据库和输出目录：
+
+```bash
+.venv/bin/python scripts/export_analytics.py --db backend/data/resume_coach.db --out backend/reports
+```
+
+默认输出：
+
+```text
+backend/reports/analytics-summary-YYYY-MM-DD.md
+backend/reports/analytics-events-YYYY-MM-DD.csv
+backend/reports/analytics-inputs-YYYY-MM-DD.csv
+```
+
+报告和 CSV 中展示的时间统一为北京时间（UTC+8）。数据库底层仍使用 UTC 时间保存。
+
+隐私说明：
+
+- 默认不会导出用户 `raw_input` 原文。
+- inputs CSV 只导出输入长度、目标岗位、包装强度、经历类型等元信息。
+- Markdown 反馈摘录最多保留 120 字。
+
 ## 反馈问题
 
 1. 你认为这个服务相比当前市场大模型效果如何？

@@ -1,4 +1,4 @@
-import { Button, Card, Form, Input, Radio, Select, message } from "antd";
+import { Alert, Button, Card, Form, Input, Radio, Select, message } from "antd";
 import { useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
@@ -63,8 +63,14 @@ export default function InputPage() {
         <Form.Item label="经历类型" name="experience_type">
           <Select options={["项目", "实习", "开源", "比赛", "校园", "其他"].map((value) => ({ value }))} />
         </Form.Item>
+        <Alert
+          className="privacy-reminder"
+          type="info"
+          showIcon
+          message="小提醒：这里更适合填写项目、实习、比赛、开源等经历内容。请不要填写身份证号、家庭住址、银行卡号、账号密码等敏感信息；手机号、邮箱建议在最终简历阶段自行补充。"
+        />
         <Form.Item label="原始经历描述" name="raw_input" rules={[{ required: true, min: 10 }]}>
-          <Input.TextArea rows={8} placeholder="请描述你做过什么、用了什么技术、有什么结果或证据。尽量不要填写手机号、身份证等敏感信息。" />
+          <Input.TextArea rows={8} placeholder="请描述你做过什么、用了什么技术、有什么结果或证据。避免填写身份证号、家庭住址、银行卡号、账号密码等敏感信息。" />
         </Form.Item>
         <Button type="primary" htmlType="submit" size="large" loading={generating}>
           {generating ? "正在生成，请稍等" : "生成包装与面试承接"}

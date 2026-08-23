@@ -10,6 +10,8 @@ Thumbs.db
 backend/data/*.db
 backend/logs/*
 backend/outputs/*
+backend/reports/*
 !backend/data/.gitkeep
 !backend/logs/.gitkeep
 !backend/outputs/.gitkeep
+!backend/reports/.gitkeep
