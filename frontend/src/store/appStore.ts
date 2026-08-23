@@ -19,10 +19,17 @@ interface AppState {
   setGeneration: (generation: GenerateResponse) => void;
 }
 
+const createClientId = () => {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
 const getOrCreate = (key: string, prefix: string) => {
   const existing = localStorage.getItem(key);
   if (existing) return existing;
-  const value = `${prefix}_${crypto.randomUUID()}`;
+  const value = `${prefix}_${createClientId()}`;
   localStorage.setItem(key, value);
   return value;
 };
