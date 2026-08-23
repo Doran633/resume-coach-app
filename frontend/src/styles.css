@@ -71,6 +71,19 @@ body {
   padding: 24px;
 }
 
+.result-tabs-card > .ant-card-body {
+  padding-top: 14px;
+}
+
+.result-tabs-card .ant-tabs-nav {
+  margin-bottom: 22px;
+}
+
+.result-tabs-card .ant-tabs-tab {
+  padding: 12px 8px;
+  font-size: 15px;
+}
+
 .summary-main,
 .section-title {
   display: flex;
@@ -210,6 +223,10 @@ body {
   white-space: pre-wrap;
 }
 
+.version-grid {
+  min-height: 300px;
+}
+
 .project-preview .section-title {
   margin-bottom: 18px;
 }
@@ -284,6 +301,10 @@ body {
   border-color: #eeeeef;
 }
 
+.claim-workbench {
+  margin-top: 18px;
+}
+
 .risk-legend {
   display: flex;
   flex-wrap: wrap;
@@ -296,6 +317,75 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.claim-collapse {
+  margin-top: 16px;
+}
+
+.claim-collapse .ant-collapse-item {
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  overflow: hidden;
+}
+
+.claim-collapse .ant-collapse-header {
+  align-items: center !important;
+  padding: 12px 14px !important;
+}
+
+.claim-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+}
+
+.claim-summary strong {
+  display: block;
+  color: #111827;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.claim-summary span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.claim-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 10px 12px 34px;
+}
+
+.claim-detail-block {
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px 14px;
+}
+
+.claim-detail-block strong {
+  display: block;
+  color: #1f3763;
+  margin-bottom: 7px;
+}
+
+.claim-detail-block p,
+.claim-detail-block ul {
+  margin: 0;
+  color: #334155;
+  line-height: 1.7;
+}
+
+.claim-detail-block ul {
+  padding-left: 18px;
 }
 
 .claim-list {
@@ -374,6 +464,88 @@ body {
   margin-bottom: 0;
 }
 
+.interview-panel {
+  height: 100%;
+}
+
+.interview-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.interview-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 14px 16px;
+}
+
+.interview-card small {
+  display: inline-flex;
+  margin-bottom: 8px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #2563eb;
+  padding: 3px 9px;
+  font-weight: 700;
+}
+
+.interview-card p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.8;
+}
+
+.knowledge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.knowledge-list span {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  padding: 6px 12px;
+  line-height: 1.4;
+}
+
+.resume-preview-panel .project-preview {
+  margin-top: 18px;
+}
+
+.resume-preview-block {
+  margin-bottom: 18px;
+}
+
+.resume-preview-block h4 {
+  margin: 0 0 10px;
+  color: #111827;
+}
+
+.resume-preview-block p,
+.resume-preview-block ul {
+  margin: 0;
+  color: #334155;
+  line-height: 1.8;
+}
+
+.resume-preview-block ul {
+  padding-left: 18px;
+}
+
+.followup-grid .ant-card,
+.equal-panel {
+  height: 100%;
+}
+
+.empty-hint {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.7;
+}
+
 .followup-panel textarea {
   margin-top: 4px;
 }
@@ -404,6 +576,16 @@ body {
 
   .project-title-line {
     grid-template-columns: 1fr;
+  }
+
+  .claim-detail-grid {
+    grid-template-columns: 1fr;
+    padding-left: 0;
+  }
+
+  .claim-summary {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .version-card {
