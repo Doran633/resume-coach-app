@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+dist/
+.env
+.DS_Store
+Thumbs.db
+backend/data/*.db
+backend/logs/*
+backend/outputs/*
+!backend/data/.gitkeep
+!backend/logs/.gitkeep
+!backend/outputs/.gitkeep

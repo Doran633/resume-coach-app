@@ -1,0 +1,282 @@
+body {
+  margin: 0;
+  background: #f5f7fb;
+  color: #1f2937;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 32px;
+}
+
+.topbar div {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  color: #1f3763;
+}
+
+.topbar span {
+  color: #6b7280;
+}
+
+.content {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0 48px;
+}
+
+.intro h1 {
+  margin: 0 0 8px;
+  color: #172554;
+  font-size: 30px;
+}
+
+.intro p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 15px;
+}
+
+.steps {
+  margin: 28px 0;
+}
+
+.panel,
+.result-card {
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.result-card {
+  min-height: 260px;
+}
+
+.wide {
+  width: 100%;
+}
+
+.result-view .ant-card-body {
+  padding: 24px;
+}
+
+.summary-main,
+.section-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.summary-main h3,
+.section-title h4 {
+  margin: 0 0 8px;
+  color: #111827;
+}
+
+.summary-main p,
+.section-title p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.7;
+}
+
+.score-ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.fact-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.fact-strip span {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.recommended-text {
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #1f2937;
+  line-height: 1.9;
+  white-space: pre-wrap;
+}
+
+.version-card {
+  height: 100%;
+  min-height: 280px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.version-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.version-head span {
+  color: #111827;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.version-head small {
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #2563eb;
+  padding: 4px 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.version-card p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.claim-panel {
+  background: #f4f4f5;
+  border-color: #eeeeef;
+}
+
+.risk-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.risk-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.claim-list {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.claim-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 8px;
+  transition: background 0.16s ease;
+}
+
+.claim-row:hover {
+  background: #ffffff;
+}
+
+.claim-row strong {
+  display: block;
+  color: #111827;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.claim-row span {
+  display: block;
+  color: #64748b;
+  margin-top: 3px;
+  line-height: 1.6;
+}
+
+.claim-row em {
+  display: block;
+  margin-top: 4px;
+  color: #475569;
+  font-style: normal;
+  font-size: 13px;
+}
+
+.risk-dot {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  border-radius: 999px;
+  box-shadow: inset -4px -4px 8px rgba(15, 23, 42, 0.16), inset 4px 4px 8px rgba(255, 255, 255, 0.45);
+}
+
+.risk-green {
+  background: #63d889;
+}
+
+.risk-yellow {
+  background: #e8bd46;
+}
+
+.risk-red {
+  background: #d94a61;
+}
+
+.risk-black {
+  background: #475569;
+}
+
+.compact-panel p {
+  margin: 0 0 12px;
+  color: #334155;
+  line-height: 1.75;
+}
+
+.compact-panel p:last-child {
+  margin-bottom: 0;
+}
+
+.followup-panel textarea {
+  margin-top: 4px;
+}
+
+.footer-actions {
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .summary-main,
+  .section-title {
+    flex-direction: column;
+  }
+
+  .score-ring {
+    align-items: flex-start;
+  }
+
+  .version-card {
+    min-height: auto;
+  }
+}
