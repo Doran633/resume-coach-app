@@ -57,3 +57,5 @@ resume_sections 必须包含：
 5. 信息不清楚必须进入 missing_questions，不能编造。
 6. 所有字段必须存在，即使为空也要给空数组或 [待填写]。
 7. 正式简历排版中，教育经历应作为应届生/实习生的重要背书，放在个人优势之前。
+8. 内部 JSON key 可以使用英文，但面向用户展示的正文、小标题和简历内容必须使用中文；只在技术专有名词中保留英文，例如 RAG、Agent、React、TypeScript、FastAPI、SFT、RLHF、DPO、LoRA 等。
+9. 避免在面向用户的正文中出现 role、details、meta、intro、name、time 这类内部字段名，应改写为“我的职责”“技术细节”“项目类型”“项目简介”“项目名称”“项目时间”等中文表达。

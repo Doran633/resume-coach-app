@@ -79,6 +79,22 @@ body {
   gap: 20px;
 }
 
+.summary-copy {
+  max-width: 760px;
+}
+
+.summary-eyebrow {
+  display: inline-flex;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #2563eb;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .summary-main h3,
 .section-title h4 {
   margin: 0 0 8px;
@@ -99,6 +115,33 @@ body {
   gap: 8px;
   color: #64748b;
   white-space: nowrap;
+}
+
+.metric-card {
+  min-width: 210px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px 16px;
+}
+
+.metric-card strong,
+.metric-card span {
+  display: block;
+}
+
+.metric-card strong {
+  color: #111827;
+  font-size: 15px;
+}
+
+.metric-card span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .fact-strip {
@@ -165,6 +208,75 @@ body {
   color: #334155;
   line-height: 1.85;
   white-space: pre-wrap;
+}
+
+.project-preview .section-title {
+  margin-bottom: 18px;
+}
+
+.project-title-line {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.3fr) minmax(120px, 0.7fr) minmax(120px, 0.7fr);
+  gap: 10px;
+}
+
+.project-title-line div {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.project-title-line small {
+  display: block;
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.project-title-line strong {
+  display: block;
+  color: #111827;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.project-title-line span {
+  display: block;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.project-fields {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.project-fields div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.project-fields span {
+  color: #1f3763;
+  font-weight: 700;
+}
+
+.project-fields p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.8;
+}
+
+.project-fields ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #334155;
+  line-height: 1.75;
 }
 
 .claim-panel {
@@ -279,6 +391,19 @@ body {
 
   .score-ring {
     align-items: flex-start;
+  }
+
+  .metric-card {
+    width: 100%;
+  }
+
+  .project-fields div {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .project-title-line {
+    grid-template-columns: 1fr;
   }
 
   .version-card {

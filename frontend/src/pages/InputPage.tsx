@@ -67,7 +67,7 @@ export default function InputPage() {
           className="privacy-reminder"
           type="info"
           showIcon
-          message="小提醒：这里更适合填写项目、实习、比赛、开源等经历内容。请不要填写身份证号、家庭住址、银行卡号、账号密码等敏感信息；手机号、邮箱建议在最终简历阶段自行补充。"
+          message="隐私提醒：请勿输入身份证号、家庭住址、银行卡号、账号密码等敏感信息。手机号、邮箱等联系方式建议在最终简历下载后自行补充。"
         />
         <Form.Item label="原始经历描述" name="raw_input" rules={[{ required: true, min: 10 }]}>
           <Input.TextArea rows={8} placeholder="请描述你做过什么、用了什么技术、有什么结果或证据。避免填写身份证号、家庭住址、银行卡号、账号密码等敏感信息。" />

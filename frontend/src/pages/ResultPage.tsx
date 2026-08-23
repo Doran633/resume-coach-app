@@ -15,6 +15,12 @@ function compactText(text: string, fallback = "暂未生成") {
   return text?.trim() || fallback;
 }
 
+function strengthenLevel(score: number) {
+  if (score >= 80) return "高";
+  if (score >= 60) return "中";
+  return "待补充";
+}
+
 function VersionCard({ title, tone, text }: { title: string; tone: string; text: string }) {
   return (
     <div className="version-card">
@@ -24,6 +30,52 @@ function VersionCard({ title, tone, text }: { title: string; tone: string; text:
       </div>
       <p>{compactText(text)}</p>
     </div>
+  );
+}
+
+function ProjectPreview({ project }: { project: Record<string, any> }) {
+  const details = Array.isArray(project.details) ? project.details.slice(0, 3) : [];
+  return (
+    <Card className="panel project-preview">
+      <div className="section-title">
+        <div>
+          <Typography.Title level={4}>项目经历预览</Typography.Title>
+          <p>先预览一段可放进正式简历的项目写法，方便你判断重点是否准确。</p>
+        </div>
+      </div>
+      <div className="project-title-line">
+        <div>
+          <small>项目名称</small>
+          <strong>{compactText(project.name, "项目名称待补充")}</strong>
+        </div>
+        <div>
+          <small>项目类型</small>
+          <span>{compactText(project.meta, "项目类型待补充")}</span>
+        </div>
+        <div>
+          <small>项目时间</small>
+          <span>{compactText(project.time, "项目时间待补充")}</span>
+        </div>
+      </div>
+      <div className="project-fields">
+        <div>
+          <span>项目简介</span>
+          <p>{compactText(project.intro)}</p>
+        </div>
+        <div>
+          <span>我的职责</span>
+          <p>{compactText(project.role)}</p>
+        </div>
+        {details.length > 0 && (
+          <div>
+            <span>技术细节</span>
+            <ul>
+              {details.map((item: string) => <li key={item}>{item}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -87,18 +139,23 @@ export default function ResultPage() {
 
   const confirmedFacts = result.confirmed_facts.slice(0, 4);
   const missingQuestions = result.missing_questions.slice(0, 3);
+  const firstProject = result.resume_sections.projects?.[0];
 
   return (
     <Space direction="vertical" size="large" className="wide result-view">
       <Card className="panel coach-summary">
         <div className="summary-main">
-          <div>
-            <Typography.Title level={3}>这份经历可以这样定位</Typography.Title>
-            <p>先给你一版可投递表达，再标出需要补强的地方。这里不是挑刺，是帮你把每一句强表达接住。</p>
+          <div className="summary-copy">
+            <span className="summary-eyebrow">求职教练建议</span>
+            <Typography.Title level={3}>先把经历写强，再告诉你怎么接住</Typography.Title>
+            <p>基于你的真实经历生成不同强度的简历表达，并同步标出每个强表达背后需要准备的证据、技术点和面试回答。</p>
           </div>
-          <div className="score-ring">
-            <Progress type="circle" percent={result.completeness_score} size={88} />
-            <span>信息完整度</span>
+          <div className="metric-card">
+            <Progress type="circle" percent={result.completeness_score} size={78} />
+            <div>
+              <strong>信息完整度</strong>
+              <span>{strengthenLevel(result.completeness_score)}强化空间</span>
+            </div>
           </div>
         </div>
         <div className="fact-strip">
@@ -129,10 +186,12 @@ export default function ResultPage() {
         </Col>
       </Row>
 
+      {firstProject && <ProjectPreview project={firstProject} />}
+
       <Card className="panel claim-panel" onMouseEnter={() => trackEvent(identity, "view_claim_risk", { generation_result_id: generation.generation_result_id })}>
         <div className="section-title">
           <div>
-            <Typography.Title level={4}>Claim Check</Typography.Title>
+            <Typography.Title level={4}>强表达承接检查</Typography.Title>
             <p>绿色放心写，黄色补充准备，红色建议换说法。目标是让你的简历更强，也更稳。</p>
           </div>
           <div className="risk-legend">
