@@ -98,6 +98,26 @@ http://127.0.0.1:5173
 - SQLite 数据库保存到 `backend/data/resume_coach.db`。
 - LLM 调用日志保存到 `backend/logs/llm_calls.jsonl`，并写入 `llm_call_logs` 表。
 
+## 结果清洗与稳定性兜底
+
+v0.1.6 在后端生成链路中加入统一清洗层。mock 和 openai 模式生成结果后，都会先经过结构校验，再进行展示清洗和风险兜底，最后保存到数据库并返回前端。
+
+清洗范围包括：
+
+- 用户可见正文中的内部字段名，例如 `question:`、`answer_points:`、`role:`、`details:`、`summary:`、`skills:`。
+- 多余空格、连续换行、代码块标记和明显 JSON/Markdown 包裹痕迹。
+- Claim 风险等级兜底，只允许 `green`、`yellow`、`red`、`black`。
+- 空字符串的温和兜底文案。
+- 过长数组的数量裁剪，避免页面被单次生成结果撑得过长。
+
+清洗不会改变用户事实，也不会凭空编造经历；它只负责让模型输出更稳定、更像正式产品。
+
+清洗日志保存到：
+
+```text
+backend/logs/result_cleanup.jsonl
+```
+
 ## 数据汇总与导出
 
 v0.1.1 提供轻量数据导出脚本，用于把 SQLite 埋点数据整理成 Markdown 和 CSV 报告。

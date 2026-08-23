@@ -9,6 +9,7 @@ from .identity_service import ensure_session, get_or_create_anonymous_user
 from .json_repair_service import JSONRepairError, parse_llm_json
 from .llm_service import LLMServiceError, call_openai, get_llm_mode, get_openai_model
 from .prompt_service import build_generation_prompt
+from .result_cleanup_service import cleanup_generation_payload
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -372,6 +373,8 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
             raise
     else:
         raise GenerationServiceError(f"Unsupported LLM_MODE: {mode}. Use mock or openai.")
+
+    payload = cleanup_generation_payload(payload, source=mode)
 
     result = models.GenerationResult(
         experience_input_id=experience.id,
