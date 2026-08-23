@@ -301,13 +301,13 @@ export default function ResultPage() {
       children: (
         <Row gutter={[16, 16]} className="version-grid">
           <Col xs={24} md={8}>
-            <VersionCard title="普通包装版" tone="稳妥可投" text={result.normal_version} />
+            <VersionCard title="基础增强版" tone="写完整、写专业" text={result.normal_version} />
           </Col>
           <Col xs={24} md={8}>
-            <VersionCard title="大胆包装版" tone="岗位感更强" text={result.bold_version} />
+            <VersionCard title="重点放大版" tone="推荐使用" text={result.bold_version} />
           </Col>
           <Col xs={24} md={8}>
-            <VersionCard title="边界参考版" tone="知道哪里别越界" text={result.boundary_version} />
+            <VersionCard title="边界测试版" tone="知道哪里别越界" text={result.boundary_version} />
           </Col>
         </Row>
       )
