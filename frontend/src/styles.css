@@ -275,13 +275,11 @@ body {
   border-radius: 8px;
   background: #f8fafc;
   color: #1f2937;
-  line-height: 1.9;
-  white-space: pre-wrap;
 }
 
 .version-card {
   height: 100%;
-  min-height: 280px;
+  min-height: 260px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #ffffff;
@@ -320,7 +318,54 @@ body {
 }
 
 .version-grid {
-  min-height: 300px;
+  min-height: 280px;
+}
+
+.readable-block {
+  display: grid;
+  gap: 12px;
+}
+
+.readable-summary {
+  margin: 0;
+  color: #1f2937;
+  font-weight: 600;
+  line-height: 1.8;
+}
+
+.readable-points {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: #475569;
+  line-height: 1.75;
+}
+
+.full-text {
+  margin: 0;
+  color: #334155;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.soft-collapse {
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.soft-collapse .ant-collapse-item {
+  border-bottom: 0;
+}
+
+.soft-collapse .ant-collapse-header {
+  padding: 8px 10px !important;
+  color: #2563eb !important;
+  font-weight: 700;
+}
+
+.soft-collapse .ant-collapse-content-box {
+  padding: 0 10px 12px !important;
 }
 
 .project-preview .section-title {
@@ -590,6 +635,19 @@ body {
   margin: 0;
   color: #334155;
   line-height: 1.8;
+}
+
+.question-card {
+  background: #ffffff;
+}
+
+.question-card small {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.knowledge-panel .ant-card-body {
+  padding-top: 18px;
 }
 
 .knowledge-list {

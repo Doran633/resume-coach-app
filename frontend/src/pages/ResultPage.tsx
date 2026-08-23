@@ -37,6 +37,51 @@ function strengthenLevel(score: number) {
   return "待补充";
 }
 
+function splitReadableText(text: string, limit = 4) {
+  const cleaned = cleanDisplayText(text);
+  const parts = cleaned
+    .split(/(?<=[。！？；])\s*|(?<=\.)\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) {
+    return cleaned
+      .split(/\s{2,}|[；;]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, limit);
+  }
+  return parts.slice(0, limit);
+}
+
+function ReadableTextBlock({ text, title = "完整内容" }: { text: string; title?: string }) {
+  const cleaned = cleanDisplayText(text);
+  const points = splitReadableText(cleaned, 4);
+  const summary = points[0] || cleaned;
+  const detailPoints = points.slice(1);
+
+  return (
+    <div className="readable-block">
+      <p className="readable-summary">{summary}</p>
+      {detailPoints.length > 0 && (
+        <ul className="readable-points">
+          {detailPoints.map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      )}
+      <Collapse
+        className="soft-collapse"
+        ghost
+        items={[
+          {
+            key: "full",
+            label: title,
+            children: <p className="full-text">{cleaned}</p>
+          }
+        ]}
+      />
+    </div>
+  );
+}
+
 function VersionCard({ title, tone, text }: { title: string; tone: string; text: string }) {
   return (
     <div className="version-card">
@@ -44,7 +89,7 @@ function VersionCard({ title, tone, text }: { title: string; tone: string; text:
         <span>{title}</span>
         <small>{tone}</small>
       </div>
-      <p>{cleanDisplayText(text)}</p>
+      <ReadableTextBlock text={text} title="展开完整版本" />
     </div>
   );
 }
@@ -195,6 +240,20 @@ function InterviewCards({ items }: { items: string[] }) {
   );
 }
 
+function MissingQuestionCards({ items }: { items: string[] }) {
+  if (!items.length) return <p className="empty-hint">当前信息已经比较完整，也可以补充数据证据、技术细节或项目边界继续强化。</p>;
+  return (
+    <div className="interview-card-list">
+      {items.slice(0, 6).map((item, index) => (
+        <div className="interview-card question-card" key={`${item}-${index}`}>
+          <small>追问 {index + 1}</small>
+          <p>{cleanDisplayText(item)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function KnowledgeList({ items }: { items: string[] }) {
   if (!items.length) return <p className="empty-hint">暂未生成知识补齐清单。</p>;
   return (
@@ -290,7 +349,9 @@ export default function ResultPage() {
               </div>
               <Button onClick={copy}>复制</Button>
             </div>
-            <div className="recommended-text">{cleanDisplayText(result.recommended_version)}</div>
+            <div className="recommended-text">
+              <ReadableTextBlock text={result.recommended_version} title="查看完整推荐版本" />
+            </div>
           </Card>
         </Space>
       )
@@ -338,18 +399,23 @@ export default function ResultPage() {
       key: "interview",
       label: "面试准备",
       children: (
-        <Row gutter={[16, 16]} align="stretch">
-          <Col xs={24} lg={14}>
-            <Card className="panel interview-panel" title="面试承接准备">
-              <InterviewCards items={result.interview_plan} />
-            </Card>
-          </Col>
-          <Col xs={24} lg={10}>
-            <Card className="panel interview-panel" title="知识补齐清单">
-              <KnowledgeList items={result.knowledge_checklist} />
-            </Card>
-          </Col>
-        </Row>
+        <Space direction="vertical" size="middle" className="wide">
+          <Row gutter={[16, 16]} align="stretch">
+            <Col xs={24} lg={14}>
+              <Card className="panel interview-panel" title="面试承接准备">
+                <InterviewCards items={result.interview_plan} />
+              </Card>
+            </Col>
+            <Col xs={24} lg={10}>
+              <Card className="panel interview-panel" title="还需要补充什么">
+                <MissingQuestionCards items={missingQuestions} />
+              </Card>
+            </Col>
+          </Row>
+          <Card className="panel knowledge-panel" title="知识补齐清单">
+            <KnowledgeList items={result.knowledge_checklist} />
+          </Card>
+        </Space>
       )
     },
     {
@@ -391,12 +457,7 @@ export default function ResultPage() {
       </Card>
 
       <Row gutter={[16, 16]} align="stretch" className="followup-grid">
-        <Col xs={24} lg={12}>
-          <Card className="panel compact-panel equal-panel" title="还需要补充什么">
-            {missingQuestions.length ? missingQuestions.map((item) => <p key={item}>{cleanDisplayText(item)}</p>) : <p className="empty-hint">当前信息已经比较完整，也可以补充数据证据、技术细节或项目边界继续强化。</p>}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
+        <Col xs={24}>
           <Card className="panel followup-panel equal-panel">
             <div className="section-title">
               <div>
