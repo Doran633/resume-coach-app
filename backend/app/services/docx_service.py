@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from .generation_service import get_generation_payload
+from .resume_section_fallback_service import fill_resume_sections
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -101,6 +102,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = get_generation_payload(db, request.generation_result_id)
     if not payload:
         return None
+    payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id)
 
     doc = Document()
     _setup(doc)
