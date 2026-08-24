@@ -12,6 +12,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT_DIR / "backend" / "data" / "resume_coach.db"
 DEFAULT_OUT = ROOT_DIR / "backend" / "reports"
 DEFAULT_JSONL_LOG = ROOT_DIR / "backend" / "logs" / "llm_calls.jsonl"
+DEFAULT_FALLBACK_LOG = ROOT_DIR / "backend" / "logs" / "resume_section_fallback.jsonl"
 EVENT_NAMES = [
     "visit_home",
     "submit_experience",
@@ -49,6 +50,18 @@ def to_beijing_text(value: str | None) -> str:
     except ValueError:
         return str(value)
     return (parsed + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def parse_log_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def day_stamp() -> str:
@@ -236,11 +249,9 @@ def load_llm_logs_from_jsonl(path: Path, cutoff: datetime | None) -> list[dict[s
         except json.JSONDecodeError:
             continue
         if cutoff and item.get("created_at"):
-            try:
-                if datetime.fromisoformat(item["created_at"]) < cutoff:
-                    continue
-            except ValueError:
-                pass
+            parsed = parse_log_datetime(item.get("created_at"))
+            if parsed and parsed < cutoff:
+                continue
         logs.append(item)
     return logs
 
@@ -275,6 +286,54 @@ def llm_stats(conn: sqlite3.Connection, cutoff: datetime | None) -> dict[str, An
         "avg_latency_ms": round(sum(latencies) / len(latencies)) if latencies else 0,
         "model_counts": model_counts,
         "errors": errors,
+    }
+
+
+def load_fallback_logs(path: Path, cutoff: datetime | None) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    logs = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if cutoff:
+            parsed = parse_log_datetime(item.get("created_at"))
+            if parsed and parsed < cutoff:
+                continue
+        logs.append(item)
+    return logs
+
+
+def list_counter(logs: list[dict[str, Any]], key: str) -> Counter:
+    counts = Counter()
+    for item in logs:
+        value = item.get(key)
+        if isinstance(value, list):
+            counts.update(str(part) for part in value if part)
+        elif value:
+            counts[str(value)] += 1
+    return counts
+
+
+def fallback_stats(cutoff: datetime | None) -> dict[str, Any]:
+    logs = load_fallback_logs(DEFAULT_FALLBACK_LOG, cutoff)
+    triggered = [item for item in logs if bool(item.get("resume_fallback_triggered", item.get("changed")))]
+    stage_counts = Counter(str(item.get("stage") or "unknown") for item in triggered)
+    return {
+        "log_exists": DEFAULT_FALLBACK_LOG.exists(),
+        "logs": logs,
+        "total": len(logs),
+        "triggered": len(triggered),
+        "trigger_rate": pct(len(triggered), len(logs)),
+        "stage_counts": stage_counts,
+        "section_counts": list_counter(triggered, "fallback_sections"),
+        "reason_counts": list_counter(triggered, "fallback_reasons"),
+        "source_counts": list_counter(triggered, "source_fields"),
+        "recent": list(reversed(triggered[-5:])),
     }
 
 
@@ -322,6 +381,7 @@ def write_summary(conn: sqlite3.Connection, path: Path, cutoff: datetime | None,
     generation_total = count_rows(conn, "generation_results", cutoff)
     feedback_total = count_rows(conn, "feedback", cutoff)
     llm = llm_stats(conn, cutoff)
+    fallback = fallback_stats(cutoff)
 
     visit = counts["visit_home"]
     submit = counts["submit_experience"]
@@ -405,9 +465,57 @@ def write_summary(conn: sqlite3.Connection, path: Path, cutoff: datetime | None,
         "",
         *md_table(["错误", "次数"], [[label, total] for label, total in llm["errors"].most_common(10)] or [["暂无", 0]]),
         "",
-        "## 9. 最近反馈摘录",
+        "## 9. Resume Fallback 监控",
         "",
     ]
+
+    if fallback["log_exists"]:
+        lines.extend(
+            [
+                *md_table(
+                    ["指标", "值"],
+                    [
+                        ["fallback 调用次数", fallback["total"]],
+                        ["fallback 触发次数", fallback["triggered"]],
+                        ["fallback 触发率", fallback["trigger_rate"]],
+                        ["generation 阶段触发次数", fallback["stage_counts"].get("generation", 0)],
+                        ["docx_export 阶段触发次数", fallback["stage_counts"].get("docx_export", 0)],
+                    ],
+                ),
+                "",
+                "### fallback_sections 分布",
+                "",
+                *md_table(["section", "次数"], [[label, total] for label, total in fallback["section_counts"].most_common()] or [["暂无", 0]]),
+                "",
+                "### fallback_reasons 分布",
+                "",
+                *md_table(["reason", "次数"], [[label, total] for label, total in fallback["reason_counts"].most_common()] or [["暂无", 0]]),
+                "",
+                "### source_fields 分布",
+                "",
+                *md_table(["source", "次数"], [[label, total] for label, total in fallback["source_counts"].most_common()] or [["暂无", 0]]),
+                "",
+                "### 最近 fallback 摘录",
+                "",
+            ]
+        )
+        if fallback["recent"]:
+            lines.extend(
+                f"- {item.get('created_at', '')}｜generation_result_id={item.get('generation_result_id')}｜stage={item.get('stage', 'unknown')}｜sections={','.join(item.get('fallback_sections') or [])}｜reasons={','.join(item.get('fallback_reasons') or [])}"
+                for item in fallback["recent"]
+            )
+        else:
+            lines.append("- 暂无 fallback 触发记录")
+    else:
+        lines.append("- 暂无 fallback 日志")
+
+    lines.extend(
+        [
+            "",
+            "## 10. 最近反馈摘录",
+        "",
+    ]
+    )
 
     feedback_rows = recent_feedback(conn, cutoff)
     if feedback_rows:
@@ -419,11 +527,12 @@ def write_summary(conn: sqlite3.Connection, path: Path, cutoff: datetime | None,
     lines.extend(
         [
             "",
-            "## 10. 隐私说明",
+            "## 11. 隐私说明",
             "",
             "- 本报告不会导出用户原始经历全文。",
             "- inputs CSV 仅包含输入长度、岗位、包装强度、经历类型等元信息。",
             "- 反馈摘录最多保留 120 字。",
+            "- fallback 监控只统计触发原因、补全 section、来源字段和 generation_result_id，不输出用户原始输入或完整推荐版本。",
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

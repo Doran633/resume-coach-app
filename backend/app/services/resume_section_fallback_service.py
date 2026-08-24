@@ -42,20 +42,32 @@ PROJECT_LABELS = ["项目名称", "项目类型", "项目时间", "项目简介"
 
 
 class FallbackStats:
-    def __init__(self, generation_result_id: int | None = None):
+    def __init__(self, generation_result_id: int | None = None, stage: str = "unknown"):
         self.generation_result_id = generation_result_id
-        self.filled_sections: list[str] = []
+        self.stage = stage
+        self.fallback_sections: list[str] = []
+        self.fallback_reasons: list[str] = []
         self.source_fields: list[str] = []
 
     @property
     def changed(self) -> bool:
-        return bool(self.filled_sections)
+        return bool(self.fallback_sections)
+
+    @property
+    def fallback_reason(self) -> str:
+        if "structured_resume_empty" in self.fallback_reasons:
+            return "structured_resume_empty"
+        return self.fallback_reasons[0] if self.fallback_reasons else ""
 
     def fill(self, section: str, source: str):
-        if section not in self.filled_sections:
-            self.filled_sections.append(section)
+        if section not in self.fallback_sections:
+            self.fallback_sections.append(section)
         if source not in self.source_fields:
             self.source_fields.append(source)
+
+    def add_reason(self, reason: str):
+        if reason not in self.fallback_reasons:
+            self.fallback_reasons.append(reason)
 
 
 def _write_fallback_log(stats: FallbackStats):
@@ -63,10 +75,14 @@ def _write_fallback_log(stats: FallbackStats):
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         log = {
             "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "resume_fallback_triggered": stats.changed,
             "changed": stats.changed,
-            "filled_sections": stats.filled_sections,
+            "fallback_sections": stats.fallback_sections,
+            "fallback_reasons": stats.fallback_reasons,
+            "fallback_reason": stats.fallback_reason,
             "source_fields": stats.source_fields,
             "generation_result_id": stats.generation_result_id,
+            "stage": stats.stage,
         }
         with LOG_PATH.open("a", encoding="utf-8") as file:
             file.write(json.dumps(log, ensure_ascii=False) + "\n")
@@ -248,9 +264,10 @@ def _build_interview_preparation(data: dict, stats: FallbackStats) -> list[str]:
 def fill_resume_sections(
     payload: schemas.GenerationPayload | dict,
     generation_result_id: int | None = None,
+    stage: str = "unknown",
     write_log: bool = True,
 ) -> schemas.GenerationPayload:
-    stats = FallbackStats(generation_result_id=generation_result_id)
+    stats = FallbackStats(generation_result_id=generation_result_id, stage=stage)
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
 
@@ -259,16 +276,26 @@ def fill_resume_sections(
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}
     sections["education"] = sections.get("education") if isinstance(sections.get("education"), dict) else {}
 
-    if not _has_items(sections.get("summary")):
+    empty_sections = [
+        section
+        for section in ["summary", "skills", "projects", "interview_preparation"]
+        if not _has_items(sections.get(section))
+    ]
+    if set(empty_sections) == {"summary", "skills", "projects", "interview_preparation"}:
+        stats.add_reason("structured_resume_empty")
+    for section in empty_sections:
+        stats.add_reason(f"{section}_empty")
+
+    if "summary" in empty_sections:
         sections["summary"] = _build_summary(data, source, source_field, stats)
 
-    if not _has_items(sections.get("skills")):
+    if "skills" in empty_sections:
         sections["skills"] = _extract_skills(data, source, source_field, stats)
 
-    if not _has_items(sections.get("projects")):
+    if "projects" in empty_sections:
         sections["projects"] = _parse_projects(source, source_field, stats)
 
-    if not _has_items(sections.get("interview_preparation")):
+    if "interview_preparation" in empty_sections:
         sections["interview_preparation"] = _build_interview_preparation(data, stats)
 
     data["resume_sections"] = sections

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sys
 import tempfile
 
@@ -13,6 +14,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 from app import models, schemas  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
+from app.services import resume_section_fallback_service  # noqa: E402
 from app.services.resume_section_fallback_service import fill_resume_sections  # noqa: E402
 
 
@@ -110,6 +112,84 @@ def test_fallback_uses_only_existing_technical_terms():
     assert "LangGraph" not in payload.resume_sections.skills
 
 
+def read_jsonl(path: Path):
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_fallback_log_records_structured_empty_and_generation_stage():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_log_path = resume_section_fallback_service.LOG_PATH
+        original_log_dir = resume_section_fallback_service.LOG_DIR
+        try:
+            resume_section_fallback_service.LOG_DIR = Path(tmpdir)
+            resume_section_fallback_service.LOG_PATH = Path(tmpdir) / "resume_section_fallback.jsonl"
+            fill_resume_sections(build_friend_like_payload(), generation_result_id=32, stage="generation")
+            [log] = read_jsonl(resume_section_fallback_service.LOG_PATH)
+
+            assert log["resume_fallback_triggered"] is True
+            assert log["changed"] is True
+            assert log["fallback_reason"] == "structured_resume_empty"
+            assert "structured_resume_empty" in log["fallback_reasons"]
+            assert "projects" in log["fallback_sections"]
+            assert log["generation_result_id"] == 32
+            assert log["stage"] == "generation"
+        finally:
+            resume_section_fallback_service.LOG_PATH = original_log_path
+            resume_section_fallback_service.LOG_DIR = original_log_dir
+
+
+def test_fallback_log_records_docx_export_stage():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_log_path = resume_section_fallback_service.LOG_PATH
+        original_log_dir = resume_section_fallback_service.LOG_DIR
+        try:
+            resume_section_fallback_service.LOG_DIR = Path(tmpdir)
+            resume_section_fallback_service.LOG_PATH = Path(tmpdir) / "resume_section_fallback.jsonl"
+            fill_resume_sections(build_friend_like_payload(), generation_result_id=32, stage="docx_export")
+            [log] = read_jsonl(resume_section_fallback_service.LOG_PATH)
+
+            assert log["resume_fallback_triggered"] is True
+            assert log["stage"] == "docx_export"
+        finally:
+            resume_section_fallback_service.LOG_PATH = original_log_path
+            resume_section_fallback_service.LOG_DIR = original_log_dir
+
+
+def test_fallback_log_records_no_trigger_for_complete_sections():
+    data = build_friend_like_payload()
+    data["resume_sections"]["summary"] = ["已有优势"]
+    data["resume_sections"]["skills"] = ["Python"]
+    data["resume_sections"]["projects"] = [
+        {
+            "name": "已有项目",
+            "meta": "个人项目",
+            "time": "2026",
+            "intro": "已有简介",
+            "role": "已有职责",
+            "details": ["已有细节"],
+        }
+    ]
+    data["resume_sections"]["interview_preparation"] = ["已有准备"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_log_path = resume_section_fallback_service.LOG_PATH
+        original_log_dir = resume_section_fallback_service.LOG_DIR
+        try:
+            resume_section_fallback_service.LOG_DIR = Path(tmpdir)
+            resume_section_fallback_service.LOG_PATH = Path(tmpdir) / "resume_section_fallback.jsonl"
+            fill_resume_sections(data, generation_result_id=33, stage="generation")
+            [log] = read_jsonl(resume_section_fallback_service.LOG_PATH)
+
+            assert log["resume_fallback_triggered"] is False
+            assert log["changed"] is False
+            assert log["fallback_sections"] == []
+            assert log["fallback_reasons"] == []
+            assert log["fallback_reason"] == ""
+        finally:
+            resume_section_fallback_service.LOG_PATH = original_log_path
+            resume_section_fallback_service.LOG_DIR = original_log_dir
+
+
 def test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
@@ -127,9 +207,13 @@ def test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections
     db.commit()
 
     original_output_dir = docx_service.OUTPUT_DIR
+    original_log_path = resume_section_fallback_service.LOG_PATH
+    original_log_dir = resume_section_fallback_service.LOG_DIR
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             docx_service.OUTPUT_DIR = Path(tmpdir)
+            resume_section_fallback_service.LOG_DIR = Path(tmpdir)
+            resume_section_fallback_service.LOG_PATH = Path(tmpdir) / "resume_section_fallback.jsonl"
             response = docx_service.create_docx(
                 db,
                 schemas.DocxCreate(anonymous_user_id="u-test", session_id="s-test", generation_result_id=32),
@@ -143,6 +227,8 @@ def test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections
             assert "项目经历" in text
         finally:
             docx_service.OUTPUT_DIR = original_output_dir
+            resume_section_fallback_service.LOG_PATH = original_log_path
+            resume_section_fallback_service.LOG_DIR = original_log_dir
     db.close()
 
 
@@ -150,5 +236,8 @@ if __name__ == "__main__":
     test_fallback_fills_empty_sections_from_recommended_version()
     test_fallback_does_not_override_existing_sections()
     test_fallback_uses_only_existing_technical_terms()
+    test_fallback_log_records_structured_empty_and_generation_stage()
+    test_fallback_log_records_docx_export_stage()
+    test_fallback_log_records_no_trigger_for_complete_sections()
     test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections()
     print("resume section fallback tests passed")

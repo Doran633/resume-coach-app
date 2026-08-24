@@ -376,7 +376,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
         raise GenerationServiceError(f"Unsupported LLM_MODE: {mode}. Use mock or openai.")
 
     payload = cleanup_generation_payload(payload, source=mode)
-    payload = fill_resume_sections(payload)
+    payload = fill_resume_sections(payload, stage="generation")
 
     result = models.GenerationResult(
         experience_input_id=experience.id,

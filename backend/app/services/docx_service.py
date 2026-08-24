@@ -102,7 +102,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = get_generation_payload(db, request.generation_result_id)
     if not payload:
         return None
-    payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id)
+    payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export")
 
     doc = Document()
     _setup(doc)

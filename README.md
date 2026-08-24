@@ -213,10 +213,13 @@ backend/reports/analytics-inputs-YYYY-MM-DD.csv
 
 报告和 CSV 中展示的时间统一为北京时间。默认不会导出用户原始经历全文。
 
+analytics 报告会同时汇总 Resume Section Fallback 触发情况，包括 fallback 调用次数、触发率、触发阶段、补全 section、触发原因和来源字段。Fallback 只作为安全网保护用户交付体验，如果触发率异常升高，需要回看 prompt、模型或结构化输出质量。
+
 ## 日志位置
 
 - LLM 调用日志：`backend/logs/llm_calls.jsonl`
 - 结果清洗日志：`backend/logs/result_cleanup.jsonl`
+- 简历结构兜底日志：`backend/logs/resume_section_fallback.jsonl`
 - 生成文件：`backend/outputs/`
 - 数据报告：`backend/reports/`
 
@@ -230,6 +233,12 @@ tail -n 50 backend/logs/llm_calls.jsonl
 
 ```bash
 tail -n 50 backend/logs/result_cleanup.jsonl
+```
+
+查看最近简历结构兜底日志：
+
+```bash
+tail -n 50 backend/logs/resume_section_fallback.jsonl
 ```
 
 ## 常见问题
