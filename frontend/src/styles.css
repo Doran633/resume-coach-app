@@ -5,6 +5,10 @@ body {
   font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
 }
 
+* {
+  box-sizing: border-box;
+}
+
 .app-shell {
   min-height: 100vh;
 }
@@ -749,6 +753,113 @@ body {
 }
 
 @media (max-width: 720px) {
+  body {
+    background: #f7f8fb;
+  }
+
+  .topbar {
+    padding: 0 16px;
+  }
+
+  .topbar div {
+    min-height: 56px;
+    gap: 8px;
+    align-items: flex-start;
+    justify-content: center;
+    flex-direction: column;
+  }
+
+  .topbar strong {
+    font-size: 16px;
+  }
+
+  .topbar span {
+    font-size: 12px;
+  }
+
+  .content {
+    width: min(100% - 20px, 720px);
+    padding: 16px 0 32px;
+  }
+
+  .intro h1 {
+    font-size: 22px;
+    line-height: 1.3;
+  }
+
+  .intro p {
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .steps {
+    margin: 18px 0;
+  }
+
+  .panel,
+  .result-card {
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+  }
+
+  .panel .ant-card-head {
+    min-height: 48px;
+    padding: 0 16px;
+  }
+
+  .panel .ant-card-body,
+  .result-view .ant-card-body,
+  .export-page .ant-card-body {
+    padding: 16px;
+  }
+
+  .ant-btn {
+    min-height: 40px;
+  }
+
+  .ant-input,
+  .ant-select-selector,
+  textarea.ant-input {
+    font-size: 16px !important;
+  }
+
+  textarea.ant-input {
+    min-height: 180px;
+    line-height: 1.7;
+  }
+
+  .input-panel .ant-radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .input-panel .ant-radio-button-wrapper {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 118px;
+    height: 40px;
+    line-height: 38px;
+    text-align: center;
+    border-radius: 6px !important;
+  }
+
+  .input-panel .ant-radio-button-wrapper::before {
+    display: none;
+  }
+
+  .input-panel > .ant-card-body > form > .ant-btn-primary {
+    width: 100%;
+  }
+
+  .privacy-reminder {
+    margin-bottom: 14px;
+  }
+
+  .privacy-reminder .ant-alert-message {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
   .level-guide,
   .writing-guide {
     grid-template-columns: 1fr;
@@ -761,6 +872,56 @@ body {
   .writing-guide {
     flex-direction: column;
     align-items: flex-start;
+    padding: 12px 14px;
+  }
+
+  .writing-guide h4,
+  .template-panel h4 {
+    font-size: 17px;
+  }
+
+  .template-panel {
+    padding: 12px 14px;
+  }
+
+  .template-panel .ant-space {
+    width: 100%;
+  }
+
+  .template-panel .ant-btn {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 132px;
+  }
+
+  .quality-hints {
+    padding: 12px 14px;
+  }
+
+  .quality-hints div {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .result-tabs-card > .ant-card-body {
+    padding-top: 10px;
+  }
+
+  .result-tabs-card .ant-tabs-nav {
+    margin-bottom: 16px;
+  }
+
+  .result-tabs-card .ant-tabs-nav-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .result-tabs-card .ant-tabs-nav-list {
+    min-width: max-content;
+  }
+
+  .result-tabs-card .ant-tabs-tab {
+    padding: 10px 4px;
+    font-size: 14px;
   }
 
   .summary-main,
@@ -774,6 +935,66 @@ body {
 
   .metric-card {
     width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+  }
+
+  .summary-copy {
+    max-width: 100%;
+  }
+
+  .summary-main h3,
+  .section-title h4 {
+    font-size: 20px;
+    line-height: 1.35;
+  }
+
+  .summary-main p,
+  .section-title p {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .fact-strip {
+    margin-top: 16px;
+    gap: 8px;
+  }
+
+  .fact-strip span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .recommended-text {
+    margin-top: 14px;
+    padding: 14px;
+  }
+
+  .version-grid {
+    min-height: auto;
+  }
+
+  .version-card {
+    min-height: auto;
+    padding: 16px;
+  }
+
+  .version-head {
+    align-items: flex-start;
+  }
+
+  .readable-summary,
+  .readable-points,
+  .full-text {
+    line-height: 1.7;
+  }
+
+  .soft-collapse .ant-collapse-header {
+    padding: 7px 8px !important;
+  }
+
+  .soft-collapse .ant-collapse-content-box {
+    padding: 0 8px 10px !important;
   }
 
   .project-fields div {
@@ -788,6 +1009,7 @@ body {
   .claim-detail-grid {
     grid-template-columns: 1fr;
     padding-left: 0;
+    gap: 10px;
   }
 
   .claim-summary {
@@ -795,7 +1017,121 @@ body {
     gap: 8px;
   }
 
-  .version-card {
-    min-height: auto;
+  .claim-collapse .ant-collapse-header {
+    padding: 11px 12px !important;
+  }
+
+  .claim-detail-block {
+    padding: 11px 12px;
+  }
+
+  .interview-card {
+    padding: 12px 14px;
+  }
+
+  .interview-card p,
+  .delivery-card li,
+  .project-fields p,
+  .project-fields ul,
+  .resume-preview-block p,
+  .resume-preview-block ul {
+    line-height: 1.7;
+  }
+
+  .footer-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .footer-actions .ant-space-item,
+  .footer-actions .ant-btn {
+    width: 100%;
+  }
+
+  .export-page .ant-space,
+  .export-hero .ant-space {
+    width: 100%;
+  }
+
+  .export-hero .ant-space-item,
+  .export-hero .ant-btn {
+    width: 100%;
+  }
+
+  .delivery-card {
+    padding: 14px 16px;
+  }
+
+  .ant-form-item .ant-radio-group {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .ant-form-item .ant-radio-wrapper {
+    min-height: 38px;
+    align-items: center;
+    margin-inline-end: 0;
+  }
+
+  .export-page form .ant-btn-primary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .content {
+    width: min(100% - 16px, 430px);
+    padding-top: 12px;
+  }
+
+  .panel .ant-card-body,
+  .result-view .ant-card-body,
+  .export-page .ant-card-body {
+    padding: 14px;
+  }
+
+  .intro h1 {
+    font-size: 20px;
+  }
+
+  .input-panel .ant-radio-button-wrapper,
+  .template-panel .ant-btn {
+    flex-basis: 100%;
+  }
+
+  .summary-main h3,
+  .section-title h4 {
+    font-size: 18px;
+  }
+
+  .metric-card {
+    padding: 12px;
+  }
+
+  .metric-card .ant-progress {
+    transform: scale(0.9);
+    transform-origin: left center;
+  }
+
+  .version-head {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .project-title-line div,
+  .project-fields div,
+  .delivery-card,
+  .interview-card,
+  .claim-detail-block {
+    padding: 12px;
+  }
+
+  .knowledge-list span,
+  .fact-strip span {
+    width: 100%;
+    border-radius: 8px;
   }
 }
