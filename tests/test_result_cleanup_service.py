@@ -51,9 +51,9 @@ def build_dirty_payload():
         "confirmed_facts": [f"fact {index}" for index in range(10)],
         "missing_questions": [f"question: 问题 {index}" for index in range(10)],
         "normal_version": "summary: 内容 skills: React projects: 项目",
-        "bold_version": "answer_points: 回答",
-        "boundary_version": "role: 职责",
-        "recommended_version": "",
+        "bold_version": '"project": AI 复习系统，my_role = 独立开发，tech_details: React + FastAPI + RAG',
+        "boundary_version": "- project: 项目经历 summary：过度表达 skills = LangGraph",
+        "recommended_version": "details: 技术细节 intro: 项目简介 project_name: AI 复习辅助系统",
         "claims": claims,
         "interview_plan": [f"question: 面试 {index} answer_points: 要点" for index in range(12)],
         "knowledge_checklist": [f"skills: 技术 {index}" for index in range(14)],
@@ -74,10 +74,21 @@ def test_cleanup_replaces_internal_field_names():
     assert "summary:" not in cleaned.normal_version
     assert "skills:" not in cleaned.normal_version
     assert "projects:" not in cleaned.normal_version
+    assert "project" not in cleaned.bold_version.lower()
+    assert "my_role" not in cleaned.bold_version
+    assert "tech_details" not in cleaned.bold_version
     assert "answer_points:" not in cleaned.bold_version
+    assert "summary" not in cleaned.boundary_version.lower()
+    assert "skills" not in cleaned.boundary_version.lower()
+    assert "project_name" not in cleaned.recommended_version
+    assert "details:" not in cleaned.recommended_version
+    assert "intro:" not in cleaned.recommended_version
     assert "role:" not in cleaned.boundary_version
     assert "question:" not in cleaned.interview_plan[0]
     assert "回答要点：" in cleaned.interview_plan[0]
+    assert "我的职责" in cleaned.bold_version
+    assert "项目经历" in cleaned.bold_version
+    assert "项目名称" in cleaned.recommended_version
 
 
 def test_cleanup_fallback_and_risk_level():
@@ -90,7 +101,7 @@ def test_cleanup_fallback_and_risk_level():
     assert first_claim.downgrade_wording == "准备不足时建议降低职责强度，改为参与或协助相关工作。"
     assert first_claim.interview_questions == []
     assert first_claim.knowledge_to_prepare == []
-    assert cleaned.recommended_version == "暂未生成，建议补充更多经历细节后重新生成。"
+    assert first_claim.risk_level == "yellow"
 
 
 def test_cleanup_keeps_empty_arrays_and_limits_counts():
@@ -113,9 +124,19 @@ def test_cleanup_localizes_education_keys():
     assert "专业" in cleaned.resume_sections.education
 
 
+def test_cleanup_keeps_technical_terms():
+    cleaned = cleanup_generation_payload(build_dirty_payload(), source="test")
+
+    assert "RAG" in cleaned.bold_version
+    assert "React" in cleaned.bold_version
+    assert "FastAPI" in cleaned.bold_version
+    assert "LangGraph" in cleaned.boundary_version
+
+
 if __name__ == "__main__":
     test_cleanup_replaces_internal_field_names()
     test_cleanup_fallback_and_risk_level()
     test_cleanup_keeps_empty_arrays_and_limits_counts()
     test_cleanup_localizes_education_keys()
+    test_cleanup_keeps_technical_terms()
     print("result cleanup tests passed")

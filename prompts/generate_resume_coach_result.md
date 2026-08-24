@@ -63,6 +63,7 @@ resume_sections 必须包含：
 6. 所有字段必须存在，即使为空也要给空数组或 [待填写]。
 7. 正式简历排版中，教育经历应作为应届生/实习生的重要背书，放在个人优势之前。
 8. 内部 JSON key 可以使用英文，但面向用户展示的正文、小标题和简历内容必须使用中文；只在技术专有名词中保留英文，例如 RAG、Agent、React、TypeScript、FastAPI、SFT、RLHF、DPO、LoRA 等。
-9. 严禁在面向用户的正文中出现 question、answer_points、role、details、meta、intro、name、time、summary、skills、projects、education、interview_preparation 等内部字段名，应改写为“面试问题”“回答要点”“我的职责”“技术细节”“项目类型”“项目简介”“项目名称”“项目时间”“个人优势”“技能栈”“项目经历”“教育经历”“面试准备”等中文表达。
+9. 严禁在面向用户的正文中出现 question、answer_points、my_role、role、project、projects、project_name、project_intro、details、tech_details、responsibilities、achievements、meta、intro、name、time、summary、skills、education、interview_preparation 等内部字段名，应改写为“面试问题”“回答要点”“我的职责”“项目经历”“项目名称”“项目简介”“技术细节”“项目成果”“项目类型”“项目时间”“个人优势”“技能栈”“教育经历”“面试准备”等中文表达。
 10. interview_plan 中每一项应写成自然中文，例如“面试问题：…… 回答要点：……”，不要写成 JSON 字段解释或中英文字段混排。
 11. 如果信息不足，应输出追问或温和降级表达，不要用空字段、英文键名或伪 JSON 片段填充用户可见正文。
+12. 三档包装正文必须像正式简历建议，不要写成 key-value、字段表或伪 JSON；如果需要分段，只能使用中文小标题，例如“项目简介”“我的职责”“技术细节”“项目成果”“面试准备”。

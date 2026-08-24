@@ -11,15 +11,27 @@ const riskMeta = {
   black: { label: "不要硬写", longLabel: "不要硬写", className: "risk-black", color: "default" }
 } as const;
 
-const displayReplacements: Array<[RegExp, string]> = [
-  [/\bquestion\s*[:：]/gi, "面试问题："],
-  [/\banswer_points\s*[:：]/gi, "回答要点："],
-  [/\brole\s*[:：]/gi, "我的职责："],
-  [/\bdetails\s*[:：]/gi, "技术细节："],
-  [/\bintro\s*[:：]/gi, "项目简介："],
-  [/\bmeta\s*[:：]/gi, "项目类型："],
-  [/\bname\s*[:：]/gi, "项目名称："],
-  [/\btime\s*[:：]/gi, "项目时间："]
+const displayFieldLabels: Array<[string, string]> = [
+  ["interview_preparation", "面试准备"],
+  ["responsibilities", "我的职责"],
+  ["project_intro", "项目简介"],
+  ["project_name", "项目名称"],
+  ["answer_points", "回答要点"],
+  ["tech_details", "技术细节"],
+  ["achievements", "项目成果"],
+  ["my_role", "我的职责"],
+  ["projects", "项目经历"],
+  ["project", "项目经历"],
+  ["question", "面试问题"],
+  ["details", "技术细节"],
+  ["summary", "个人优势"],
+  ["skills", "技能栈"],
+  ["education", "教育经历"],
+  ["intro", "项目简介"],
+  ["role", "我的职责"],
+  ["meta", "项目类型"],
+  ["name", "项目名称"],
+  ["time", "项目时间"]
 ];
 
 const genericMissingQuestions = [
@@ -34,8 +46,23 @@ function compactText(text: string, fallback = "暂未生成") {
   return text?.trim() || fallback;
 }
 
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceInternalFieldMarkers(text: string) {
+  return displayFieldLabels.reduce((current, [field, label]) => {
+    const escaped = escapeRegExp(field);
+    const labelPattern = new RegExp(`(^|[\\s{\\[\\(,，。;；])(?:[-*]\\s*)?["']?${escaped}["']?\\s*[:：=]`, "gi");
+    const standalonePattern = new RegExp(`(^|[^A-Za-z0-9_])${escaped}(?=$|[^A-Za-z0-9_])`, "gi");
+    return current
+      .replace(labelPattern, (_match, prefix: string) => `${prefix}${label}：`)
+      .replace(standalonePattern, (_match, prefix: string) => `${prefix}${label}`);
+  }, text);
+}
+
 function cleanDisplayText(text: string, fallback = "暂未生成") {
-  const cleaned = displayReplacements.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), compactText(text, fallback));
+  const cleaned = replaceInternalFieldMarkers(compactText(text, fallback));
   return cleaned.replace(/\s+/g, " ").trim();
 }
 
@@ -90,14 +117,62 @@ function ReadableTextBlock({ text, title = "完整内容" }: { text: string; tit
   );
 }
 
+function versionReminder(title: string) {
+  if (title.includes("边界")) return "这一版主要用于判断表达边界，不建议直接照抄投递。";
+  if (title.includes("重点")) return "推荐优先使用这一档，但需要同步准备证据、技术细节和面试回答。";
+  return "适合先把经历写完整、写专业，再根据目标岗位继续增强。";
+}
+
+function VersionSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="version-section">
+      <small>{label}</small>
+      {children}
+    </div>
+  );
+}
+
 function VersionCard({ title, tone, text }: { title: string; tone: string; text: string }) {
+  const cleaned = cleanDisplayText(text);
+  const points = splitReadableText(cleaned, 5);
+  const core = points[0] || cleaned;
+  const expressionPoints = points.slice(1, 3);
+  const reminder = points.slice(3).join(" ") || versionReminder(title);
+
   return (
     <div className="version-card">
       <div className="version-head">
         <span>{title}</span>
         <small>{tone}</small>
       </div>
-      <ReadableTextBlock text={text} title="展开完整版本" />
+      <div className="version-sections">
+        <VersionSection label="核心定位">
+          <p>{core}</p>
+        </VersionSection>
+        <VersionSection label="简历表达">
+          {expressionPoints.length > 0 ? (
+            <ul>
+              {expressionPoints.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          ) : (
+            <p>{core}</p>
+          )}
+        </VersionSection>
+        <VersionSection label="使用提醒">
+          <p>{reminder}</p>
+        </VersionSection>
+      </div>
+      <Collapse
+        className="soft-collapse"
+        ghost
+        items={[
+          {
+            key: "full",
+            label: "展开完整版本",
+            children: <p className="full-text">{cleaned}</p>
+          }
+        ]}
+      />
     </div>
   );
 }

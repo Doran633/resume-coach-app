@@ -15,19 +15,26 @@ ALLOWED_RISK_LEVELS = {"green", "yellow", "red", "black"}
 DEFAULT_TEXT = "暂未生成，建议补充更多经历细节后重新生成。"
 
 REPLACEMENTS: dict[str, str] = {
-    "question": "面试问题",
+    "interview_preparation": "面试准备",
+    "responsibilities": "我的职责",
+    "project_intro": "项目简介",
+    "project_name": "项目名称",
     "answer_points": "回答要点",
-    "role": "我的职责",
+    "tech_details": "技术细节",
+    "achievements": "项目成果",
+    "my_role": "我的职责",
+    "projects": "项目经历",
+    "project": "项目经历",
+    "question": "面试问题",
     "details": "技术细节",
+    "summary": "个人优势",
+    "skills": "技能栈",
+    "education": "教育经历",
     "intro": "项目简介",
+    "role": "我的职责",
     "meta": "项目类型",
     "name": "项目名称",
     "time": "项目时间",
-    "summary": "个人优势",
-    "skills": "技能栈",
-    "projects": "项目经历",
-    "education": "教育经历",
-    "interview_preparation": "面试准备",
     "degree": "学历",
     "school": "学校",
     "major": "专业",
@@ -70,12 +77,22 @@ def _write_cleanup_log(stats: CleanupStats):
         return
 
 
+def _replacement_items():
+    return sorted(REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True)
+
+
 def _replace_field_markers(text: str, stats: CleanupStats) -> str:
     cleaned = text
-    for marker, replacement in REPLACEMENTS.items():
-        pattern = re.compile(rf"(^|[\s{{\[\(,，。;；]){re.escape(marker)}\s*[:：]", re.IGNORECASE)
-        cleaned, count = pattern.subn(lambda match: f"{match.group(1)}{replacement}：", cleaned)
-        stats.add_replacement(marker, count)
+    for marker, replacement in _replacement_items():
+        label_pattern = re.compile(
+            rf"(^|[\s{{\[\(,，。;；])(?:[-*]\s*)?[\"']?{re.escape(marker)}[\"']?\s*[:：=]",
+            re.IGNORECASE,
+        )
+        cleaned, label_count = label_pattern.subn(lambda match: f"{match.group(1)}{replacement}：", cleaned)
+
+        standalone_pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(marker)}(?![A-Za-z0-9_])", re.IGNORECASE)
+        cleaned, standalone_count = standalone_pattern.subn(replacement, cleaned)
+        stats.add_replacement(marker, label_count + standalone_count)
     return cleaned
 
 

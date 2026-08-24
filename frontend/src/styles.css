@@ -321,6 +321,35 @@ body {
   white-space: pre-wrap;
 }
 
+.version-sections {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.version-section {
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px 14px;
+}
+
+.version-section small {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.version-section ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: #334155;
+  line-height: 1.75;
+}
+
 .version-grid {
   min-height: 280px;
 }
