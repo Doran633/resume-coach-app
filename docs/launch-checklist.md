@@ -87,11 +87,18 @@ systemctl status resume-coach-backend --no-pager
 - DOCX 可以下载。
 - `backend/outputs/` 中有新文件。
 - 简历个人信息未提供时保留 `[待填写]`。
+- 如果历史结果存在空 `resume_sections`，重新导出 DOCX 后不应出现主体空白。
 
 服务器检查：
 
 ```bash
 ls -lt /www/wwwroot/resume-coach-app/backend/outputs | head
+```
+
+检查最近生成文件记录：
+
+```bash
+sqlite3 /www/wwwroot/resume-coach-app/backend/data/resume_coach.db "select id, generation_result_id, file_type, file_path, created_at from generated_files order by id desc limit 10;"
 ```
 
 ## 6. 数据埋点
@@ -125,6 +132,8 @@ sqlite3 /www/wwwroot/resume-coach-app/backend/data/resume_coach.db "select id, m
 - 能生成 inputs CSV。
 - 导出内容不包含完整用户原始经历。
 - 报告时间为北京时间。
+- Markdown 报告中能看到 `Resume Fallback 监控`。
+- 如果 fallback 触发率异常升高，需要回看 prompt、模型和结构化输出质量。
 
 服务器运行：
 
@@ -145,6 +154,7 @@ backend/reports/analytics-inputs-YYYY-MM-DD.csv
 
 - LLM 调用日志有记录。
 - 结果清洗日志有记录。
+- 简历结构兜底日志按需写入。
 - 日志写入失败不影响生成主流程。
 
 查看日志：
@@ -152,6 +162,7 @@ backend/reports/analytics-inputs-YYYY-MM-DD.csv
 ```bash
 tail -n 50 /www/wwwroot/resume-coach-app/backend/logs/llm_calls.jsonl
 tail -n 50 /www/wwwroot/resume-coach-app/backend/logs/result_cleanup.jsonl
+tail -n 50 /www/wwwroot/resume-coach-app/backend/logs/resume_section_fallback.jsonl
 ```
 
 ## 9. 投放前完整路径
@@ -169,7 +180,8 @@ tail -n 50 /www/wwwroot/resume-coach-app/backend/logs/result_cleanup.jsonl
 9. 生成并下载 DOCX。
 10. 提交反馈。
 11. 在 SQLite 中确认事件和反馈写入。
-12. 导出 analytics 报告。
+12. 对一个历史空结构结果重新导出 DOCX，确认不再空白。
+13. 导出 analytics 报告，并检查 Resume Fallback 监控。
 
 ## 10. 异常回滚
 

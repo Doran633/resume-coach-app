@@ -22,10 +22,10 @@ Resume Coach App 面向有项目、实习、开源、比赛或校园经历，但
 - 结果工作台：定位总览、三档包装、承接检查、面试准备、简历预览。
 - Claim 风险分析：green / yellow / red / black 四档风险。
 - 面试承接：面试追问、补充追问、知识补齐、降级表达。
-- 生成稳定性：LLM 输出经过结构校验、JSON 修复和结果清洗。
-- DOCX 导出：根据推荐版本生成正式技术简历。
-- 数据闭环：匿名用户、会话、事件、输入、生成结果、反馈、LLM 调用日志。
-- 数据导出：将 SQLite 埋点导出为 Markdown 和 CSV 报告。
+- 生成稳定性：LLM 输出经过结构校验、JSON 修复、结果清洗和简历结构兜底。
+- DOCX 导出：根据结构化简历生成正式技术简历，并在结构为空时自动兜底，避免页面有内容但 DOCX 空白。
+- 数据闭环：匿名用户、会话、事件、输入、生成结果、反馈、LLM 调用日志和 fallback 日志。
+- 数据导出：将 SQLite 埋点导出为 Markdown 和 CSV 报告，并汇总 fallback 触发率。
 - 移动端适配：支持手机完成输入、查看、导出、反馈流程。
 
 ## v0.1.x 功能列表
@@ -41,6 +41,23 @@ Resume Coach App 面向有项目、实习、开源、比赛或校园经历，但
 - v0.1.7：优化结果页阅读体验，长文本改为摘要和展开。
 - v0.1.8：将面试准备清单移动到导出页，增强交付感。
 - v0.1.9：完成移动端适配。
+
+## v0.2.x 稳定性收口
+
+v0.2.x 聚焦真实用户使用后的稳定性与可观测性。
+
+- v0.2.0：清理三档包装、推荐版本、项目预览和面试准备中的英文内部字段名。
+- v0.2.1：承接检查改为状态圆点，信息完整度增加“当前还缺什么”。
+- v0.2.2：新增 Resume Section Fallback，修复页面有内容但 DOCX 空白的问题。
+- v0.2.3：增强 fallback 可观测性，将触发阶段、补全 section、触发原因和来源字段写入日志并汇总到 analytics。
+
+核心原则：
+
+```text
+结构合法不等于业务可用。
+Fallback 是安全网，不是垃圾桶。
+用户不该感知故障，但开发者必须能感知上游退化。
+```
 
 ## 本地启动
 
@@ -215,6 +232,12 @@ backend/reports/analytics-inputs-YYYY-MM-DD.csv
 
 analytics 报告会同时汇总 Resume Section Fallback 触发情况，包括 fallback 调用次数、触发率、触发阶段、补全 section、触发原因和来源字段。Fallback 只作为安全网保护用户交付体验，如果触发率异常升高，需要回看 prompt、模型或结构化输出质量。
 
+检查最近生成文件记录：
+
+```bash
+sqlite3 backend/data/resume_coach.db "select id, generation_result_id, file_type, file_path, created_at from generated_files order by id desc limit 10;"
+```
+
 ## 日志位置
 
 - LLM 调用日志：`backend/logs/llm_calls.jsonl`
@@ -281,6 +304,7 @@ tail -n 50 backend/logs/result_cleanup.jsonl
 - `backend/outputs/` 是否存在并有写入权限。
 - Nginx `/api/` 代理是否正常。
 - 浏览器是否拦截新窗口下载。
+- 如果页面有内容但 DOCX 主体为空，检查 `backend/logs/resume_section_fallback.jsonl` 和 analytics 报告中的 Resume Fallback 监控。
 
 ### 数据导出没有内容
 
@@ -296,21 +320,21 @@ backend/data/resume_coach.db
 sqlite3 backend/data/resume_coach.db "select count(*) from events;"
 ```
 
-## v0.2 方向概览
+## v0.3 方向概览
 
-v0.2 建议主题：真实用户验证与生成质量提升。
+v0.3 建议主题：输出质量优化。
 
 优先方向：
 
-- 生成质量：根据真实样例优化 prompt 和结构化输出。
-- Prompt 分层：拆分经历解析、包装生成、Claim 检查、面试准备。
-- 反馈闭环：把用户反馈和生成结果关联分析。
-- 数据分析：增强投放漏斗、转化率、用户输入质量统计。
+- Prompt 分层：拆分经历解析、信息缺口诊断、岗位定位、三档包装、Claim 检查、面试准备和 resume_sections 生成。
+- 输出质量评分：检查结果是否具体、岗位匹配、可承接、少空泛。
+- 反空泛规则：减少“提升用户体验”“负责相关工作”等弱表达。
+- 岗位化生成策略：同一段经历针对 AI Agent、后端、前端、数据分析等岗位突出不同重点。
+- 真实案例回归集：把真实用户 case 固化为测试样例。
 - DOCX 版式：继续接近正式技术简历，优化移动端下载提示。
-- 稳定性：完善异常提示、超时处理、重试策略。
-- 部署标准化：形成固定发布流程，避免服务器本地改动污染。
 
 详细检查见：
 
 - `docs/launch-checklist.md`
 - `docs/version-history.md`
+- `docs/v0.2-retrospective.md`
