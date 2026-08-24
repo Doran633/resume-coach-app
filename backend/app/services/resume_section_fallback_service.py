@@ -39,6 +39,10 @@ TECH_TERMS = [
 ]
 
 PROJECT_LABELS = ["项目名称", "项目类型", "项目时间", "项目简介", "我的职责", "技术细节", "项目成果"]
+PROJECT_SPLIT_PATTERN = re.compile(
+    r"(^|\n)\s*(?P<label>项目[一二三四五六七八九十\d]*|经历[一二三四五六七八九十\d]*|开源经历|实习经历|比赛经历|校园经历)\s*[:：]\s*",
+    re.MULTILINE,
+)
 
 
 class FallbackStats:
@@ -187,40 +191,103 @@ def _details_from_text(*values: str, limit: int = 6) -> list[str]:
     return details
 
 
+def _infer_meta(label: str, block: str) -> str:
+    text = f"{label}\n{block}"
+    if "实习" in text:
+        return "实习经历"
+    if "开源" in text:
+        return "开源经历"
+    if "比赛" in text or "竞赛" in text:
+        return "比赛经历"
+    if "校园" in text or "社团" in text:
+        return "校园经历"
+    return "项目经历"
+
+
+def _infer_name(label: str, block: str) -> str:
+    explicit_name = _field_from_project_block(block, "项目名称")
+    if explicit_name:
+        return explicit_name
+
+    first_line = block.strip().splitlines()[0].strip(" -•\t") if block.strip() else ""
+    if first_line:
+        first_line = re.split(r"[。；;]", first_line)[0].strip()
+        first_line = re.sub(r"^(项目名称|项目简介|我的职责|技术细节|项目成果)\s*[:：]\s*", "", first_line)
+        if 2 <= len(first_line) <= 36:
+            return first_line
+
+    if label in {"开源经历", "实习经历", "比赛经历", "校园经历"}:
+        return label
+    return "项目经历"
+
+
+def _project_from_block(block: str, source_field: str, stats: FallbackStats, label: str = "项目经历") -> dict | None:
+    block = block.strip()
+    if not block:
+        return None
+
+    name = _infer_name(label, block)
+    meta = _field_from_project_block(block, "项目类型") or _infer_meta(label, block)
+    time = _field_from_project_block(block, "项目时间") or "[待填写]"
+    intro = _field_from_project_block(block, "项目简介")
+    role = _field_from_project_block(block, "我的职责")
+    tech_details = _field_from_project_block(block, "技术细节")
+    achievements = _field_from_project_block(block, "项目成果")
+    details = _details_from_text(tech_details, achievements, role, intro, block, limit=8)
+
+    if not (intro or role or details):
+        return None
+
+    stats.fill("projects", source_field)
+    return {
+        "name": name,
+        "meta": meta,
+        "time": time,
+        "intro": intro or _split_sentences(block, limit=1)[0],
+        "role": role or "围绕项目目标参与核心功能设计、实现与结果交付。",
+        "details": details,
+    }
+
+
+def _split_project_blocks(source: str) -> list[tuple[str, str]]:
+    matches = list(PROJECT_SPLIT_PATTERN.finditer(source))
+    blocks: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        label = match.group("label")
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        block = source[start:end].strip()
+        if block:
+            blocks.append((label, block))
+    return blocks
+
+
 def _parse_projects(source: str, source_field: str, stats: FallbackStats) -> list[dict]:
     if not source:
         return []
 
     matches = list(re.finditer(r"项目名称\s*[:：]", source))
     projects = []
-    for index, match in enumerate(matches[:3]):
+    for index, match in enumerate(matches[:5]):
         start = match.start()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
         block = source[start:end].strip()
-        name = _field_from_project_block(block, "项目名称") or "项目经历"
-        meta = _field_from_project_block(block, "项目类型") or "项目经历"
-        time = _field_from_project_block(block, "项目时间") or "[待填写]"
-        intro = _field_from_project_block(block, "项目简介")
-        role = _field_from_project_block(block, "我的职责")
-        tech_details = _field_from_project_block(block, "技术细节")
-        achievements = _field_from_project_block(block, "项目成果")
-        details = _details_from_text(tech_details, achievements, intro, role)
-        projects.append(
-            {
-                "name": name,
-                "meta": meta,
-                "time": time,
-                "intro": intro or _split_sentences(block, limit=1)[0],
-                "role": role or "围绕项目目标参与核心功能设计、实现与结果交付。",
-                "details": details or _details_from_text(block),
-            }
-        )
+        project = _project_from_block(block, source_field, stats)
+        if project:
+            projects.append(project)
 
     if projects:
-        stats.fill("projects", source_field)
         return projects
 
-    details = _details_from_text(source, limit=6)
+    split_projects = []
+    for label, block in _split_project_blocks(source)[:5]:
+        project = _project_from_block(block, source_field, stats, label=label)
+        if project:
+            split_projects.append(project)
+    if split_projects:
+        return split_projects
+
+    details = _details_from_text(source, limit=8)
     if details:
         stats.fill("projects", source_field)
         return [

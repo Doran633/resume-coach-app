@@ -154,7 +154,7 @@ def _clean_claims(claims, stats: CleanupStats) -> list[dict]:
         return []
 
     cleaned_claims = []
-    for index, claim in enumerate(claims[:12]):
+    for index, claim in enumerate(claims[:16]):
         if not isinstance(claim, dict):
             claim = {"claim": claim}
 
@@ -198,7 +198,7 @@ def _clean_projects(projects, stats: CleanupStats) -> list[dict]:
         return []
 
     cleaned_projects = []
-    for index, project in enumerate(projects[:3]):
+    for index, project in enumerate(projects[:5]):
         if not isinstance(project, dict):
             project = {"name": "项目经历", "intro": project}
         cleaned_projects.append(
@@ -208,7 +208,7 @@ def _clean_projects(projects, stats: CleanupStats) -> list[dict]:
                 "time": _clean_text(project.get("time"), stats, f"resume_sections.projects[{index}].time"),
                 "intro": _clean_text(project.get("intro"), stats, f"resume_sections.projects[{index}].intro"),
                 "role": _clean_text(project.get("role"), stats, f"resume_sections.projects[{index}].role"),
-                "details": _clean_list(project.get("details"), stats, f"resume_sections.projects[{index}].details", limit=6),
+                "details": _clean_list(project.get("details"), stats, f"resume_sections.projects[{index}].details", limit=8),
             }
         )
     return cleaned_projects
@@ -225,8 +225,8 @@ def cleanup_generation_payload(payload: schemas.GenerationPayload | dict, source
     data["boundary_version"] = _clean_text(data.get("boundary_version"), stats, "boundary_version")
     data["recommended_version"] = _clean_text(data.get("recommended_version"), stats, "recommended_version")
     data["claims"] = _clean_claims(data.get("claims"), stats)
-    data["interview_plan"] = _clean_list(data.get("interview_plan"), stats, "interview_plan", limit=10)
-    data["knowledge_checklist"] = _clean_list(data.get("knowledge_checklist"), stats, "knowledge_checklist", limit=12)
+    data["interview_plan"] = _clean_list(data.get("interview_plan"), stats, "interview_plan", limit=14)
+    data["knowledge_checklist"] = _clean_list(data.get("knowledge_checklist"), stats, "knowledge_checklist", limit=16)
 
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
     if not sections:

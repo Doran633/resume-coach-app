@@ -109,11 +109,11 @@ def test_cleanup_keeps_empty_arrays_and_limits_counts():
 
     assert len(cleaned.confirmed_facts) == 8
     assert len(cleaned.missing_questions) == 8
-    assert len(cleaned.claims) == 12
-    assert len(cleaned.interview_plan) == 10
-    assert len(cleaned.knowledge_checklist) == 12
-    assert len(cleaned.resume_sections.projects) == 3
-    assert len(cleaned.resume_sections.projects[0]["details"]) == 6
+    assert len(cleaned.claims) == 16
+    assert len(cleaned.interview_plan) == 12
+    assert len(cleaned.knowledge_checklist) == 14
+    assert len(cleaned.resume_sections.projects) == 5
+    assert len(cleaned.resume_sections.projects[0]["details"]) == 8
 
 
 def test_cleanup_localizes_education_keys():

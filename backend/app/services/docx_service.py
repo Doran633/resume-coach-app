@@ -88,6 +88,20 @@ def _setup(doc: Document) -> None:
     normal.font.size = Pt(9.2)
 
 
+def _project_detail_limit(project_count: int) -> int:
+    if project_count <= 3:
+        return 8
+    return 5
+
+
+def _interview_limit(project_count: int) -> int:
+    if project_count <= 2:
+        return 10
+    if project_count == 3:
+        return 8
+    return 6
+
+
 def _next_path(prefix: str) -> Path:
     version = 1
     for path in OUTPUT_DIR.glob(f"v*-{prefix}.docx"):
@@ -141,16 +155,18 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         _bullet(doc, item)
 
     _heading(doc, "项目经历")
-    for project in payload.resume_sections.projects:
+    projects = payload.resume_sections.projects[:5]
+    detail_limit = _project_detail_limit(len(projects))
+    for project in projects:
         _p(doc, f"{project.get('name')} | {project.get('meta')} | {project.get('time')}", 11, True, "1F3763")
         _bullet(doc, "项目简介：" + project.get("intro", ""), bold_label=True)
         _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
         _bullet(doc, "技术细节：", bold_label=True)
-        for detail in project.get("details", []):
+        for detail in project.get("details", [])[:detail_limit]:
             _bullet(doc, detail, level=1)
 
     _heading(doc, "面试准备清单")
-    for item in payload.resume_sections.interview_preparation:
+    for item in payload.resume_sections.interview_preparation[: _interview_limit(len(projects))]:
         _bullet(doc, item)
 
     path = _next_path("resume-coach-v0")
