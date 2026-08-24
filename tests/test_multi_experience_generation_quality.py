@@ -18,6 +18,16 @@ from app.services.result_cleanup_service import cleanup_generation_payload  # no
 from app.services.resume_section_fallback_service import fill_resume_sections  # noqa: E402
 
 
+LONG_REALISTIC_RECOMMENDED = """项目一｜AI RAG 智能助手
+
+从零设计并持续迭代一套可公网使用的 AI RAG 助手，使用 React + TypeScript、FastAPI、SQLite 完成前后端与数据持久化，实现文件上传解析、文本切块、BAAI/bge-m3 Embedding、向量检索、RAG 问答、Citation、连续对话与会话恢复。围绕 chunk、Top-K、阈值及检索排序进行了多轮量化优化，并搭建 Debug Trace、固定测试集和 Groundedness、Citation、Retrieval 等评测指标。工程侧完成匿名用户数据隔离、邀请码保护、日志、健康检查、Smoke Test，并解决旧进程、端口冲突、Embedding 配置、CORS 等实际联调问题，最终通过 VPS + Nginx + systemd 部署并上线独立域名。
+
+### 项目二｜Resume Positioning Coach
+
+独立设计并开发 AI 简历定位与包装网站，核心目标是将用户真实经历转化为“表达更强、但面试能够承接”的简历内容。设计“经历输入 → 信息完整度分析 → 岗位定位 → 三档包装 → Claim 承接检查 → 面试准备 → 简历生成 → DOCX 导出”的完整工作流，并通过风险分级识别缺乏事实支撑的夸大表达。根据真实用户测试持续优化产品：重构早期复杂按钮式 UI，形成更清晰的流程化交互；发现 LLM 虽满足 JSON Schema 但正式简历字段可能为空后，引入 Resume Section Fallback，在保存和导出前进行业务完整性检查。目前进一步发现多经历场景存在 Experience Dilution，正推进经历级拆分与分阶段生成以保持单段履历的信息密度。
+"""
+
+
 def build_multi_project_payload(project_count: int = 3):
     project_blocks = [
         (
@@ -102,6 +112,21 @@ def test_fallback_does_not_merge_three_experiences_into_one():
     assert "校园数据分析项目" in names
 
 
+def test_fallback_parses_realistic_long_vertical_bar_project_input():
+    data = build_multi_project_payload(2)
+    data["recommended_version"] = LONG_REALISTIC_RECOMMENDED
+    data["bold_version"] = LONG_REALISTIC_RECOMMENDED
+    data["normal_version"] = LONG_REALISTIC_RECOMMENDED
+
+    payload = fill_resume_sections(data, write_log=False)
+    names = [project["name"] for project in payload.resume_sections.projects]
+
+    assert len(payload.resume_sections.projects) >= 2
+    assert "AI RAG 智能助手" in names
+    assert "Resume Positioning Coach" in names
+    assert all(len(project["details"]) >= 4 for project in payload.resume_sections.projects[:2])
+
+
 def test_cleanup_keeps_multi_project_density():
     data = build_multi_project_payload(3)
     data["resume_sections"]["projects"] = [
@@ -178,6 +203,7 @@ def test_multi_project_docx_contains_multiple_project_names():
 if __name__ == "__main__":
     test_fallback_keeps_two_project_experiences()
     test_fallback_does_not_merge_three_experiences_into_one()
+    test_fallback_parses_realistic_long_vertical_bar_project_input()
     test_cleanup_keeps_multi_project_density()
     test_skills_are_extracted_only_from_existing_terms()
     test_multi_project_docx_contains_multiple_project_names()

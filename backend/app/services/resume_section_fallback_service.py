@@ -40,7 +40,9 @@ TECH_TERMS = [
 
 PROJECT_LABELS = ["项目名称", "项目类型", "项目时间", "项目简介", "我的职责", "技术细节", "项目成果"]
 PROJECT_SPLIT_PATTERN = re.compile(
-    r"(^|\n)\s*(?P<label>项目[一二三四五六七八九十\d]*|经历[一二三四五六七八九十\d]*|开源经历|实习经历|比赛经历|校园经历)\s*[:：]\s*",
+    r"(^|\n)\s*(?:#{1,6}\s*)?"
+    r"(?P<label>项目[一二三四五六七八九十\d]*|经历[一二三四五六七八九十\d]*|开源经历|实习经历|比赛经历|校园经历)"
+    r"\s*(?:[:：|｜\-—–]\s*)",
     re.MULTILINE,
 )
 
@@ -117,7 +119,16 @@ def _has_items(value) -> bool:
 def _split_sentences(text: str, limit: int = 6) -> list[str]:
     normalized = re.sub(r"\s+", " ", text).strip()
     parts = re.split(r"(?<=[。！？；])\s*|\n+", normalized)
-    return [part.strip(" -•\t") for part in parts if part.strip(" -•\t")][:limit]
+    cleaned = [part.strip(" -•\t") for part in parts if part.strip(" -•\t")]
+    if len(cleaned) < min(4, limit):
+        clause_parts = re.split(r"[，,]\s*", normalized)
+        for part in clause_parts:
+            item = part.strip(" -•\t")
+            if len(item) >= 8 and item not in cleaned:
+                cleaned.append(item)
+            if len(cleaned) >= limit:
+                break
+    return cleaned[:limit]
 
 
 def _source_text(data: dict) -> tuple[str, str]:

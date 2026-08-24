@@ -45,8 +45,8 @@ def call_openai(prompt: str) -> LLMResult:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
     model = get_openai_model()
-    timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
-    max_tokens = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+    timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
+    max_tokens = int(os.getenv("LLM_MAX_TOKENS", "8192"))
     thinking_mode = os.getenv("LLM_THINKING", "disabled").strip().lower()
 
     if not api_key:

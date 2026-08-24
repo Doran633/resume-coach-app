@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from .. import schemas
+from .experience_segmentation_service import build_experience_context
 
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -22,4 +23,5 @@ def build_generation_prompt(request: schemas.GenerateRequest) -> str:
         packaging_level=request.packaging_level,
         experience_type=request.experience_type,
         raw_input=request.raw_input,
+        experience_context=build_experience_context(request.raw_input),
     )
