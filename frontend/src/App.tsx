@@ -19,14 +19,14 @@ export default function App() {
     <Layout className="app-shell">
       <Header className="topbar">
         <div>
-          <strong>Resume Coach v0.1</strong>
-          <span>AI 求职教练 · 经历包装 · 面试承接</span>
+          <strong>简历教练</strong>
+          <span>经历定位 · 简历强化 · 面试承接</span>
         </div>
       </Header>
       <Content className="content">
         <section className="intro">
-          <h1>不是普通简历润色，而是判断你的经历能写多强</h1>
-          <p>输入一段经历，生成普通版、大胆版、边界参考、Claim 风险和面试知识补齐。v0.1 支持 mock / 真实 LLM 双模式。</p>
+          <h1>简历教练</h1>
+          <p>——把你的经历写出彩</p>
         </section>
         <Steps
           className="steps"

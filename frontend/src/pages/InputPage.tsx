@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Form, Input, Radio, Select, Space, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Input, Radio, Select, Space, Typography, message } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
@@ -42,7 +42,11 @@ const exampleTemplates = [
   }
 ];
 
-const writingTips = ["你做了什么", "用了什么技术", "负责到什么程度", "有什么结果或数据", "有什么证据", "哪些地方想重点放大"];
+const writingFormat = [
+  "我做过一个【项目 / 实习 / 开源 / 比赛经历】，目标是解决【具体问题】。",
+  "我主要负责【模块 / 功能 / 流程】，使用了【技术栈 / 工具 / 平台】完成【具体工作】。",
+  "目前有【用户数 / 访问量 / 日志 / 仓库 / 文档 / 反馈】作为证据，希望重点放大【目标岗位相关能力】。"
+];
 
 type QualityHint = {
   type: string;
@@ -77,6 +81,7 @@ export default function InputPage() {
   const [generating, setGenerating] = useState(false);
   const { identity, setGeneration, setLastRequest } = useAppStore();
   const rawInput = Form.useWatch("raw_input", form) ?? "";
+  const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
   const trackedHintKeyRef = useRef("");
   const qualityHints = useMemo(() => getQualityHints(rawInput), [rawInput]);
 
@@ -93,6 +98,14 @@ export default function InputPage() {
     ...values,
     packaging_level: packagingLevelMap[values.packaging_level] ?? values.packaging_level
   });
+
+  const selectPackagingLevel = (value: string) => {
+    form.setFieldValue("packaging_level", value);
+    void trackEvent(identity, "change_packaging_level", {
+      display_level: value,
+      mapped_level: packagingLevelMap[value] ?? value
+    });
+  };
 
   const fillTemplate = (type: string, text: string) => {
     const current = form.getFieldValue("raw_input")?.trim();
@@ -162,17 +175,25 @@ export default function InputPage() {
             ]}
           />
         </Form.Item>
-        <Form.Item label="包装强度" name="packaging_level">
-          <Radio.Group optionType="button" buttonStyle="solid" options={packagingLevels.map(({ label, value }) => ({ label, value }))} />
+        <Form.Item name="packaging_level" hidden>
+          <Input />
         </Form.Item>
-        <div className="level-guide">
-          {packagingLevels.map((item) => (
-            <div key={item.value} className={item.value === "重点放大" ? "recommended-level" : ""}>
-              <strong>{item.label}</strong>
-              <p>{item.description}</p>
-            </div>
-          ))}
-        </div>
+        <Form.Item label="包装强度">
+          <div className="level-options">
+            {packagingLevels.map((item) => (
+              <button
+                type="button"
+                key={item.value}
+                className={item.value === packagingLevel ? "level-option active" : "level-option"}
+                aria-pressed={item.value === packagingLevel}
+                onClick={() => selectPackagingLevel(item.value)}
+              >
+                <strong>{item.label}</strong>
+                <p>{item.description}</p>
+              </button>
+            ))}
+          </div>
+        </Form.Item>
         <Form.Item label="经历类型" name="experience_type">
           <Select options={["项目", "实习", "开源", "比赛", "校园", "其他"].map((value) => ({ value }))} />
         </Form.Item>
@@ -186,32 +207,33 @@ export default function InputPage() {
         <div className="writing-guide">
           <div>
             <Typography.Title level={4}>建议这样写</Typography.Title>
-            <p>不用写得很正式，把关键信息讲清楚就够了。</p>
+            <p>不用写得很正式，按这个格式把关键信息补齐就够了。</p>
           </div>
-          <Space wrap>
-            {writingTips.map((item) => <Tag key={item}>{item}</Tag>)}
-          </Space>
-        </div>
-
-        <div className="template-panel">
-          <div className="section-title">
-            <div>
-              <Typography.Title level={4}>不知道怎么写？先套一个模板</Typography.Title>
-              <p>模板会追加到输入框里，你可以直接改成自己的经历。</p>
-            </div>
-          </div>
-          <Space wrap>
-            {exampleTemplates.map((item) => (
-              <Button key={item.type} onClick={() => fillTemplate(item.type, item.text)}>
-                填入{item.type}
-              </Button>
+          <div className="writing-format">
+            {writingFormat.map((item, index) => (
+              <p key={item}><span>{index + 1}</span>{item}</p>
             ))}
-          </Space>
+          </div>
         </div>
 
-        <Form.Item label="原始经历描述" name="raw_input" rules={[{ required: true, min: 10 }]}>
-          <Input.TextArea rows={8} placeholder="请描述你做过什么、用了什么技术、有什么结果或证据。避免填写身份证号、家庭住址、银行卡号、账号密码等敏感信息。" />
-        </Form.Item>
+        <div className="experience-editor">
+          <div className="editor-head">
+            <div>
+              <Typography.Title level={4}>原始经历描述</Typography.Title>
+              <p>可以直接写，也可以先选择一个模板再修改。</p>
+            </div>
+            <Space wrap className="template-actions">
+              {exampleTemplates.map((item) => (
+                <Button key={item.type} onClick={() => fillTemplate(item.type, item.text)}>
+                  {item.type}
+                </Button>
+              ))}
+            </Space>
+          </div>
+          <Form.Item name="raw_input" rules={[{ required: true, min: 10 }]}>
+            <Input.TextArea rows={8} placeholder="请描述你做过什么、用了什么技术、有什么结果或证据。避免填写身份证号、家庭住址、银行卡号、账号密码等敏感信息。" />
+          </Form.Item>
+        </div>
 
         {qualityHints.length > 0 && (
           <div className="quality-hints">

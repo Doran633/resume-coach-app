@@ -1,4 +1,4 @@
-import { Button, Card, Col, Collapse, Input, Progress, Row, Space, Tabs, Tag, Typography, message } from "antd";
+import { Button, Card, Col, Collapse, Input, Progress, Row, Space, Tabs, Typography, message } from "antd";
 import { useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
@@ -70,6 +70,12 @@ function strengthenLevel(score: number) {
   if (score >= 80) return "高";
   if (score >= 60) return "中";
   return "待补充";
+}
+
+function completenessFallback(score: number) {
+  if (score >= 80) return "当前信息比较完整，可以继续补充数据证据和技术细节，让表达更有说服力。";
+  if (score >= 60) return "可以再补充数据口径、个人职责边界和关键技术细节。";
+  return "建议先补充项目目标、负责内容、使用技术、结果数据和可验证证据。";
 }
 
 function splitReadableText(text: string, limit = 4) {
@@ -232,6 +238,31 @@ function FactStrip({ facts }: { facts: string[] }) {
   );
 }
 
+function CompletenessMetric({ score, questions }: { score: number; questions: string[] }) {
+  const gaps = questions.slice(0, 3).map((item) => cleanDisplayText(item));
+  return (
+    <div className="metric-card">
+      <div className="metric-gaps">
+        <strong>当前还缺什么</strong>
+        {gaps.length > 0 ? (
+          <ul>
+            {gaps.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        ) : (
+          <p>{completenessFallback(score)}</p>
+        )}
+      </div>
+      <div className="metric-score">
+        <Progress type="circle" percent={score} size={72} />
+        <div>
+          <strong>信息完整度</strong>
+          <span>{strengthenLevel(score)}强化空间</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClaimSummary({ claim }: { claim: ClaimResult }) {
   const meta = riskMeta[claim.risk_level];
   const suggestion = claim.risk_reason || claim.evidence || meta.longLabel;
@@ -239,9 +270,9 @@ function ClaimSummary({ claim }: { claim: ClaimResult }) {
     <div className="claim-summary">
       <div>
         <strong>{cleanDisplayText(claim.claim)}</strong>
-        <span>{cleanDisplayText(suggestion)}</span>
+        <p>{cleanDisplayText(suggestion)}</p>
       </div>
-      <Tag color={meta.color}>{meta.label}</Tag>
+      <i className={`risk-dot claim-status-dot ${meta.className}`} role="img" aria-label={meta.label} title={meta.label} />
     </div>
   );
 }
@@ -419,13 +450,7 @@ export default function ResultPage() {
                 <Typography.Title level={3}>先把经历写强，再告诉你怎么接住</Typography.Title>
                 <p>基于你的真实经历生成不同强度的简历表达，并同步标出每个强表达背后需要准备的证据、技术点和面试回答。</p>
               </div>
-              <div className="metric-card">
-                <Progress type="circle" percent={result.completeness_score} size={78} />
-                <div>
-                  <strong>信息完整度</strong>
-                  <span>{strengthenLevel(result.completeness_score)}强化空间</span>
-                </div>
-              </div>
+              <CompletenessMetric score={result.completeness_score} questions={result.missing_questions} />
             </div>
             <FactStrip facts={confirmedFacts} />
           </Card>
