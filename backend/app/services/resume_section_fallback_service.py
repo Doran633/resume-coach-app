@@ -87,6 +87,12 @@ class FallbackStats:
         self.fallback_reasons: list[str] = []
         self.source_fields: list[str] = []
         self.used_experience_id = False
+        self.attempted_sections: list[str] = []
+        self.projects_before = 0
+        self.projects_after = 0
+        self.projects_added = 0
+        self.projects_removed = 0
+        self.uncovered_experience_ids: list[str] = []
 
     @property
     def changed(self) -> bool:
@@ -117,10 +123,17 @@ def _write_fallback_log(stats: FallbackStats):
             "resume_fallback_triggered": stats.changed,
             "changed": stats.changed,
             "fallback_sections": stats.fallback_sections,
+            "attempted_sections": stats.attempted_sections,
+            "actually_filled_sections": stats.fallback_sections,
             "fallback_reasons": stats.fallback_reasons,
             "fallback_reason": stats.fallback_reason,
             "source_fields": stats.source_fields,
             "used_experience_id": stats.used_experience_id,
+            "projects_before": stats.projects_before,
+            "projects_after": stats.projects_after,
+            "projects_added": stats.projects_added,
+            "projects_removed": stats.projects_removed,
+            "uncovered_experience_ids": stats.uncovered_experience_ids,
             "generation_result_id": stats.generation_result_id,
             "stage": stats.stage,
         }
@@ -410,18 +423,11 @@ def _assign_source_experience_ids(projects: list, raw_input: str, stats: Fallbac
             stats.used_experience_id = True
             continue
 
-        ranked = sorted(
-            identities,
-            key=lambda item: (
-                _score_project_identity(project, item),
-                0 if item.experience_id in used_ids else 1,
-            ),
-            reverse=True,
-        )
+        ranked = sorted(identities, key=lambda item: _score_project_identity(project, item), reverse=True)
         chosen = ranked[0] if ranked else None
-        if chosen and (_score_project_identity(project, chosen) > 0 or index < len(identities)):
-            if _score_project_identity(project, chosen) == 0 and index < len(identities):
-                chosen = identities[index]
+        best_score = _score_project_identity(project, chosen) if chosen else 0
+        second_score = _score_project_identity(project, ranked[1]) if len(ranked) > 1 else -1
+        if chosen and best_score >= 3 and best_score > second_score:
             project["source_experience_id"] = chosen.experience_id
             used_ids.add(chosen.experience_id)
             stats.used_experience_id = True
@@ -435,7 +441,6 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
         details = _details_from_text(identity.raw_text, limit=6)
         if not details:
             continue
-        stats.fill("projects", "experience_id/raw_input")
         stats.used_experience_id = True
         projects.append(
             {
@@ -454,17 +459,22 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
 def _merge_missing_projects(existing: list, candidates: list[dict], stats: FallbackStats, source: str) -> list:
     merged = list(existing) if isinstance(existing, list) else []
     signatures = {_project_signature(project) for project in merged if isinstance(project, dict)}
-    metas = {_text(project.get("meta")) for project in merged if isinstance(project, dict)}
+    covered_ids = {
+        _text(project.get("source_experience_id"))
+        for project in merged
+        if isinstance(project, dict) and _text(project.get("source_experience_id"))
+    }
     for candidate in candidates:
         signature = _project_signature(candidate)
-        meta = _text(candidate.get("meta"))
+        source_id = _text(candidate.get("source_experience_id"))
         if signature in signatures:
             continue
-        if meta != "项目经历" and meta in metas:
+        if source_id and source_id in covered_ids:
             continue
         merged.append(candidate)
         signatures.add(signature)
-        metas.add(meta)
+        if source_id:
+            covered_ids.add(source_id)
         stats.fill("projects", source)
         if len(merged) >= 5:
             break
@@ -512,6 +522,7 @@ def fill_resume_sections(
 
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}
     sections["education"] = sections.get("education") if isinstance(sections.get("education"), dict) else {}
+    stats.projects_before = len(sections.get("projects", [])) if isinstance(sections.get("projects"), list) else 0
 
     identities = build_experience_identities(raw_source) if raw_source else []
     existing_projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
@@ -520,6 +531,7 @@ def fill_resume_sections(
         project_meta = _text(existing_projects[0].get("meta"))
         if "综合经历" in project_name or "综合经历" in project_meta:
             sections["projects"] = _projects_from_identities(raw_source, stats)
+            stats.fill("projects", "experience_id/raw_input")
             stats.add_reason("combined_project_replaced")
 
     empty_sections = [
@@ -527,6 +539,7 @@ def fill_resume_sections(
         for section in ["summary", "skills", "projects", "interview_preparation"]
         if not _has_items(sections.get(section))
     ]
+    stats.attempted_sections = list(empty_sections)
     if set(empty_sections) == {"summary", "skills", "projects", "interview_preparation"}:
         stats.add_reason("structured_resume_empty")
     for section in empty_sections:
@@ -539,23 +552,32 @@ def fill_resume_sections(
         sections["skills"] = _extract_skills(data, source, source_field, stats)
 
     if "projects" in empty_sections:
-        raw_projects = _parse_projects(raw_source, "raw_input", stats) if raw_source else []
-        raw_projects = _assign_source_experience_ids(raw_projects, raw_source, stats)
+        raw_projects = _projects_from_identities(raw_source, stats) if raw_source and identities else []
         if not raw_projects and raw_source:
-            raw_projects = _projects_from_identities(raw_source, stats)
+            raw_projects = _parse_projects(raw_source, "raw_input", stats)
+        elif raw_projects:
+            stats.fill("projects", "experience_id/raw_input")
         sections["projects"] = raw_projects or _parse_projects(source, source_field, stats)
         sections["projects"] = _assign_source_experience_ids(sections["projects"], raw_source, stats)
     elif raw_source:
-        raw_projects = _parse_projects(raw_source, "raw_input", stats)
-        raw_projects = _assign_source_experience_ids(raw_projects, raw_source, stats)
-        if raw_projects:
-            sections["projects"] = _merge_missing_projects(sections.get("projects"), raw_projects, stats, "raw_input")
+        sections["projects"] = _assign_source_experience_ids(sections.get("projects"), raw_source, stats)
+        identity_projects = _projects_from_identities(raw_source, stats) if identities else []
+        sections["projects"] = _merge_missing_projects(sections.get("projects"), identity_projects, stats, "uncovered_experience_id")
         sections["projects"] = _assign_source_experience_ids(sections.get("projects"), raw_source, stats)
 
     if "interview_preparation" in empty_sections:
         sections["interview_preparation"] = _build_interview_preparation(data, stats)
 
     data["resume_sections"] = sections
+    stats.projects_after = len(sections.get("projects", [])) if isinstance(sections.get("projects"), list) else 0
+    stats.projects_added = max(0, stats.projects_after - stats.projects_before)
+    stats.projects_removed = max(0, stats.projects_before - stats.projects_after)
+    covered_ids = {
+        _text(project.get("source_experience_id"))
+        for project in sections.get("projects", [])
+        if isinstance(project, dict) and _text(project.get("source_experience_id"))
+    }
+    stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in covered_ids]
     filled = schemas.GenerationPayload.model_validate(data)
     if write_log:
         _write_fallback_log(stats)

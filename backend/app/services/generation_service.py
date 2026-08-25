@@ -23,6 +23,7 @@ from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
 from .project_specificity_guard_service import guard_project_specificity
 from .weak_profile_strategy_service import strengthen_weak_profile_payload
 from .resume_body_sanitizer_service import sanitize_resume_body
+from .resume_project_reconciliation_service import reconcile_resume_projects
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -428,6 +429,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_project_specificity(payload, request.raw_input)
     payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)
     payload = sanitize_resume_body(payload, request.raw_input)
+    payload = reconcile_resume_projects(payload, request.raw_input, stage="generation")
     payload = guard_hard_facts(payload, request.raw_input)
 
     result = models.GenerationResult(

@@ -23,9 +23,11 @@ INTENT_PATTERNS = [
 ]
 START_PATTERNS = [
     r"(?:利用|使用).{0,8}(?:AI|人工智能).{0,8}(?:做过|开发过|设计过)",
-    r"(?:做过|开发过|设计了|设计过|完成过)",
+    r"(?:做过|开发过|设计了|设计过|完成过|独立设计|独立开发|独立完成|从零设计|从零开发)",
     r"(?:参加过|参与了|参与过|深度参与|加入)",
     r"(?:担任|作为).{0,28}(?:成员|负责人|干事|宣传|开发者)",
+    r"(?:在|于).{2,40}(?:公司|团队|实验室).{0,24}(?:实习|担任)",
+    r"(?:负责|主导|参与).{0,24}(?:项目|系统|平台|网站|应用)",
 ]
 CONTINUATION_PREFIXES = (
     "可以", "包含", "支持", "实现", "能够", "并", "以及", "同时", "其中", "根据", "主要功能", "技术上",
@@ -90,7 +92,10 @@ def _strip_context(text: str) -> tuple[str, int]:
     for pattern in BACKGROUND_PATTERNS + INTENT_PATTERNS:
         cleaned, replacements = re.subn(pattern, "", cleaned, flags=re.IGNORECASE)
         count += replacements
-    return _normalize(cleaned), count
+    cleaned = re.sub(r"[\t \u3000]+", " ", cleaned)
+    cleaned = re.sub(r" *\n *", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip(" ，,。；;：:\n"), count
 
 
 def _themes(text: str) -> set[str]:
@@ -114,6 +119,8 @@ def _infer_type(text: str) -> str:
 
 def _infer_title(text: str, experience_type: str) -> str:
     title_rules = [
+        (r"(?:独立设计并开发|独立开发|从零设计并开发)([^，。；;\n]{2,40}(?:网站|系统|平台|助手|工具|应用))", 1),
+        (r"(?:在|于)([^，。；;\n]{2,40}(?:公司|团队|实验室))[^，。；;\n]{0,30}实习", 1),
         (r"(?:做过|开发过|设计了|设计过)?(?:一个|一套)?([^，。；;]{2,24}(?:计算器|系统|平台|工具|助手))", 1),
         (r"(智能停车场(?:系统)?)", 1),
         (r"(回归分析计算器)", 1),
@@ -138,9 +145,12 @@ def _has_start_signal(text: str) -> bool:
 def _boundary_score(previous: str, current: str, punctuation: str) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
-    if punctuation in {"；", ";", "。", "\n"}:
+    if punctuation in {"；", ";", "。", "\n", "\n\n"}:
         score += 0.15
         reasons.append("完整标点边界")
+    if punctuation == "\n\n" and len(previous) >= 30 and len(current) >= 30:
+        score += 0.35
+        reasons.append("独立自然段强边界")
     if _has_start_signal(current):
         score += 0.20
         reasons.append("出现新经历动作")
@@ -176,14 +186,15 @@ def _candidate_clauses(text: str) -> list[tuple[str, int, int, str]]:
     clauses: list[tuple[str, int, int, str]] = []
     start = 0
     boundary_pattern = re.compile(
-        r"[；;。\n]+|[，,](?=(?:参加过|参与了|参与过|参与学校|深度参与|担任|作为团队|是.{0,24}实践队))"
+        r"\n\s*\n+|[；;。\n]|[，,](?=(?:参加过|参与了|参与过|参与学校|深度参与|担任|作为团队|是.{0,24}实践队))"
     )
     preceding_punctuation = ""
     for match in boundary_pattern.finditer(text):
         chunk = _normalize(text[start:match.start()])
         if chunk:
             clauses.append((chunk, start, match.start(), preceding_punctuation))
-        preceding_punctuation = match.group(0)[0]
+        matched_boundary = match.group(0)
+        preceding_punctuation = "\n\n" if matched_boundary.count("\n") >= 2 else matched_boundary[0]
         start = match.end()
     tail = _normalize(text[start:])
     if tail:

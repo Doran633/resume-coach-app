@@ -35,8 +35,10 @@ class BoundaryStats:
         self.generation_result_id = generation_result_id
         self.stage = stage
         self.total_experiences = 0
+        self.project_count = 0
         self.projects_with_source_id = 0
         self.projects_missing_source_id = 0
+        self.unmatched_project_count = 0
         self.contamination_fixed_count = 0
         self.fixed_fields: list[str] = []
 
@@ -53,8 +55,10 @@ def _write_boundary_log(stats: BoundaryStats):
             "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
             "generation_result_id": stats.generation_result_id,
             "total_experiences": stats.total_experiences,
+            "project_count": stats.project_count,
             "projects_with_source_id": stats.projects_with_source_id,
             "projects_missing_source_id": stats.projects_missing_source_id,
+            "unmatched_project_count": stats.unmatched_project_count,
             "contamination_fixed_count": stats.contamination_fixed_count,
             "fixed_fields": stats.fixed_fields,
             "stage": stats.stage,
@@ -152,7 +156,14 @@ def guard_experience_boundaries(
     segments = build_experience_identities(raw_input)
     stats = BoundaryStats(generation_result_id=generation_result_id, stage=stage)
     stats.total_experiences = len(segments)
+    stats.project_count = len(payload.resume_sections.projects)
     if len(segments) <= 1:
+        for project in payload.resume_sections.projects:
+            if project.get("source_experience_id"):
+                stats.projects_with_source_id += 1
+            else:
+                stats.projects_missing_source_id += 1
+                stats.unmatched_project_count += 1
         if write_log:
             _write_boundary_log(stats)
         return payload
@@ -169,6 +180,7 @@ def guard_experience_boundaries(
             stats.projects_missing_source_id += 1
         segment = _match_project_to_segment(guarded, segments, index)
         if not segment:
+            stats.unmatched_project_count += 1
             guarded_projects.append(guarded)
             continue
         guarded["source_experience_id"] = segment.experience_id

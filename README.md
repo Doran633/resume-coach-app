@@ -31,6 +31,7 @@ Resume Coach App 面向有项目、实习、开源、比赛或校园经历，但
 - 正文去负面化：清理“没有实习、未上线、没有获奖、只是作业”等自降表达，缺失事实进入面试准备而不是正式简历。
 - Experience ID 边界：每段经历在内部绑定 `EXP-001 / EXP-002`，生成、fallback、guard 和 DOCX 导出前都会尽量按经历身份隔离事实。
 - 混合输入语义分段：即使用户没有写标题或换行，系统也会结合新动作、组织、经历类型、主题变化和独立结果谨慎识别多段经历。
+- 项目级内容对账：删除重复综合经历前先回收尚未覆盖的有效事实，将技术、指标和职责放回对应 experience_id。
 - DOCX 导出：根据结构化简历生成正式技术简历，支持最多两页内容承载，并在结构为空时自动兜底，避免页面有内容但 DOCX 空白。
 - 数据闭环：匿名用户、会话、事件、输入、生成结果、反馈、LLM 调用日志和 fallback 日志。
 - 数据导出：将 SQLite 埋点导出为 Markdown 和 CSV 报告，并汇总 fallback 触发率。
@@ -196,6 +197,18 @@ v0.4.1 解决用户把项目、校园活动、社会实践、社团工作和竞�
 - 识别到多个 experience_id 后，LLM 和 fallback 都不能再用一个“综合经历项目”容纳全部内容。
 - 无法可靠判断的关系进入 `missing_questions`，不会直接写成确定事实。
 - 分段日志写入 `backend/logs/experience_segmentation.jsonl`，只记录长度、类型、置信度和截断标题，不记录完整用户原文。
+
+## v0.4.2 项目级内容对账
+
+v0.4.2 坚持“不过分修饰，也不刻意删减”：当模型已经生成具体项目，而 fallback 又产生“综合经历项目”时，系统不会直接保留重复项目，也不会把其中的有效细节一并删除。
+
+- 修复空行在预处理阶段被压平的问题，并补充“独立设计 / 从零开发 / 在某公司实习”等经历起始信号。
+- fallback 在已有项目时只补充未覆盖的 experience_id，不再从完整原文追加综合经历。
+- 新增项目级 reconciliation：逐条判断综合经历中的技术、指标和职责属于哪个 experience_id，未覆盖的高价值细节回填到对应项目，重复和无来源内容不进入正文。
+- source_experience_id 匹配不足时保持未绑定，不再按项目顺序强行绑定 EXP-001。
+- 内容预算为单项目最多 8 条、主要项目合计最多 18 条，优先保留各项目基础信息，再分配剩余篇幅，服务最多两页 DOCX。
+- generation 和 docx_export 都执行项目对账，历史结果重新导出时也能清理综合经历。
+- 对账日志写入 `backend/logs/resume_project_reconciliation.jsonl`，仅记录数量、ID 和截断项目名，不记录完整用户原文。
 - “只是课程作业”“简单小项目”“写了几个页面”“调了一些接口”等不专业原话会改写为“课程项目”“个人项目实践”“页面开发与交互流程实现”“接口联调与数据流转校验”。
 - fact guard 增强实习幻觉防护：原文没有实习、公司、工作、岗位等线索时，`meta=实习经历` 会被降级为课程项目、个人项目、校园 / 社团经历、竞赛经历或项目经历。
 - DOCX 导出前也执行正文净化和事实守卫，历史结果重新导出时同样不会把缺点写进正式简历。
@@ -388,6 +401,7 @@ sqlite3 backend/data/resume_coach.db "select id, generation_result_id, file_type
 - 长输入稳定性日志：`backend/logs/generation_stability.jsonl`
 - 经历边界守卫日志：`backend/logs/experience_boundary.jsonl`
 - 混合输入分段日志：`backend/logs/experience_segmentation.jsonl`
+- 项目级内容对账日志：`backend/logs/resume_project_reconciliation.jsonl`
 - 生成文件：`backend/outputs/`
 - 数据报告：`backend/reports/`
 
@@ -425,6 +439,12 @@ tail -n 50 backend/logs/experience_boundary.jsonl
 
 ```bash
 tail -n 50 backend/logs/experience_segmentation.jsonl
+```
+
+查看最近项目级内容对账日志：
+
+```bash
+tail -n 50 backend/logs/resume_project_reconciliation.jsonl
 ```
 
 ## 常见问题

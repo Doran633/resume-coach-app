@@ -29,6 +29,12 @@ REALISTIC_COMMA_MIXED_INPUT = (
     "希望包装得更适合 AI Agent 开发岗位。"
 )
 
+PARAGRAPH_SEPARATED_INPUT = """从零设计并持续迭代一套可公网使用的 AI RAG 助手，实现文件上传、向量检索、连续对话与部署上线。
+
+独立设计并开发 AI 简历定位与包装网站，完成 Claim 检查、面试准备、简历生成和 DOCX 导出。
+
+在自行者科技有限公司 AI Agent 开发岗位实习，负责调试 RAG 模块并建立测试集，将相关度从 0.4315 提升到 0.7258。"""
+
 
 def _joined(segment) -> str:
     return f"{segment.title} {segment.raw_text}"
@@ -55,6 +61,16 @@ def test_comma_connected_mixed_input_is_semantically_split():
     assert any("智能停车场" in text and "一等奖" in text for text in text_by_segment)
     parking = next(text for text in text_by_segment if "智能停车场" in text)
     assert "拍摄剪辑" not in parking
+
+
+def test_blank_line_paragraphs_are_strong_experience_boundaries():
+    result = segment_semantic_experiences(PARAGRAPH_SEPARATED_INPUT)
+
+    assert len(result.segments) == 3
+    assert "AI RAG 助手" in result.segments[0].raw_text
+    assert "简历定位与包装网站" in result.segments[1].raw_text
+    assert result.segments[2].experience_type == "实习经历"
+    assert "0.4315" not in result.segments[0].raw_text
 
 
 def test_project_features_are_not_over_segmented():
@@ -116,6 +132,7 @@ def test_explicit_markdown_headings_keep_priority():
 if __name__ == "__main__":
     test_mixed_natural_language_is_split_into_distinct_experiences()
     test_comma_connected_mixed_input_is_semantically_split()
+    test_blank_line_paragraphs_are_strong_experience_boundaries()
     test_project_features_are_not_over_segmented()
     test_parking_features_and_award_stay_together()
     test_background_and_job_intent_do_not_become_projects()
