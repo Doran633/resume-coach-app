@@ -56,6 +56,25 @@ FORBIDDEN_STRONG_PHRASES = [
 
 AWARD_PHRASES = ["一等奖", "二等奖", "三等奖", "优秀奖", "冠军", "亚军", "季军", "获奖", "排名"]
 
+NEGATIVE_RESUME_PHRASES = [
+    ("没有实习经历", ""),
+    ("没有实习", ""),
+    ("无实习", ""),
+    ("没有上线", ""),
+    ("未上线", ""),
+    ("没有真实用户", ""),
+    ("没有用户", ""),
+    ("没有获奖", ""),
+    ("未获奖", ""),
+    ("没什么奖项", ""),
+    ("只是课程作业", "课程项目"),
+    ("只是作业", "课程项目"),
+    ("简单小项目", "个人项目实践"),
+    ("简单项目", "个人项目实践"),
+    ("写了几个页面", "参与核心页面开发与交互流程实现"),
+    ("调了一些接口", "完成接口联调与数据流转校验"),
+]
+
 SUMMARY_SEEDS = [
     "项目驱动型候选人，能够围绕已有任务梳理目标、功能链路、技术动作和结果证据。",
     "具备学习迁移能力，适合将课程项目、小项目或竞赛经历整理为可面试承接的实践表达。",
@@ -160,6 +179,8 @@ def detect_weak_profile(raw_input: str, payload: schemas.GenerationPayload | dic
 
 def _sanitize_strong_phrases(text: str, raw_input: str) -> str:
     cleaned = str(text or "")
+    for source, target in NEGATIVE_RESUME_PHRASES:
+        cleaned = cleaned.replace(source, target)
     if not _has_any(raw_input, ["公司", "企业", "实习", "工作", "生产", "上线"]):
         for phrase in FORBIDDEN_STRONG_PHRASES:
             cleaned = cleaned.replace(phrase, "项目实践")

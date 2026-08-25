@@ -149,9 +149,49 @@ def test_docx_export_runs_fact_guard_for_historical_hallucinated_result():
     db.close()
 
 
+def test_fact_guard_downgrades_internship_meta_when_raw_has_no_internship():
+    payload = schemas.GenerationPayload.model_validate(build_hallucinated_payload())
+    payload.resume_sections.projects[0]["meta"] = "实习经历"
+    payload.resume_sections.projects[0]["intro"] = "企业实习项目，负责页面开发。"
+
+    guarded = guard_hard_facts(payload, "课程项目：做了一个后台系统，写页面、调接口。")
+    text = all_text(guarded)
+
+    assert guarded.resume_sections.projects[0]["meta"] != "实习经历"
+    assert "实习经历" not in text
+    assert "企业实习" not in text
+
+
+def test_fact_guard_removes_internship_experience_from_summary_without_company_fact():
+    payload = schemas.GenerationPayload.model_validate(build_hallucinated_payload())
+    payload.resume_sections.summary = ["具备前端实习经验和项目实践能力。"]
+    payload.recommended_version = "具备实习经历，适合前端岗位。"
+
+    guarded = guard_hard_facts(payload, "课程项目：做了一个 Vue 后台，写页面、调接口。")
+    text = all_text(guarded)
+
+    assert "实习经验" not in text
+    assert "实习经历" not in text
+
+
+def test_fact_guard_keeps_real_internship_when_raw_provides_it():
+    payload = schemas.GenerationPayload.model_validate(build_hallucinated_payload())
+    payload.resume_sections.projects[0]["meta"] = "实习经历"
+    payload.resume_sections.projects[0]["name"] = "前端开发实习"
+    payload.resume_sections.projects[0]["intro"] = "在公司参与后台页面开发和接口联调。"
+
+    guarded = guard_hard_facts(payload, "我在某公司做过前端开发实习，参与后台页面开发和接口联调。")
+
+    assert guarded.resume_sections.projects[0]["meta"] == "实习经历"
+    assert "前端开发实习" in all_text(guarded)
+
+
 if __name__ == "__main__":
     test_fact_guard_removes_missing_major_and_implicit_school_facts()
     test_fact_guard_removes_training_and_concurrency_hallucination_but_keeps_rag()
     test_fact_guard_keeps_online_when_user_provides_deployment_evidence()
     test_docx_export_runs_fact_guard_for_historical_hallucinated_result()
+    test_fact_guard_downgrades_internship_meta_when_raw_has_no_internship()
+    test_fact_guard_removes_internship_experience_from_summary_without_company_fact()
+    test_fact_guard_keeps_real_internship_when_raw_provides_it()
     print("fact guard tests passed")

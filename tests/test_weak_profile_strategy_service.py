@@ -142,6 +142,54 @@ def test_no_missing_hard_facts_are_added_to_resume_sections():
         assert forbidden not in text
 
 
+def test_weak_profile_does_not_put_no_internship_in_resume_body():
+    raw = "我没有实习经历，只做过一个课程大作业，写了几个页面。"
+    payload = payload_with_projects(
+        [{"name": "课程大作业", "meta": "项目经历", "time": "[待填写]", "intro": "没有实习经历", "role": "写页面", "details": ["写了几个页面"]}]
+    )
+
+    strengthened = strengthen_weak_profile_payload(payload, raw, "前端开发")
+    text = all_resume_text(strengthened)
+
+    assert "没有实习" not in text
+    assert "实习经历" not in text
+
+
+def test_weak_profile_does_not_put_no_online_in_projects():
+    raw = "课程项目没有上线，主要做了页面开发和课堂展示。"
+    payload = payload_with_projects(
+        [{"name": "课程项目", "meta": "课程项目", "time": "[待填写]", "intro": "没有上线", "role": "课堂展示", "details": ["没有上线", "写了几个页面"]}]
+    )
+
+    strengthened = strengthen_weak_profile_payload(payload, raw, "前端开发")
+    text = all_resume_text(strengthened)
+
+    assert "没有上线" not in text
+    assert "未上线" not in text
+
+
+def test_weak_profile_competition_without_award_stays_positive():
+    raw = "参加过一次创新创业比赛，没有获奖，主要负责方案文档和答辩 PPT。"
+    payload = payload_with_projects(
+        [{"name": "创新创业比赛", "meta": "竞赛经历", "time": "[待填写]", "intro": "没有获奖", "role": "答辩 PPT", "details": ["没有获奖", "方案文档"]}]
+    )
+
+    strengthened = strengthen_weak_profile_payload(payload, raw, "泛互联网岗位")
+    text = all_resume_text(strengthened)
+
+    assert "没有获奖" not in text
+    assert "获奖" not in text
+    assert "方案文档" in text
+    assert "竞赛经历" in text
+
+
+def test_weak_profile_never_creates_internship_module_without_fact():
+    raw = "没有实习，只有课程项目和学生工作。"
+    strengthened = strengthen_weak_profile_payload(payload_with_projects([]), raw, "泛互联网岗位")
+
+    assert all("实习" not in str(project.get("meta", "")) for project in strengthened.resume_sections.projects)
+
+
 if __name__ == "__main__":
     test_course_assignment_is_detected_as_weak_profile()
     test_no_internship_is_not_fabricated()
@@ -151,4 +199,8 @@ if __name__ == "__main__":
     test_competition_participation_does_not_fabricate_award()
     test_summary_and_details_are_filled_enough()
     test_no_missing_hard_facts_are_added_to_resume_sections()
+    test_weak_profile_does_not_put_no_internship_in_resume_body()
+    test_weak_profile_does_not_put_no_online_in_projects()
+    test_weak_profile_competition_without_award_stays_positive()
+    test_weak_profile_never_creates_internship_module_without_fact()
     print("weak profile strategy tests passed")

@@ -17,6 +17,7 @@ from .experience_boundary_guard_service import guard_experience_boundaries
 from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
 from .project_specificity_guard_service import guard_project_specificity
 from .weak_profile_strategy_service import strengthen_weak_profile_payload
+from .resume_body_sanitizer_service import sanitize_resume_body
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -152,6 +153,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     experience = db.query(models.ExperienceInput).filter_by(id=result_row.experience_input_id).first() if result_row else None
     raw_input = experience.raw_input if experience else ""
     target_role = experience.target_role if experience else ""
+    payload = sanitize_resume_body(payload, raw_input)
     payload = guard_hard_facts(payload, raw_input)
     payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
     payload = ensure_packaging_gain(payload, raw_input, target_role)
@@ -159,6 +161,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = cleanup_uncertain_expressions(payload, raw_input)
     payload = guard_project_specificity(payload, raw_input)
     payload = strengthen_weak_profile_payload(payload, raw_input, target_role)
+    payload = sanitize_resume_body(payload, raw_input)
     payload = guard_hard_facts(payload, raw_input)
 
     doc = Document()

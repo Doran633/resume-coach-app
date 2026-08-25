@@ -50,6 +50,10 @@ FORBIDDEN_IF_MISSING = {
         ("真实业务团队协作", "项目协作与交付实践"),
         ("企业级生产系统", "可公网访问的项目"),
         ("企业级经验", "项目实践经验"),
+        ("实习经历", "项目实践经历"),
+        ("实习经验", "项目实践经验"),
+        ("企业实习", "项目实践"),
+        ("实习项目", "项目实践"),
     ],
     "training": [
         ("模型训练经验", "AI 应用开发经验"),
@@ -65,6 +69,16 @@ FORBIDDEN_IF_MISSING = {
         ("实时高并发", "多用户访问"),
         ("高并发访问", "多用户访问"),
     ],
+    "award": [
+        ("竞赛获奖", "竞赛经历"),
+        ("获奖", "参与"),
+        ("一等奖", "竞赛参与"),
+        ("二等奖", "竞赛参与"),
+        ("三等奖", "竞赛参与"),
+        ("优秀奖", "竞赛参与"),
+        ("排名", "参与情况"),
+        ("名次", "参与情况"),
+    ],
 }
 
 
@@ -79,17 +93,21 @@ def _raw_has_any(raw_input: str, keywords: list[str]) -> bool:
 
 def _provided_facts(raw_input: str) -> dict[str, bool]:
     raw = raw_input.strip()
+    no_internship = _raw_has_any(raw, ["没有实习", "无实习", "没实习"])
+    no_online = _raw_has_any(raw, ["没有上线", "未上线", "没有正式上线"])
+    no_users = _raw_has_any(raw, ["没有真实用户", "没有用户", "无用户"])
+    no_award = _raw_has_any(raw, ["没有获奖", "未获奖", "没什么奖项", "没有奖"])
     return {
         "school": bool(re.search(r"(大学|学院|学校)", raw)),
         "major": bool(re.search(r"(专业是|专业为|就读.*专业|[^，。；\s]{2,20}专业)", raw)),
         "degree": _raw_has_any(raw, ["本科", "硕士", "博士", "专科", "学历"]),
-        "company": _raw_has_any(raw, ["公司", "企业", "实习", "工作", "岗位", "业务团队"]),
-        "users": bool(re.search(r"\d+\s*(人|用户|UV|PV|访问|在线)", raw, re.IGNORECASE)),
+        "company": _raw_has_any(raw, ["公司", "企业", "实习", "工作", "岗位", "业务团队"]) and not no_internship,
+        "users": bool(re.search(r"\d+\s*(人|用户|UV|PV|访问|在线)", raw, re.IGNORECASE)) and not no_users,
         "stars": bool(re.search(r"\d+\s*(star|stars|星)", raw, re.IGNORECASE)),
-        "online": _raw_has_any(raw, ["上线", "部署", "公网", "域名", "VPS", "Nginx", "systemd"]),
+        "online": _raw_has_any(raw, ["上线", "部署", "公网", "域名", "VPS", "Nginx", "systemd"]) and not no_online,
         "concurrency": _raw_has_any(raw, ["并发", "同时在线", "QPS", "吞吐"]),
         "performance": _raw_has_any(raw, ["性能提升", "提升", "降低", "优化了", "%"]),
-        "award": _raw_has_any(raw, ["奖", "排名", "名次", "一等奖", "二等奖", "三等奖"]),
+        "award": _raw_has_any(raw, ["奖", "排名", "名次", "一等奖", "二等奖", "三等奖"]) and not no_award,
         "training": _raw_has_any(raw, ["模型训练", "训练模型", "微调", "SFT", "RLHF", "DPO", "LoRA", "QLoRA"]),
         "tech": _raw_has_any(raw, TECH_TERMS),
     }
@@ -109,6 +127,9 @@ def _replace_missing_fact_phrases(text: str, facts: dict[str, bool]) -> str:
     if not facts["concurrency"]:
         for src, dst in FORBIDDEN_IF_MISSING["concurrency"]:
             cleaned = cleaned.replace(src, dst)
+    if not facts["award"]:
+        for src, dst in FORBIDDEN_IF_MISSING["award"]:
+            cleaned = cleaned.replace(src, dst)
     if not facts["online"]:
         cleaned = cleaned.replace("已部署上线", "具备部署实践")
         cleaned = cleaned.replace("上线运行", "完成本地或测试环境运行")
@@ -125,6 +146,27 @@ def _clean_list(values, facts: dict[str, bool]) -> list[str]:
     if not isinstance(values, list):
         return []
     return [text for item in values if (text := _clean_text(item, facts))]
+
+
+def _infer_non_work_meta(project: dict) -> str:
+    text = " ".join(
+        [
+            str(project.get("name", "")),
+            str(project.get("meta", "")),
+            str(project.get("intro", "")),
+            str(project.get("role", "")),
+            " ".join(str(item) for item in project.get("details", []) or []),
+        ]
+    )
+    if any(keyword in text for keyword in ["课程", "大作业", "课设", "课程设计", "作业"]):
+        return "课程项目"
+    if any(keyword in text for keyword in ["个人项目", "小项目"]):
+        return "个人项目"
+    if any(keyword in text for keyword in ["学生工作", "学生会", "社团", "校园"]):
+        return "校园 / 社团经历"
+    if any(keyword in text for keyword in ["竞赛", "比赛", "答辩", "路演"]):
+        return "竞赛经历"
+    return "项目经历"
 
 
 def _guard_education(education: dict, raw_input: str, facts: dict[str, bool]) -> dict[str, str]:
@@ -166,10 +208,13 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
     cleaned_projects = []
     for project in projects if isinstance(projects, list) else []:
         item = project if isinstance(project, dict) else {"name": "项目经历", "intro": project}
+        meta = _clean_text(item.get("meta"), facts) or "项目经历"
+        if not facts["company"] and "实习" in meta:
+            meta = _infer_non_work_meta(item)
         cleaned_projects.append(
             {
                 "name": _clean_text(item.get("name"), facts) or "项目经历",
-                "meta": _clean_text(item.get("meta"), facts) or "项目经历",
+                "meta": meta,
                 "time": _clean_text(item.get("time"), facts) or PLACEHOLDER,
                 "intro": _clean_text(item.get("intro"), facts),
                 "role": _clean_text(item.get("role"), facts),
