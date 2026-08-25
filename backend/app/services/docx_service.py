@@ -15,6 +15,7 @@ from .fact_guard_service import guard_hard_facts
 from .enhancement_guard_service import ensure_packaging_gain
 from .experience_boundary_guard_service import guard_experience_boundaries
 from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
+from .project_specificity_guard_service import guard_project_specificity
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -153,6 +154,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = ensure_packaging_gain(payload, raw_input, target_role)
     payload = guard_experience_boundaries(payload, raw_input)
     payload = cleanup_uncertain_expressions(payload, raw_input)
+    payload = guard_project_specificity(payload, raw_input)
     payload = guard_hard_facts(payload, raw_input)
 
     doc = Document()

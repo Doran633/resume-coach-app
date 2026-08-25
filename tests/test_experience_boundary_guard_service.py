@@ -7,6 +7,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app import schemas  # noqa: E402
 from app.services.experience_boundary_guard_service import guard_experience_boundaries  # noqa: E402
+from app.services.project_specificity_guard_service import guard_project_specificity  # noqa: E402
 
 
 RAW_INPUT = """项目一｜RAG 助手
@@ -21,6 +22,8 @@ RAW_INPUT = """项目一｜RAG 助手
 竞赛经历｜创新创业比赛
 负责答辩材料和方案展示，获得校级立项。
 """
+
+RAG_TEMPLATE = "围绕文档解析、切块、Embedding、向量检索和回答生成梳理 RAG 应用链路"
 
 
 def payload_with_projects(projects: list[dict]) -> schemas.GenerationPayload:
@@ -91,8 +94,24 @@ def test_experience_does_not_inherit_metrics_or_awards():
     assert "校级立项" in " ".join(guarded.resume_sections.projects[2]["details"])
 
 
+def test_template_sentence_needs_specificity_guard():
+    payload = payload_with_projects(
+        [
+            {"name": "RAG 助手", "meta": "项目经历", "time": "[待填写]", "intro": "RAG 项目", "role": "负责 RAG", "details": [RAG_TEMPLATE]},
+            {"name": "课程后台", "meta": "项目经历", "time": "[待填写]", "intro": "课程后台", "role": "负责 Vue 页面", "details": [RAG_TEMPLATE, "使用 Vue 完成页面"]},
+        ]
+    )
+
+    boundary_guarded = guard_experience_boundaries(payload, RAW_INPUT)
+    specificity_guarded = guard_project_specificity(boundary_guarded, RAW_INPUT)
+
+    combined = " ".join(" ".join(project["details"]) for project in specificity_guarded.resume_sections.projects)
+    assert combined.count(RAG_TEMPLATE) == 1
+
+
 if __name__ == "__main__":
     test_project_does_not_inherit_other_project_docker()
     test_rag_project_keeps_supported_inference_terms()
     test_experience_does_not_inherit_metrics_or_awards()
+    test_template_sentence_needs_specificity_guard()
     print("experience boundary guard tests passed")

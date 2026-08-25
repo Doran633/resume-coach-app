@@ -20,6 +20,7 @@ from .long_input_service import LongInputContext, analyze_long_input
 from .stable_generation_fallback_service import build_stable_generation_fallback
 from .experience_boundary_guard_service import guard_experience_boundaries
 from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
+from .project_specificity_guard_service import guard_project_specificity
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -422,6 +423,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
     payload = guard_experience_boundaries(payload, request.raw_input)
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
+    payload = guard_project_specificity(payload, request.raw_input)
     payload = guard_hard_facts(payload, request.raw_input)
 
     result = models.GenerationResult(

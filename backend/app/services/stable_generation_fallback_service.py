@@ -32,6 +32,10 @@ def _split_details(content: str, limit: int = 5) -> list[str]:
     return details or [compact_text(content, 160)]
 
 
+def _wording_key(text: str) -> str:
+    return re.sub(r"[\s，,。；;：:、/\\|｜（）()\[\]【】《》“”\"'`~\-—–_]+", "", text or "").lower()
+
+
 def _role_for_meta(meta: str) -> str:
     if meta == "实习经历":
         return "围绕实习任务参与功能开发、联调排查、文档整理或需求验收，具体职责以用户已提供内容为准。"
@@ -79,6 +83,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     all_risks: list[str] = []
     all_interview_terms: list[str] = []
     projects: list[dict] = []
+    used_supported_wordings: set[str] = set()
 
     for segment in context.segments[:5]:
         tech_terms = segment.tech_terms
@@ -94,8 +99,10 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
         meta = _infer_meta(segment.label, segment.content)
         details = _split_details(segment.content, limit=4)
         for wording in segment.supported_wordings[:2]:
-            if wording not in details:
+            wording_key = _wording_key(wording)
+            if wording_key and wording_key not in used_supported_wordings and wording not in details:
                 details.append(wording)
+                used_supported_wordings.add(wording_key)
         projects.append(
             {
                 "name": segment.title,
