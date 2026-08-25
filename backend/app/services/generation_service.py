@@ -1,6 +1,9 @@
 import json
+import time
 from pathlib import Path
 from dataclasses import asdict, dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -13,6 +16,8 @@ from .result_cleanup_service import cleanup_generation_payload
 from .resume_section_fallback_service import fill_resume_sections
 from .fact_guard_service import guard_hard_facts
 from .enhancement_guard_service import ensure_packaging_gain
+from .long_input_service import LongInputContext, analyze_long_input
+from .stable_generation_fallback_service import build_stable_generation_fallback
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -27,6 +32,16 @@ def _write_llm_log(log: dict):
     log_path = LOG_DIR / "llm_calls.jsonl"
     with log_path.open("a", encoding="utf-8") as file:
         file.write(json.dumps(log, ensure_ascii=False) + "\n")
+
+
+def _write_generation_stability_log(log: dict):
+    try:
+        log_path = LOG_DIR / "generation_stability.jsonl"
+        payload = {"created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(), **log}
+        with log_path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
 
 
 def _to_text(value) -> str:
@@ -300,8 +315,8 @@ def build_mock_generation(request: schemas.GenerateRequest) -> schemas.Generatio
     )
 
 
-def build_llm_generation(request: schemas.GenerateRequest) -> tuple[schemas.GenerationPayload, dict]:
-    prompt = build_generation_prompt(request)
+def build_llm_generation(request: schemas.GenerateRequest, long_input_context: LongInputContext) -> tuple[schemas.GenerationPayload, dict]:
+    prompt = build_generation_prompt(request, long_input_context)
     last_error = ""
 
     for attempt in range(2):
@@ -316,6 +331,7 @@ def build_llm_generation(request: schemas.GenerateRequest) -> tuple[schemas.Gene
                 "success": 1,
                 "error_message": None,
                 "attempt": attempt + 1,
+                "prompt_type": "long" if long_input_context.long_input_mode else "normal",
             }
         except (JSONRepairError, ValueError) as exc:
             last_error = str(exc)
@@ -330,6 +346,8 @@ def build_llm_generation(request: schemas.GenerateRequest) -> tuple[schemas.Gene
 
 
 def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.GenerateResponse:
+    started_at = time.perf_counter()
+    long_input_context = analyze_long_input(request.raw_input)
     user = get_or_create_anonymous_user(db, request.anonymous_user_id)
     ensure_session(db, user, request.session_id)
 
@@ -353,6 +371,21 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
         "latency_ms": 0,
         "success": 1,
         "error_message": None,
+        "prompt_type": "normal",
+    }
+    stability_log = {
+        "mode": mode,
+        "model": "mock",
+        "long_input_mode": long_input_context.long_input_mode,
+        "raw_input_length": long_input_context.raw_input_length,
+        "line_count": long_input_context.line_count,
+        "segment_count": long_input_context.segment_count,
+        "prompt_type": "long" if long_input_context.long_input_mode else "normal",
+        "llm_success": mode == "mock",
+        "json_repair_failed": False,
+        "fallback_used": False,
+        "latency_ms": None,
+        "error_message": None,
     }
 
     if mode == "mock":
@@ -360,20 +393,24 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
         llm_log["model"] = "mock"
     elif mode == "openai":
         try:
-            payload, llm_log = build_llm_generation(request)
+            payload, llm_log = build_llm_generation(request, long_input_context)
+            stability_log["model"] = llm_log.get("model")
+            stability_log["llm_success"] = True
         except GenerationServiceError as exc:
-            error_log = {
+            payload = build_stable_generation_fallback(request, long_input_context)
+            stability_log["model"] = get_openai_model()
+            stability_log["llm_success"] = False
+            stability_log["json_repair_failed"] = "JSON" in str(exc) or "schema" in str(exc).lower()
+            stability_log["fallback_used"] = True
+            stability_log["error_message"] = str(exc)
+            llm_log = {
                 "model": get_openai_model(),
                 "mode": "openai",
                 "latency_ms": None,
                 "success": 0,
                 "error_message": str(exc),
-                "generation_result_id": None,
+                "prompt_type": "long" if long_input_context.long_input_mode else "normal",
             }
-            _write_llm_log(error_log)
-            db.add(models.LLMCallLog(**error_log))
-            db.commit()
-            raise
     else:
         raise GenerationServiceError(f"Unsupported LLM_MODE: {mode}. Use mock or openai.")
 
@@ -411,9 +448,16 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     db.add(models.ResumeVersion(generation_result_id=result.id, version_type="boundary", content_json=json.dumps({"content": payload.boundary_version}, ensure_ascii=False)))
     db.add(models.ResumeVersion(generation_result_id=result.id, version_type="recommended", content_json=payload.resume_sections.model_dump_json()))
     llm_log["generation_result_id"] = result.id
+    llm_log["long_input_mode"] = long_input_context.long_input_mode
+    llm_log["raw_input_length"] = long_input_context.raw_input_length
+    llm_log["line_count"] = long_input_context.line_count
+    llm_log["segment_count"] = long_input_context.segment_count
+    stability_log["generation_result_id"] = result.id
     db.add(models.LLMCallLog(**{key: llm_log.get(key) for key in ["generation_result_id", "model", "mode", "latency_ms", "success", "error_message"]}))
     db.commit()
     _write_llm_log(llm_log)
+    stability_log["latency_ms"] = int((time.perf_counter() - started_at) * 1000)
+    _write_generation_stability_log(stability_log)
 
     return schemas.GenerateResponse(
         experience_input_id=experience.id,

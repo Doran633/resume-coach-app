@@ -25,6 +25,7 @@ Resume Coach App 面向有项目、实习、开源、比赛或校园经历，但
 - 生成稳定性：LLM 输出经过结构校验、JSON 修复、结果清洗和简历结构兜底。
 - 输出质量：支持多段经历识别和更高密度项目生成，避免长输入被过度压缩。
 - 经历覆盖：支持项目、实习、科研、竞赛、开源、校园 / 社团等经历进入正式简历。
+- 长输入稳定生成：长经历会先本地预处理为 compact context，再使用短 prompt 生成，降低 token 消耗、响应时间和 JSON 截断风险。
 - DOCX 导出：根据结构化简历生成正式技术简历，支持最多两页内容承载，并在结构为空时自动兜底，避免页面有内容但 DOCX 空白。
 - 数据闭环：匿名用户、会话、事件、输入、生成结果、反馈、LLM 调用日志和 fallback 日志。
 - 数据导出：将 SQLite 埋点导出为 Markdown 和 CSV 报告，并汇总 fallback 触发率。
@@ -105,6 +106,19 @@ v0.3.3 增强实习、科研、竞赛、开源、校园 / 社团等非项目经�
 - 通过 `project.meta` 区分“项目经历 / 实习经历 / 科研经历 / 竞赛经历 / 开源经历 / 校园 / 社团经历”。
 - Fallback 会从原始输入中补回被 LLM 漏掉的实习、科研、竞赛等经历。
 - DOCX 输出按小标题分组展示，例如“项目经历”“科研经历”“实习经历”“竞赛获奖”。
+
+## v0.3.4 长输入低 token 稳定生成
+
+v0.3.4 解决长输入时响应慢、token 消耗高、JSON 截断和偶发无法生成的问题。系统不会把完整长原文和完整长 prompt 一次性丢给模型，而是先在本地做经历分段和关键词提取，再把压缩后的 compact context 交给短 prompt。
+
+主要能力：
+
+- 本地预处理：识别长输入、行数和主要经历段数，提取经历类型、标题、摘要、技术词、证据词和风险词。
+- 长输入短 prompt：长输入模式下使用 `prompts/generate_resume_coach_result_long.md`，优先保证 `resume_sections.projects` 和 DOCX 可用。
+- 输出控量：三档包装、Claim、面试准备和知识清单保持必要但不冗长，降低输出 token 和截断风险。
+- 稳定 fallback：OpenAI 兼容接口失败、JSON 修复失败或 schema 校验失败时，不直接让前端报错，而是基于本地分段生成可用的保底结果。
+- 事实边界：fallback 不调用 LLM，不编造学校、专业、公司、用户数、star、并发、奖项、模型训练等硬事实。
+- 稳定性日志：每次生成写入 `backend/logs/generation_stability.jsonl`，记录是否进入长输入模式、是否使用短 prompt、是否触发 fallback 和耗时。
 
 ## 本地启动
 
@@ -291,6 +305,7 @@ sqlite3 backend/data/resume_coach.db "select id, generation_result_id, file_type
 - LLM 调用日志：`backend/logs/llm_calls.jsonl`
 - 结果清洗日志：`backend/logs/result_cleanup.jsonl`
 - 简历结构兜底日志：`backend/logs/resume_section_fallback.jsonl`
+- 长输入稳定性日志：`backend/logs/generation_stability.jsonl`
 - 生成文件：`backend/outputs/`
 - 数据报告：`backend/reports/`
 
@@ -310,6 +325,12 @@ tail -n 50 backend/logs/result_cleanup.jsonl
 
 ```bash
 tail -n 50 backend/logs/resume_section_fallback.jsonl
+```
+
+查看最近长输入稳定性日志：
+
+```bash
+tail -n 50 backend/logs/generation_stability.jsonl
 ```
 
 ## 常见问题

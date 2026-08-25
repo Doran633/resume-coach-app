@@ -287,6 +287,27 @@ v0.3.3 解决另一个真实简历场景问题：用户输入的不一定都是�
 
 > 简历不是只有项目经历，用户给出的重要经历都应该被看见。
 
+## v0.3.4：长输入低 token 稳定生成
+
+v0.3.4 继续处理长输入场景，但重点从“多段经历不丢失”推进到“更低成本、更快响应、更少失败”。真实长输入会同时拉高输入 token 和输出 token：原文很长，完整 prompt 很长，最终还要生成三档包装、Claim、面试准备和 `resume_sections`。这会带来响应慢、成本高、JSON 截断、API 超时和无法生成等问题。
+
+这一版的核心设计是：
+
+> 长输入先本地压缩，再用短 prompt 生成核心结构；模型失败时，用户仍能拿到基于原文的稳定结果。
+
+主要能力：
+
+- 新增 `long_input_service.py`，根据原文长度、行数和经历段数判断是否进入长输入模式。
+- 本地预处理长输入，提取每段经历的类型、标题、摘要、技术词、证据词和风险词，形成 `compact_experience_context`。
+- 新增长输入短 prompt：`prompts/generate_resume_coach_result_long.md`，减少冗长规则和输出规模，优先保证 `resume_sections.projects` 完整。
+- `prompt_service` 支持根据 `long_input_mode` 自动选择普通 prompt 或长输入短 prompt。
+- 增强 JSON 修复：对疑似截断的 JSON 尝试补齐括号和方括号，失败后交给稳定兜底。
+- 新增 `stable_generation_fallback_service.py`，在 LLM 调用失败、JSON 修复失败或 schema 校验失败时，基于本地分段生成保底 `GenerationPayload`。
+- fallback 不调用 LLM，不编造学校、专业、公司、用户数、star、并发、奖项、模型训练等硬事实。
+- 新增 `generation_stability.jsonl`，记录长输入模式、prompt 类型、LLM 成功状态、是否触发 fallback、耗时和错误信息。
+
+这一版的产品意义是：用户输入越长，系统不应该变得更脆弱。即使上游模型偶发失败，前端也不应该直接崩掉；但开发者可以通过稳定性日志发现失败和成本问题。
+
 ## v0.3 建议方向
 
 v0.3 建议继续围绕“输出质量优化”迭代。

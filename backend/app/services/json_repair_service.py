@@ -21,9 +21,40 @@ def _extract_json_object(text: str) -> str:
 
     start = cleaned.find("{")
     end = cleaned.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    if start == -1:
         raise JSONRepairError("LLM response does not contain a JSON object.")
+    if end == -1 or end <= start:
+        return cleaned[start:].strip()
     return cleaned[start : end + 1]
+
+
+def _close_truncated_json(json_text: str) -> str:
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for char in json_text:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and in_string:
+            escaped = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char in "{[":
+            stack.append(char)
+        elif char in "}]":
+            if stack:
+                stack.pop()
+    if in_string:
+        json_text += '"'
+    closing = {"{": "}", "[": "]"}
+    while stack:
+        json_text += closing[stack.pop()]
+    return json_text
 
 
 def parse_llm_json(text: str) -> dict[str, Any]:
@@ -31,4 +62,8 @@ def parse_llm_json(text: str) -> dict[str, Any]:
     try:
         return json.loads(json_text)
     except json.JSONDecodeError as exc:
-        raise JSONRepairError(f"Invalid JSON from LLM: {exc}") from exc
+        repaired = _close_truncated_json(json_text)
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            raise JSONRepairError(f"Invalid JSON from LLM: {exc}") from exc

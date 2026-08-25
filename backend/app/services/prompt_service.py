@@ -2,6 +2,7 @@ from pathlib import Path
 
 from .. import schemas
 from .experience_segmentation_service import build_experience_context
+from .long_input_service import LongInputContext
 
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -15,13 +16,23 @@ def load_prompt(name: str) -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-def build_generation_prompt(request: schemas.GenerateRequest) -> str:
+def build_generation_prompt(request: schemas.GenerateRequest, long_input_context: LongInputContext | None = None) -> str:
+    if long_input_context and long_input_context.long_input_mode:
+        template = load_prompt("generate_resume_coach_result_long.md")
+        return template.format(
+            target_role=request.target_role,
+            mode=request.mode,
+            packaging_level=request.packaging_level,
+            experience_type=request.experience_type,
+            compact_experience_context=long_input_context.compact_context,
+        )
+
     template = load_prompt("generate_resume_coach_result.md")
     return template.format(
         target_role=request.target_role,
         mode=request.mode,
         packaging_level=request.packaging_level,
         experience_type=request.experience_type,
-        raw_input=request.raw_input,
+        raw_input=long_input_context.raw_input_for_prompt if long_input_context else request.raw_input,
         experience_context=build_experience_context(request.raw_input),
     )
