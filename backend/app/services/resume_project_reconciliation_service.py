@@ -150,6 +150,12 @@ def _assign_project_sources(projects: list[dict], identities: list[ExperienceIde
             identity = _match_identity(_project_text(project), identities)
         if identity:
             project["source_experience_id"] = identity.experience_id
+            current_meta = str(project.get("meta") or "").strip()
+            if identity.experience_type == "项目经历":
+                if current_meta == "实习经历" or "实习" in current_meta:
+                    project["meta"] = "项目经历"
+            else:
+                project["meta"] = identity.experience_type
             coverage.setdefault(identity.experience_id, index)
     return coverage
 

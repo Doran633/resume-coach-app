@@ -64,11 +64,14 @@ def build_experience_context(raw_input: str) -> str:
 
     lines = [
         f"系统预解析到 {len(segments)} 段主要经历。该结果只用于帮助分段，不得替代用户事实：",
+        "以下为系统内部检索摘要，长度裁剪不代表用户原文缺失。不得将省略号或截断提示写入正式简历。",
     ]
     for index, segment in enumerate(segments, start=1):
         preview = re.sub(r"\s+", " ", segment.content).strip()
         if len(preview) > 180:
-            preview = preview[:180] + "..."
+            boundaries = [match.end() for match in re.finditer(r"[。！？；;.!?]", preview[:181])]
+            end = boundaries[-1] if boundaries and boundaries[-1] >= 90 else 180
+            preview = preview[:end].rstrip("，、：: ") + "（内部摘要结束）"
         lines.append(f"{index}. {segment.label}：{segment.title}；内容摘要：{preview}")
     lines.append("生成时请尽量让每段主要经历分别进入正式简历结构，不要因为输入较长而随意合并或删除。")
     return "\n".join(lines)

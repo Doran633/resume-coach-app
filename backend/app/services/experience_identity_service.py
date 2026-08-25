@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 from .long_input_service import LongInputSegment, analyze_long_input
@@ -63,12 +64,13 @@ def build_experience_identity_context(raw_input: str) -> str:
 
     lines = [
         "内部 experience_id 边界表：以下信息只来自用户原文和本地预处理，不得跨 experience_id 借用事实。",
+        "以下为系统内部检索摘要，长度裁剪不代表用户原文缺失。不得将省略号或截断提示写入正式简历。",
     ]
     for item in identities:
         lines.extend(
             [
                 f"{item.experience_id}｜{item.experience_type}｜{item.title}",
-                f"原文摘要：{item.raw_text[:220].strip()}",
+                f"原文摘要：{_semantic_preview(item.raw_text, 220)}",
                 f"明确技术词：{'、'.join(item.explicit_tech_terms) if item.explicit_tech_terms else '未识别'}",
                 f"指标/证据词：{'、'.join(item.evidence_terms) if item.evidence_terms else '未识别'}",
                 f"风险词：{'、'.join(item.risk_terms) if item.risk_terms else '未识别'}",
@@ -77,3 +79,12 @@ def build_experience_identity_context(raw_input: str) -> str:
         )
     lines.append("生成 resume_sections.projects 时，每个项目必须包含内部字段 source_experience_id，例如 EXP-001。该字段不会展示给用户。")
     return "\n".join(lines)
+
+
+def _semantic_preview(text: str, limit: int) -> str:
+    compact = " ".join((text or "").split())
+    if len(compact) <= limit:
+        return compact
+    candidates = [match.end() for match in re.finditer(r"[。！？；;.!?]", compact[: limit + 1])]
+    end = candidates[-1] if candidates and candidates[-1] >= limit // 2 else limit
+    return compact[:end].rstrip("，、：: ") + "（内部摘要结束）"

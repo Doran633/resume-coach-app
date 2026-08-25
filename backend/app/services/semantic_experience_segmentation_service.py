@@ -34,7 +34,7 @@ CONTINUATION_PREFIXES = (
 )
 
 TYPE_KEYWORDS = {
-    "实习经历": ["实习", "公司", "岗位"],
+    "实习经历": ["实习"],
     "科研经历": ["科研", "研究", "论文", "课题", "实验室"],
     "开源经历": ["开源", "GitHub", "PR", "commit"],
     "社团经历": ["协会", "社团", "足球协会"],
@@ -109,8 +109,14 @@ def _themes(text: str) -> set[str]:
 
 def _infer_type(text: str) -> str:
     negative_internship = any(term in text for term in ["没有实习", "无实习", "没实习"])
+    positive_internship = bool(
+        re.search(r"(?:在|于).{0,40}(?:公司|企业|团队).{0,30}(?:任职|工作|实习)", text, re.IGNORECASE)
+        or re.search(r"(?:实习生|实习岗位|岗位实习|实习经历)", text, re.IGNORECASE)
+    )
     for experience_type, keywords in TYPE_KEYWORDS.items():
         if experience_type == "实习经历" and negative_internship:
+            continue
+        if experience_type == "实习经历" and not positive_internship:
             continue
         if any(keyword.lower() in text.lower() for keyword in keywords):
             return experience_type

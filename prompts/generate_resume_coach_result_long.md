@@ -10,6 +10,8 @@
 - 内部 experience_id 边界表：
 {experience_identity_context}
 
+长输入摘要和内部检索摘要只用于定位经历边界，裁剪不代表用户原文缺失。不得把摘要末尾、内部标记、省略号或“原文截断/需补充”等提示写入正式简历。项目 meta 必须与 source_experience_id 对应的 experience_type 一致。
+
 系统识别出的低置信度分段追问（只能加入 missing_questions，不得自行认定）：
 {segmentation_question_context}
 

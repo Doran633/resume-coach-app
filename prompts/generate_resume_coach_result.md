@@ -13,6 +13,8 @@
 - 内部 experience_id 边界表：
 {experience_identity_context}
 
+内部摘要只用于定位经历边界，长度裁剪不代表用户原文缺失。正式简历不得出现“原文截断”“需补充原文”“内容被截断”“文本不完整”“因长度限制省略”或省略号截断句。经历类型必须服从 source_experience_id 对应的 experience_type，不得因为其他经历出现“实习”就把个人项目标成实习经历。
+
 系统识别出的低置信度分段追问（只能加入 missing_questions，不得自行认定）：
 {segmentation_question_context}
 
