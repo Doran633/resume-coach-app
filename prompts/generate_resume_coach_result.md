@@ -79,6 +79,16 @@ resume_sections 必须包含：
 6. 用户可能使用“项目一｜项目名”“项目二｜项目名”“### 项目一｜项目名”等自然标题格式，这些都应视为独立经历分段。
 7. 长输入时优先保证 resume_sections.projects 的完整性，其次再压缩 recommended_version 的解释性文字；不要让正式简历结构为空或只剩一个项目。
 
+非项目经历承载规则：
+1. resume_sections.projects 是统一经历承载结构，不只用于普通项目，也用于实习、科研、竞赛、开源、校园 / 社团等经历。
+2. 用户输入实习经历时，必须进入 resume_sections.projects，meta 写为“实习经历”。
+3. 用户输入科研 / 研究 / 论文经历时，必须进入 resume_sections.projects，meta 写为“科研经历”。
+4. 用户输入竞赛 / 比赛经历时，必须进入 resume_sections.projects，meta 写为“竞赛经历”。
+5. 用户输入开源经历时，必须进入 resume_sections.projects，meta 写为“开源经历”。
+6. 用户输入校园 / 社团 / 志愿经历时，必须进入 resume_sections.projects，meta 写为“校园 / 社团经历”。
+7. 不要因为这些经历不是“项目”就丢弃或只写进 summary。
+8. 如果用户输入多类经历，应尽量分别保留，除非信息极少或明显重复。
+
 输出密度控制规则：
 1. 单段主要经历：details 建议 4-6 条。
 2. 两段主要经历：每段 details 建议 4-5 条。

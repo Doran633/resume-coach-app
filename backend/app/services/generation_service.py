@@ -379,7 +379,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
 
     payload = cleanup_generation_payload(payload, source=mode)
     payload = guard_hard_facts(payload, request.raw_input)
-    payload = fill_resume_sections(payload, stage="generation")
+    payload = fill_resume_sections(payload, stage="generation", raw_input=request.raw_input)
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
     payload = guard_hard_facts(payload, request.raw_input)
 

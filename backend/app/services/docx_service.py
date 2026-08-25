@@ -104,6 +104,30 @@ def _interview_limit(project_count: int) -> int:
     return 6
 
 
+def _experience_heading(meta: str | None) -> str:
+    text = meta or "项目经历"
+    if "实习" in text:
+        return "实习经历"
+    if "科研" in text or "研究" in text or "论文" in text:
+        return "科研经历"
+    if "竞赛" in text or "比赛" in text:
+        return "竞赛获奖"
+    if "开源" in text:
+        return "开源经历"
+    if "校园" in text or "社团" in text or "志愿" in text:
+        return "校园 / 社团经历"
+    return "项目经历"
+
+
+def _group_experiences(projects: list[dict]) -> list[tuple[str, list[dict]]]:
+    order = ["项目经历", "科研经历", "实习经历", "竞赛获奖", "开源经历", "校园 / 社团经历"]
+    groups: dict[str, list[dict]] = {}
+    for project in projects:
+        heading = _experience_heading(project.get("meta"))
+        groups.setdefault(heading, []).append(project)
+    return [(heading, groups[heading]) for heading in order if heading in groups]
+
+
 def _next_path(prefix: str) -> Path:
     version = 1
     for path in OUTPUT_DIR.glob(f"v*-{prefix}.docx"):
@@ -123,7 +147,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     raw_input = experience.raw_input if experience else ""
     target_role = experience.target_role if experience else ""
     payload = guard_hard_facts(payload, raw_input)
-    payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export")
+    payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
     payload = ensure_packaging_gain(payload, raw_input, target_role)
     payload = guard_hard_facts(payload, raw_input)
 
@@ -163,16 +187,18 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     for item in payload.resume_sections.skills:
         _bullet(doc, item)
 
-    _heading(doc, "项目经历")
     projects = payload.resume_sections.projects[:5]
     detail_limit = _project_detail_limit(len(projects))
-    for project in projects:
-        _p(doc, f"{project.get('name')} | {project.get('meta')} | {project.get('time')}", 11, True, "1F3763")
-        _bullet(doc, "项目简介：" + project.get("intro", ""), bold_label=True)
-        _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
-        _bullet(doc, "技术细节：", bold_label=True)
-        for detail in project.get("details", [])[:detail_limit]:
-            _bullet(doc, detail, level=1)
+    for heading, group in _group_experiences(projects):
+        _heading(doc, heading)
+        for project in group:
+            _p(doc, f"{project.get('name')} | {project.get('meta')} | {project.get('time')}", 11, True, "1F3763")
+            intro_label = "经历简介：" if heading != "项目经历" else "项目简介："
+            _bullet(doc, intro_label + project.get("intro", ""), bold_label=True)
+            _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
+            _bullet(doc, "技术细节：", bold_label=True)
+            for detail in project.get("details", [])[:detail_limit]:
+                _bullet(doc, detail, level=1)
 
     _heading(doc, "面试准备清单")
     for item in payload.resume_sections.interview_preparation[: _interview_limit(len(projects))]:

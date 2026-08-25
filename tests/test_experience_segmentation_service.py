@@ -57,8 +57,30 @@ def test_generation_prompt_contains_experience_context():
     assert "项目一｜AI RAG 智能助手" in prompt
 
 
+def test_split_experience_segments_supports_non_project_types():
+    raw = """### 实习经历｜字节跳动前端开发实习
+参与内部后台页面开发、接口联调和缺陷修复。
+
+科研经历：工业工程排程优化研究
+整理文献、设计约束条件并完成实验报告。
+
+竞赛经历-大学生创新创业训练项目
+负责方案设计、答辩材料和展示。
+"""
+    segments = split_experience_segments(raw)
+
+    assert len(segments) == 3
+    assert segments[0].label == "实习经历"
+    assert segments[0].title == "字节跳动前端开发实习"
+    assert segments[1].label == "科研经历"
+    assert segments[1].title == "工业工程排程优化研究"
+    assert segments[2].label == "竞赛经历"
+    assert segments[2].title == "大学生创新创业训练项目"
+
+
 if __name__ == "__main__":
     test_split_experience_segments_supports_vertical_bar_headings()
     test_build_experience_context_guides_multi_project_generation()
     test_generation_prompt_contains_experience_context()
+    test_split_experience_segments_supports_non_project_types()
     print("experience segmentation tests passed")

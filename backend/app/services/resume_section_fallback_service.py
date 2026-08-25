@@ -41,10 +41,23 @@ TECH_TERMS = [
 PROJECT_LABELS = ["项目名称", "项目类型", "项目时间", "项目简介", "我的职责", "技术细节", "项目成果"]
 PROJECT_SPLIT_PATTERN = re.compile(
     r"(^|\n)\s*(?:#{1,6}\s*)?"
-    r"(?P<label>项目[一二三四五六七八九十\d]*|经历[一二三四五六七八九十\d]*|开源经历|实习经历|比赛经历|校园经历)"
+    r"(?P<label>项目[一二三四五六七八九十\d]*|项目经历|经历[一二三四五六七八九十\d]*|实习经历|科研经历|研究经历|论文经历|竞赛经历|比赛经历|开源经历|校园经历|社团经历|志愿经历)"
     r"\s*(?:[:：|｜\-—–]\s*)",
     re.MULTILINE,
 )
+
+EXPERIENCE_META_BY_KEYWORD = [
+    ("实习", "实习经历"),
+    ("科研", "科研经历"),
+    ("研究", "科研经历"),
+    ("论文", "科研经历"),
+    ("竞赛", "竞赛经历"),
+    ("比赛", "竞赛经历"),
+    ("开源", "开源经历"),
+    ("校园", "校园 / 社团经历"),
+    ("社团", "校园 / 社团经历"),
+    ("志愿", "校园 / 社团经历"),
+]
 
 
 class FallbackStats:
@@ -204,14 +217,9 @@ def _details_from_text(*values: str, limit: int = 6) -> list[str]:
 
 def _infer_meta(label: str, block: str) -> str:
     text = f"{label}\n{block}"
-    if "实习" in text:
-        return "实习经历"
-    if "开源" in text:
-        return "开源经历"
-    if "比赛" in text or "竞赛" in text:
-        return "比赛经历"
-    if "校园" in text or "社团" in text:
-        return "校园经历"
+    for keyword, meta in EXPERIENCE_META_BY_KEYWORD:
+        if keyword in text:
+            return meta
     return "项目经历"
 
 
@@ -227,7 +235,7 @@ def _infer_name(label: str, block: str) -> str:
         if 2 <= len(first_line) <= 36:
             return first_line
 
-    if label in {"开源经历", "实习经历", "比赛经历", "校园经历"}:
+    if label in {"开源经历", "实习经历", "科研经历", "研究经历", "论文经历", "竞赛经历", "比赛经历", "校园经历", "社团经历", "志愿经历"}:
         return label
     return "项目经历"
 
@@ -298,6 +306,13 @@ def _parse_projects(source: str, source_field: str, stats: FallbackStats) -> lis
     if split_projects:
         return split_projects
 
+    implicit_meta = _infer_meta("综合经历", source)
+    if implicit_meta != "项目经历":
+        project = _project_from_block(source, source_field, stats, label=implicit_meta)
+        if project:
+            project["meta"] = implicit_meta
+            return [project]
+
     details = _details_from_text(source, limit=8)
     if details:
         stats.fill("projects", source_field)
@@ -312,6 +327,30 @@ def _parse_projects(source: str, source_field: str, stats: FallbackStats) -> lis
             }
         ]
     return []
+
+
+def _project_signature(project: dict) -> str:
+    return f"{_text(project.get('name'))}|{_text(project.get('meta'))}"
+
+
+def _merge_missing_projects(existing: list, candidates: list[dict], stats: FallbackStats, source: str) -> list:
+    merged = list(existing) if isinstance(existing, list) else []
+    signatures = {_project_signature(project) for project in merged if isinstance(project, dict)}
+    metas = {_text(project.get("meta")) for project in merged if isinstance(project, dict)}
+    for candidate in candidates:
+        signature = _project_signature(candidate)
+        meta = _text(candidate.get("meta"))
+        if signature in signatures:
+            continue
+        if meta != "项目经历" and meta in metas:
+            continue
+        merged.append(candidate)
+        signatures.add(signature)
+        metas.add(meta)
+        stats.fill("projects", source)
+        if len(merged) >= 5:
+            break
+    return merged
 
 
 def _build_interview_preparation(data: dict, stats: FallbackStats) -> list[str]:
@@ -343,6 +382,7 @@ def fill_resume_sections(
     payload: schemas.GenerationPayload | dict,
     generation_result_id: int | None = None,
     stage: str = "unknown",
+    raw_input: str = "",
     write_log: bool = True,
 ) -> schemas.GenerationPayload:
     stats = FallbackStats(generation_result_id=generation_result_id, stage=stage)
@@ -350,6 +390,7 @@ def fill_resume_sections(
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
 
     source, source_field = _source_text(data)
+    raw_source = _text(raw_input)
 
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}
     sections["education"] = sections.get("education") if isinstance(sections.get("education"), dict) else {}
@@ -371,7 +412,12 @@ def fill_resume_sections(
         sections["skills"] = _extract_skills(data, source, source_field, stats)
 
     if "projects" in empty_sections:
-        sections["projects"] = _parse_projects(source, source_field, stats)
+        raw_projects = _parse_projects(raw_source, "raw_input", stats) if raw_source else []
+        sections["projects"] = raw_projects or _parse_projects(source, source_field, stats)
+    elif raw_source:
+        raw_projects = _parse_projects(raw_source, "raw_input", stats)
+        if raw_projects:
+            sections["projects"] = _merge_missing_projects(sections.get("projects"), raw_projects, stats, "raw_input")
 
     if "interview_preparation" in empty_sections:
         sections["interview_preparation"] = _build_interview_preparation(data, stats)
