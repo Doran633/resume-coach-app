@@ -3,12 +3,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 
-const sample = "我是大二学生，做过一个 AI 复习辅助系统，使用 React、TypeScript、FastAPI、SQLite 和 RAG，支持资料上传、文档解析、知识检索和复习重点生成。有真实用户访问记录，也希望包装得更适合 AI Agent 开发岗位。";
-
 const packagingLevelMap: Record<string, string> = {
   基础增强: "稳妥",
   重点放大: "大胆",
   边界测试: "极限"
+};
+
+const packagingLevelDisplayMap: Record<string, string> = {
+  稳妥: "基础增强",
+  大胆: "重点放大",
+  极限: "边界测试"
+};
+
+const draftKeys = {
+  raw_input: "resume_coach_draft_input",
+  target_role: "resume_coach_draft_target_role",
+  packaging_level: "resume_coach_draft_packaging_level",
+  experience_type: "resume_coach_draft_experience_type"
 };
 
 const packagingLevels = [
@@ -79,11 +90,23 @@ function getQualityHints(rawInput = ""): QualityHint[] {
 export default function InputPage() {
   const [form] = Form.useForm();
   const [generating, setGenerating] = useState(false);
-  const { identity, setGeneration, setLastRequest } = useAppStore();
+  const { identity, lastRequest, setGeneration, setLastRequest } = useAppStore();
   const rawInput = Form.useWatch("raw_input", form) ?? "";
   const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
   const trackedHintKeyRef = useRef("");
   const qualityHints = useMemo(() => getQualityHints(rawInput), [rawInput]);
+  const initialValues = useMemo(() => {
+    const savedPackagingLevel = localStorage.getItem(draftKeys.packaging_level) || "重点放大";
+    return {
+      target_role: lastRequest?.target_role || localStorage.getItem(draftKeys.target_role) || "AI / 大模型 / Agent",
+      mode: lastRequest?.mode || "single_experience",
+      packaging_level: lastRequest?.packaging_level
+        ? packagingLevelDisplayMap[lastRequest.packaging_level] ?? lastRequest.packaging_level
+        : packagingLevelDisplayMap[savedPackagingLevel] ?? savedPackagingLevel,
+      experience_type: lastRequest?.experience_type || localStorage.getItem(draftKeys.experience_type) || "项目",
+      raw_input: lastRequest?.raw_input || localStorage.getItem(draftKeys.raw_input) || ""
+    };
+  }, [lastRequest]);
 
   useEffect(() => {
     if (!qualityHints.length) return;
@@ -101,6 +124,7 @@ export default function InputPage() {
 
   const selectPackagingLevel = (value: string) => {
     form.setFieldValue("packaging_level", value);
+    localStorage.setItem(draftKeys.packaging_level, value);
     void trackEvent(identity, "change_packaging_level", {
       display_level: value,
       mapped_level: packagingLevelMap[value] ?? value
@@ -111,6 +135,7 @@ export default function InputPage() {
     const current = form.getFieldValue("raw_input")?.trim();
     const nextValue = current ? `${current}\n\n${text}` : text;
     form.setFieldValue("raw_input", nextValue);
+    localStorage.setItem(draftKeys.raw_input, nextValue);
     void trackEvent(identity, "fill_example_template", { template_type: type });
     message.success(`已加入${type}模板`);
   };
@@ -144,15 +169,22 @@ export default function InputPage() {
       <Form
         form={form}
         layout="vertical"
-        initialValues={{
-          target_role: "AI / 大模型 / Agent",
-          mode: "single_experience",
-          packaging_level: "重点放大",
-          experience_type: "项目",
-          raw_input: sample
-        }}
+        initialValues={initialValues}
         onFinish={onFinish}
         onValuesChange={(changedValues) => {
+          const values = form.getFieldsValue();
+          if (Object.prototype.hasOwnProperty.call(changedValues, "raw_input")) {
+            localStorage.setItem(draftKeys.raw_input, values.raw_input || "");
+          }
+          if (Object.prototype.hasOwnProperty.call(changedValues, "target_role")) {
+            localStorage.setItem(draftKeys.target_role, values.target_role || "");
+          }
+          if (Object.prototype.hasOwnProperty.call(changedValues, "packaging_level")) {
+            localStorage.setItem(draftKeys.packaging_level, values.packaging_level || "");
+          }
+          if (Object.prototype.hasOwnProperty.call(changedValues, "experience_type")) {
+            localStorage.setItem(draftKeys.experience_type, values.experience_type || "");
+          }
           if (changedValues.packaging_level) {
             void trackEvent(identity, "change_packaging_level", {
               display_level: changedValues.packaging_level,
@@ -197,12 +229,6 @@ export default function InputPage() {
         <Form.Item label="经历类型" name="experience_type">
           <Select options={["项目", "实习", "开源", "比赛", "校园", "其他"].map((value) => ({ value }))} />
         </Form.Item>
-        <Alert
-          className="privacy-reminder"
-          type="info"
-          showIcon
-          message="隐私提醒：请勿输入身份证号、家庭住址、银行卡号、账号密码等敏感信息。手机号、邮箱等联系方式建议在最终简历下载后自行补充。"
-        />
 
         <div className="writing-guide">
           <div>
@@ -222,17 +248,26 @@ export default function InputPage() {
               <Typography.Title level={4}>原始经历描述</Typography.Title>
               <p>可以直接写，也可以先选择一个模板再修改。</p>
             </div>
-            <Space wrap className="template-actions">
-              {exampleTemplates.map((item) => (
-                <Button key={item.type} onClick={() => fillTemplate(item.type, item.text)}>
-                  {item.type}
-                </Button>
-              ))}
-            </Space>
+            <div className="template-stack">
+              <Space wrap className="template-actions">
+                {exampleTemplates.map((item) => (
+                  <Button key={item.type} onClick={() => fillTemplate(item.type, item.text)}>
+                    {item.type}
+                  </Button>
+                ))}
+              </Space>
+              <span className="template-hint">选择一个模板吧~</span>
+            </div>
           </div>
           <Form.Item name="raw_input" rules={[{ required: true, min: 10 }]}>
-            <Input.TextArea rows={8} placeholder="请描述你做过什么、用了什么技术、有什么结果或证据。避免填写身份证号、家庭住址、银行卡号、账号密码等敏感信息。" />
+            <Input.TextArea autoSize={{ minRows: 5, maxRows: 14 }} placeholder="直接写你的项目、实习、比赛、开源经历即可。" />
           </Form.Item>
+          <Alert
+            className="privacy-reminder"
+            type="info"
+            showIcon
+            message="隐私提醒：请勿输入身份证号、家庭住址、银行卡号、账号密码等敏感信息。手机号、邮箱等联系方式建议在最终简历下载后自行补充。"
+          />
         </div>
 
         {qualityHints.length > 0 && (

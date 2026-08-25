@@ -583,7 +583,14 @@ export default function ResultPage() {
               placeholder="例如：500人是累计真实用户，不是同时在线；RAG 已实现 chunk、embedding、top-k 检索，但 rerank 还在规划。"
             />
             <Space className="footer-actions">
-              <Button onClick={() => setStep(0)}>返回修改原始输入</Button>
+              <Button
+                onClick={() => {
+                  void trackEvent(identity, "return_to_edit", { generation_result_id: generation.generation_result_id });
+                  setStep(0);
+                }}
+              >
+                返回修改原始输入
+              </Button>
               <Button type="primary" loading={regenerating} onClick={regenerateWithFollowup}>
                 {regenerating ? "正在重新生成" : "补充后重新生成"}
               </Button>

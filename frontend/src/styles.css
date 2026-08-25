@@ -67,7 +67,7 @@ body {
 }
 
 .privacy-reminder {
-  margin: 2px 0 18px;
+  margin: 10px 0 18px;
   border-radius: 6px;
 }
 
@@ -189,6 +189,19 @@ body {
   justify-content: flex-end;
 }
 
+.template-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.template-hint {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.4;
+  user-select: none;
+}
+
 .template-actions .ant-btn {
   border-color: #cbd5e1;
   color: #1f3763;
@@ -197,6 +210,11 @@ body {
 
 .experience-editor .ant-form-item {
   margin-bottom: 0;
+}
+
+.experience-editor textarea.ant-input {
+  line-height: 1.75;
+  resize: none;
 }
 
 .quality-hints {
@@ -943,7 +961,7 @@ body {
   }
 
   textarea.ant-input {
-    min-height: 180px;
+    min-height: 140px;
     line-height: 1.7;
   }
 
@@ -1009,6 +1027,10 @@ body {
   .template-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .template-stack {
+    justify-items: start;
   }
 
   .template-actions .ant-btn {

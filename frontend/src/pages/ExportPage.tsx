@@ -1,5 +1,5 @@
 import { Button, Card, Col, Form, Input, Radio, Row, Space, Typography, message } from "antd";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { buildApiUrl, createDocx, submitFeedback, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import type { GenerationResult } from "../types/api";
@@ -80,6 +80,7 @@ function buildInterviewPlanGroups(result: GenerationResult | undefined) {
 
 export default function ExportPage() {
   const { generation, identity, setStep } = useAppStore();
+  const [docxLoading, setDocxLoading] = useState(false);
 
   const planGroupsByType = useMemo(() => buildInterviewPlanGroups(generation?.result), [generation?.result]);
   const hasInterviewPlan = Object.values(planGroupsByType).some((items) => items.length > 0);
@@ -94,14 +95,24 @@ export default function ExportPage() {
   if (!generation) return null;
 
   const generateDocx = async () => {
+    setDocxLoading(true);
     try {
+      await trackEvent(identity, "download_docx_started", { generation_result_id: generation.generation_result_id });
       const file = await createDocx(identity, generation.generation_result_id);
       await trackEvent(identity, "generate_docx", { file_id: file.file_id });
-      window.open(buildApiUrl(file.download_url), "_blank");
+      const link = document.createElement("a");
+      link.href = buildApiUrl(file.download_url);
+      link.download = file.file_name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       await trackEvent(identity, "download_docx", { file_id: file.file_id });
-      message.success("DOCX 已生成");
+      message.success("DOCX 已开始下载");
     } catch (error) {
-      message.error("DOCX 生成失败");
+      await trackEvent(identity, "download_docx_failed", { generation_result_id: generation.generation_result_id, message: String(error) });
+      message.error("下载失败，请稍后重试");
+    } finally {
+      setDocxLoading(false);
     }
   };
 
@@ -122,7 +133,9 @@ export default function ExportPage() {
         </Typography.Paragraph>
         <Space wrap>
           <Button onClick={() => setStep(1)}>返回结果</Button>
-          <Button type="primary" onClick={generateDocx}>生成并下载 DOCX</Button>
+          <Button type="primary" loading={docxLoading} onClick={generateDocx}>
+            {docxLoading ? "正在生成 DOCX" : "生成并下载 DOCX"}
+          </Button>
         </Space>
       </Card>
 
