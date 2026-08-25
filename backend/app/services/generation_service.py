@@ -11,6 +11,8 @@ from .llm_service import LLMServiceError, call_openai, get_llm_mode, get_openai_
 from .prompt_service import build_generation_prompt
 from .result_cleanup_service import cleanup_generation_payload
 from .resume_section_fallback_service import fill_resume_sections
+from .fact_guard_service import guard_hard_facts
+from .enhancement_guard_service import ensure_packaging_gain
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -376,7 +378,10 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
         raise GenerationServiceError(f"Unsupported LLM_MODE: {mode}. Use mock or openai.")
 
     payload = cleanup_generation_payload(payload, source=mode)
+    payload = guard_hard_facts(payload, request.raw_input)
     payload = fill_resume_sections(payload, stage="generation")
+    payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
+    payload = guard_hard_facts(payload, request.raw_input)
 
     result = models.GenerationResult(
         experience_input_id=experience.id,

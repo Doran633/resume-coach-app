@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from .generation_service import get_generation_payload
 from .resume_section_fallback_service import fill_resume_sections
+from .fact_guard_service import guard_hard_facts
+from .enhancement_guard_service import ensure_packaging_gain
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -116,7 +118,14 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = get_generation_payload(db, request.generation_result_id)
     if not payload:
         return None
+    result_row = db.query(models.GenerationResult).filter_by(id=request.generation_result_id).first()
+    experience = db.query(models.ExperienceInput).filter_by(id=result_row.experience_input_id).first() if result_row else None
+    raw_input = experience.raw_input if experience else ""
+    target_role = experience.target_role if experience else ""
+    payload = guard_hard_facts(payload, raw_input)
     payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export")
+    payload = ensure_packaging_gain(payload, raw_input, target_role)
+    payload = guard_hard_facts(payload, raw_input)
 
     doc = Document()
     _setup(doc)
