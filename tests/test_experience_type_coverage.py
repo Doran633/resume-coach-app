@@ -171,10 +171,9 @@ def test_docx_contains_separated_experience_headings_and_non_project_content():
             text = "\n".join(paragraph.text for paragraph in Document(Path(tmpdir) / response.file_name).paragraphs)
             assert "项目经历" in text
             assert "实习经历" in text
-            assert "竞赛获奖" in text
+            assert "竞赛经历" in text
             assert "字节跳动前端开发实习" in text
             assert "大学生创新创业训练项目" in text
-            assert "竞赛经历" in text
         finally:
             docx_service.OUTPUT_DIR = original_output_dir
             resume_section_fallback_service.LOG_PATH = original_log_path

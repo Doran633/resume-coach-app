@@ -21,6 +21,7 @@ from .stable_generation_fallback_service import build_stable_generation_fallback
 from .experience_boundary_guard_service import guard_experience_boundaries
 from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
 from .project_specificity_guard_service import guard_project_specificity
+from .weak_profile_strategy_service import strengthen_weak_profile_payload
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -424,6 +425,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_experience_boundaries(payload, request.raw_input)
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
     payload = guard_project_specificity(payload, request.raw_input)
+    payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)
     payload = guard_hard_facts(payload, request.raw_input)
 
     result = models.GenerationResult(

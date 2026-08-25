@@ -16,6 +16,7 @@ from .enhancement_guard_service import ensure_packaging_gain
 from .experience_boundary_guard_service import guard_experience_boundaries
 from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
 from .project_specificity_guard_service import guard_project_specificity
+from .weak_profile_strategy_service import strengthen_weak_profile_payload
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -114,7 +115,9 @@ def _experience_heading(meta: str | None) -> str:
     if "科研" in text or "研究" in text or "论文" in text:
         return "科研经历"
     if "竞赛" in text or "比赛" in text:
-        return "竞赛获奖"
+        if "获奖" in text or "奖项" in text or "奖" in text or "立项" in text:
+            return "竞赛获奖"
+        return "竞赛经历"
     if "开源" in text:
         return "开源经历"
     if "校园" in text or "社团" in text or "志愿" in text:
@@ -123,7 +126,7 @@ def _experience_heading(meta: str | None) -> str:
 
 
 def _group_experiences(projects: list[dict]) -> list[tuple[str, list[dict]]]:
-    order = ["项目经历", "科研经历", "实习经历", "竞赛获奖", "开源经历", "校园 / 社团经历"]
+    order = ["项目经历", "科研经历", "实习经历", "竞赛经历", "竞赛获奖", "开源经历", "校园 / 社团经历"]
     groups: dict[str, list[dict]] = {}
     for project in projects:
         heading = _experience_heading(project.get("meta"))
@@ -155,6 +158,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = guard_experience_boundaries(payload, raw_input)
     payload = cleanup_uncertain_expressions(payload, raw_input)
     payload = guard_project_specificity(payload, raw_input)
+    payload = strengthen_weak_profile_payload(payload, raw_input, target_role)
     payload = guard_hard_facts(payload, raw_input)
 
     doc = Document()
