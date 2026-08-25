@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
@@ -111,7 +112,7 @@ def _interview_limit(project_count: int) -> int:
 
 def _experience_heading(meta: str | None) -> str:
     text = meta or "项目经历"
-    if "实习" in text:
+    if text.strip() == "实习经历" or re.search(r"(前端|后端|测试|产品|运营|开发)?实习$", text.strip()):
         return "实习经历"
     if "科研" in text or "研究" in text or "论文" in text:
         return "科研经历"

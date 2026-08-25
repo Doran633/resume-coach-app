@@ -16,6 +16,8 @@ from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
 from app.services import resume_section_fallback_service  # noqa: E402
 from app.services.resume_section_fallback_service import fill_resume_sections  # noqa: E402
+from app.services.long_input_service import analyze_long_input  # noqa: E402
+from app.services.stable_generation_fallback_service import build_stable_generation_fallback  # noqa: E402
 
 
 def build_friend_like_payload():
@@ -232,6 +234,44 @@ def test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections
     db.close()
 
 
+WEAK_NO_INTERNSHIP_RAW = """我是大二学生，想投前端开发或者泛互联网技术岗。
+现在没有实习经历，主要做过一个课程大作业和一些学生工作。
+
+课程项目是一个校园二手交易小系统，主要是小组作业。我负责写了几个 Vue 页面，包括商品列表、商品详情、发布商品和登录页面，也调了一些后端接口，处理过表单校验、页面跳转和接口返回数据展示。项目最后在课堂上做了展示，没有正式上线，也没有真实用户。
+"""
+
+
+def test_fallback_does_not_infer_internship_from_negative_statement():
+    data = build_friend_like_payload()
+    data["recommended_version"] = ""
+    data["bold_version"] = ""
+    data["normal_version"] = ""
+    data["resume_sections"]["projects"] = []
+
+    payload = fill_resume_sections(data, raw_input=WEAK_NO_INTERNSHIP_RAW, write_log=False)
+    text = payload.model_dump_json()
+
+    assert "实习经历" not in text
+    assert all(project.get("meta") != "实习经历" for project in payload.resume_sections.projects)
+
+
+def test_stable_generation_fallback_does_not_infer_internship_from_negative_statement():
+    request = schemas.GenerateRequest(
+        anonymous_user_id="u-test",
+        session_id="s-test",
+        target_role="前端开发",
+        mode="full_resume",
+        packaging_level="大胆",
+        experience_type="综合经历",
+        raw_input=WEAK_NO_INTERNSHIP_RAW,
+    )
+    payload = build_stable_generation_fallback(request, analyze_long_input(WEAK_NO_INTERNSHIP_RAW))
+    text = payload.model_dump_json()
+
+    assert "实习经历" not in text
+    assert all(project.get("meta") != "实习经历" for project in payload.resume_sections.projects)
+
+
 if __name__ == "__main__":
     test_fallback_fills_empty_sections_from_recommended_version()
     test_fallback_does_not_override_existing_sections()
@@ -240,4 +280,6 @@ if __name__ == "__main__":
     test_fallback_log_records_docx_export_stage()
     test_fallback_log_records_no_trigger_for_complete_sections()
     test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections()
+    test_fallback_does_not_infer_internship_from_negative_statement()
+    test_stable_generation_fallback_does_not_infer_internship_from_negative_statement()
     print("resume section fallback tests passed")

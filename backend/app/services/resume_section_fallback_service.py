@@ -59,6 +59,24 @@ EXPERIENCE_META_BY_KEYWORD = [
     ("志愿", "校园 / 社团经历"),
 ]
 
+NEGATIVE_INTERNSHIP_PATTERNS = ["没有实习", "无实习", "没实习", "没有实习经历", "没有实习经验"]
+POSITIVE_INTERNSHIP_PATTERNS = ["实习经历：", "实习经历:", "实习｜", "实习|", "前端开发实习", "后端开发实习", "测试开发实习", "产品实习", "运营实习", "在公司", "某公司", "公司实习", "企业实习"]
+RESUME_BODY_NOISE_PATTERNS = [
+    "我是大二学生",
+    "我是大三学生",
+    "我是大一学生",
+    "想投",
+    "没有实习",
+    "无实习",
+    "没实习",
+    "没有上线",
+    "未上线",
+    "没有真实用户",
+    "没有用户",
+    "没有获奖",
+    "未获奖",
+]
+
 
 class FallbackStats:
     def __init__(self, generation_result_id: int | None = None, stage: str = "unknown"):
@@ -208,6 +226,8 @@ def _details_from_text(*values: str, limit: int = 6) -> list[str]:
     details: list[str] = []
     for value in values:
         for sentence in _split_sentences(value, limit=limit):
+            if any(pattern in sentence for pattern in RESUME_BODY_NOISE_PATTERNS):
+                continue
             if sentence and sentence not in details:
                 details.append(sentence)
             if len(details) >= limit:
@@ -217,7 +237,13 @@ def _details_from_text(*values: str, limit: int = 6) -> list[str]:
 
 def _infer_meta(label: str, block: str) -> str:
     text = f"{label}\n{block}"
+    no_internship = any(pattern in text for pattern in NEGATIVE_INTERNSHIP_PATTERNS)
+    has_positive_internship = any(pattern in text for pattern in POSITIVE_INTERNSHIP_PATTERNS)
+    if "实习" in text and not no_internship and has_positive_internship:
+        return "实习经历"
     for keyword, meta in EXPERIENCE_META_BY_KEYWORD:
+        if keyword == "实习":
+            continue
         if keyword in text:
             return meta
     return "项目经历"
@@ -232,7 +258,7 @@ def _infer_name(label: str, block: str) -> str:
     if first_line:
         first_line = re.split(r"[。；;]", first_line)[0].strip()
         first_line = re.sub(r"^(项目名称|项目简介|我的职责|技术细节|项目成果)\s*[:：]\s*", "", first_line)
-        if 2 <= len(first_line) <= 36:
+        if 2 <= len(first_line) <= 36 and not re.search(r"我是|想投|没有实习|无实习|没实习", first_line):
             return first_line
 
     if label in {"开源经历", "实习经历", "科研经历", "研究经历", "论文经历", "竞赛经历", "比赛经历", "校园经历", "社团经历", "志愿经历"}:

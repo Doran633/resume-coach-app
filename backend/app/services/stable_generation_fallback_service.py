@@ -4,9 +4,16 @@ from .. import schemas
 from .long_input_service import EVIDENCE_TERMS, RISK_TERMS, TECH_TERMS, LongInputContext, compact_text, extract_terms
 
 
+NEGATIVE_INTERNSHIP_PATTERNS = ["没有实习", "无实习", "没实习", "没有实习经历", "没有实习经验"]
+POSITIVE_INTERNSHIP_PATTERNS = ["实习经历：", "实习经历:", "实习｜", "实习|", "前端开发实习", "后端开发实习", "测试开发实习", "产品实习", "运营实习", "在公司", "某公司", "公司实习", "企业实习"]
+RESUME_BODY_NOISE_PATTERNS = ["我是大二学生", "我是大三学生", "我是大一学生", "想投", "没有实习", "无实习", "没实习", "没有上线", "未上线", "没有真实用户", "没有用户", "没有获奖", "未获奖"]
+
+
 def _infer_meta(label: str, content: str) -> str:
     text = f"{label}\n{content}"
-    if "实习" in text:
+    no_internship = any(pattern in text for pattern in NEGATIVE_INTERNSHIP_PATTERNS)
+    has_positive_internship = any(pattern in text for pattern in POSITIVE_INTERNSHIP_PATTERNS)
+    if "实习" in text and not no_internship and has_positive_internship:
         return "实习经历"
     if "科研" in text or "研究" in text or "论文" in text:
         return "科研经历"
@@ -25,11 +32,18 @@ def _split_details(content: str, limit: int = 5) -> list[str]:
     details: list[str] = []
     for part in parts:
         item = part.strip(" -•\t")
+        if any(pattern in item for pattern in RESUME_BODY_NOISE_PATTERNS):
+            continue
         if len(item) >= 8 and item not in details:
             details.append(item)
         if len(details) >= limit:
             break
     return details or [compact_text(content, 160)]
+
+
+def _intro_from_content(content: str) -> str:
+    details = _split_details(content, limit=2)
+    return compact_text("。".join(details), 180)
 
 
 def _wording_key(text: str) -> str:
@@ -108,7 +122,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "name": segment.title,
                 "meta": meta,
                 "time": "[待填写]",
-                "intro": compact_text(segment.content, 180),
+                "intro": _intro_from_content(segment.content),
                 "role": _role_for_meta(meta),
                 "details": details[:5],
             }
@@ -150,7 +164,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
         knowledge_checklist=(all_tech + all_interview_terms + ["职责边界", "证据材料", "面试降级表达"])[:10],
         resume_sections=schemas.ResumeSections(
             personal_info={"姓名": "[待填写]", "邮箱": "[待填写]", "手机号": "[待填写]", "求职意向": request.target_role},
-            summary=["具备多段真实经历，可围绕目标岗位整理为项目、实习、科研或竞赛实践。"],
+            summary=["具备多段真实经历，可围绕目标岗位整理为项目、科研、竞赛或校园实践。"],
             skills=all_tech[:10],
             projects=projects,
             education={"学校": "[待填写]", "专业": "[待填写]", "学历": "[待填写]", "时间": "[待填写]"},

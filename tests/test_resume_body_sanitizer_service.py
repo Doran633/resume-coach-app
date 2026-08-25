@@ -127,9 +127,52 @@ def test_docx_export_sanitizes_historical_negative_body():
     db.close()
 
 
+def test_docx_export_downgrades_hallucinated_internship_heading():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine)()
+    input_row = models.ExperienceInput(
+        id=2,
+        anonymous_user_id=None,
+        session_id="s-test",
+        target_role="前端开发",
+        mode="full_resume",
+        packaging_level="大胆",
+        experience_type="项目经历",
+        raw_input=RAW,
+    )
+    payload = payload_with_negative_body()
+    payload.resume_sections.projects[0]["meta"] = "实习经历"
+    payload.resume_sections.projects[0]["name"] = "我是大二学生，想投前端开发或者泛互联网技术岗"
+    result_row = models.GenerationResult(id=72, experience_input_id=2, completeness_score=payload.completeness_score, result_json=payload.model_dump_json())
+    db.add(input_row)
+    db.add(result_row)
+    db.commit()
+
+    original_output_dir = docx_service.OUTPUT_DIR
+    original_log_path = resume_section_fallback_service.LOG_PATH
+    original_log_dir = resume_section_fallback_service.LOG_DIR
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            docx_service.OUTPUT_DIR = Path(tmpdir)
+            resume_section_fallback_service.LOG_DIR = Path(tmpdir)
+            resume_section_fallback_service.LOG_PATH = Path(tmpdir) / "resume_section_fallback.jsonl"
+            response = docx_service.create_docx(db, schemas.DocxCreate(anonymous_user_id="u-test", session_id="s-test", generation_result_id=72))
+            assert response is not None
+            text = "\n".join(paragraph.text for paragraph in Document(Path(tmpdir) / response.file_name).paragraphs)
+            assert "实习经历" not in text
+            assert "没有实习" not in text
+        finally:
+            docx_service.OUTPUT_DIR = original_output_dir
+            resume_section_fallback_service.LOG_PATH = original_log_path
+            resume_section_fallback_service.LOG_DIR = original_log_dir
+    db.close()
+
+
 if __name__ == "__main__":
     test_negative_phrases_are_removed_from_summary_and_projects()
     test_self_deprecating_phrases_are_rewritten()
     test_interview_plan_keeps_boundary_without_negative_resume_body()
     test_docx_export_sanitizes_historical_negative_body()
+    test_docx_export_downgrades_hallucinated_internship_heading()
     print("resume body sanitizer tests passed")

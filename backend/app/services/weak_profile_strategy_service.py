@@ -114,6 +114,13 @@ def _has_any(text: str, keywords: list[str]) -> bool:
     return any(re.search(re.escape(keyword), text or "", re.IGNORECASE) for keyword in keywords)
 
 
+def _has_positive_work_signal(text: str) -> bool:
+    raw = text or ""
+    if _has_any(raw, ["没有实习", "无实习", "没实习", "没有实习经历", "没有实习经验"]):
+        return _has_any(raw, ["公司", "企业", "工作", "岗位"]) and not _has_any(raw, ["没有工作", "无工作"])
+    return _has_any(raw, ["实习", "工作", "公司", "企业", "岗位"])
+
+
 def _unique_append(target: list[str], values: list[str], limit: int) -> list[str]:
     for value in values:
         item = str(value).strip()
@@ -152,7 +159,7 @@ def detect_weak_profile(raw_input: str, payload: schemas.GenerationPayload | dic
 
     if context.segment_count >= 3 and tech_count >= 4 and evidence_count >= 2:
         return False
-    if _has_any(raw, ["实习", "工作", "公司", "企业"]) and (tech_count >= 4 or evidence_count >= 2):
+    if _has_positive_work_signal(raw) and (tech_count >= 4 or evidence_count >= 2):
         return False
 
     score = 0
@@ -160,7 +167,7 @@ def detect_weak_profile(raw_input: str, payload: schemas.GenerationPayload | dic
         score += 2
     if context.segment_count <= 2:
         score += 1
-    if not _has_any(raw, ["实习", "工作", "公司", "企业"]):
+    if not _has_positive_work_signal(raw):
         score += 1
     if not _has_any(raw, ["上线", "部署", "公网", "域名", "用户", "star", "访问", "并发"]):
         score += 1
@@ -181,7 +188,7 @@ def _sanitize_strong_phrases(text: str, raw_input: str) -> str:
     cleaned = str(text or "")
     for source, target in NEGATIVE_RESUME_PHRASES:
         cleaned = cleaned.replace(source, target)
-    if not _has_any(raw_input, ["公司", "企业", "实习", "工作", "生产", "上线"]):
+    if not (_has_positive_work_signal(raw_input) or _has_any(raw_input, ["生产", "上线"])):
         for phrase in FORBIDDEN_STRONG_PHRASES:
             cleaned = cleaned.replace(phrase, "项目实践")
     if not _has_any(raw_input, ["奖", "排名", "名次", "证书", "立项"]):
