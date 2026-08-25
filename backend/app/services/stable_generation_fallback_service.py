@@ -77,17 +77,25 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     all_tech: list[str] = []
     all_evidence: list[str] = []
     all_risks: list[str] = []
+    all_interview_terms: list[str] = []
     projects: list[dict] = []
 
     for segment in context.segments[:5]:
-        tech_terms = extract_terms(segment.content, TECH_TERMS)
-        evidence_terms = extract_terms(segment.content, EVIDENCE_TERMS)
-        risk_terms = extract_terms(segment.content, RISK_TERMS)
+        tech_terms = segment.tech_terms
+        evidence_terms = segment.evidence_terms
+        risk_terms = segment.risk_terms
         for target, values in [(all_tech, tech_terms), (all_evidence, evidence_terms), (all_risks, risk_terms)]:
             for value in values:
                 if value not in target:
                     target.append(value)
+        for value in segment.supported_interview_terms:
+            if value not in all_interview_terms:
+                all_interview_terms.append(value)
         meta = _infer_meta(segment.label, segment.content)
+        details = _split_details(segment.content, limit=4)
+        for wording in segment.supported_wordings[:2]:
+            if wording not in details:
+                details.append(wording)
         projects.append(
             {
                 "name": segment.title,
@@ -95,7 +103,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "time": "[待填写]",
                 "intro": compact_text(segment.content, 180),
                 "role": _role_for_meta(meta),
-                "details": _split_details(segment.content, limit=5),
+                "details": details[:5],
             }
         )
 
@@ -130,8 +138,9 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
             "准备每段经历的背景、目标、个人职责和交付结果。",
             "为强表达准备截图、日志、仓库、文档或证书等证据。",
             "准备一段真实问题排查或方案取舍案例。",
+            f"补齐自然承接知识：{'、'.join(all_interview_terms[:8])}。" if all_interview_terms else "补齐每段经历对应的技术概念和面试解释口径。",
         ][:6],
-        knowledge_checklist=(all_tech + ["职责边界", "证据材料", "面试降级表达"])[:10],
+        knowledge_checklist=(all_tech + all_interview_terms + ["职责边界", "证据材料", "面试降级表达"])[:10],
         resume_sections=schemas.ResumeSections(
             personal_info={"姓名": "[待填写]", "邮箱": "[待填写]", "手机号": "[待填写]", "求职意向": request.target_role},
             summary=["具备多段真实经历，可围绕目标岗位整理为项目、实习、科研或竞赛实践。"],

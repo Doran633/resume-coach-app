@@ -89,6 +89,23 @@ resume_sections 必须包含：
 7. 不要因为这些经历不是“项目”就丢弃或只写进 summary。
 8. 如果用户输入多类经历，应尽量分别保留，除非信息极少或明显重复。
 
+经历边界隔离规则：
+1. 如果输入中存在 EXP-001、EXP-002、EXP-003 等内部 experience_id，每个 resume_sections.projects 项目只能使用对应 experience_id 下的事实、技术词、证据词、风险词和允许的自然承接知识。
+2. 不得把 EXP-001 的技术、数据、成果写入 EXP-002；不得把项目经历的成果写入实习经历；不得把竞赛奖项写入科研经历。
+3. 如果需要综合表达多段经历，只能写在 summary / recommended_version 中，不能污染具体项目。
+4. 每个项目的 details 应优先来自该段经历原文和该段允许的自然承接知识。
+
+自然承接知识规则：
+1. 可以使用 compact_context 中标记为“可写入简历”的自然承接知识，例如 RAG 测试集可以自然承接 Top-K、Retrieval、Chunk、Embedding、Recall、Groundedness 等概念。
+2. 使用自然承接知识时，不得写成硬事实成果。例如可以写“围绕 Top-K 检索与 Retrieval 效果进行测试集设计”，但不能写“实现了企业级检索优化系统”。
+3. 使用自然承接知识后，必须在 interview_plan 或 knowledge_checklist 中提醒用户补齐对应知识。
+4. 标记为只需面试补齐或 resume_allowed=false 的内容只能进入面试准备，不得进入简历主体。
+
+不确定表达禁止规则：
+1. 简历主体禁止出现“如有”“如使用”“可补充”“建议掌握”“建议了解”“待补充”“可以学习”“需要学习”“可进一步补齐”等不确定表达。
+2. 错误示例：“Docker（如有）”“LangGraph（建议掌握）”“Rerank（可补充）”。
+3. 这些内容如果不确定，应从简历主体删除或转入 interview_plan / knowledge_checklist；不要用括号暴露不确定性。
+
 输出密度控制规则：
 1. 单段主要经历：details 建议 4-6 条。
 2. 两段主要经历：每段 details 建议 4-5 条。

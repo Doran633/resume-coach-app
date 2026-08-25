@@ -13,6 +13,8 @@ from .generation_service import get_generation_payload
 from .resume_section_fallback_service import fill_resume_sections
 from .fact_guard_service import guard_hard_facts
 from .enhancement_guard_service import ensure_packaging_gain
+from .experience_boundary_guard_service import guard_experience_boundaries
+from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -149,6 +151,8 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = guard_hard_facts(payload, raw_input)
     payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
     payload = ensure_packaging_gain(payload, raw_input, target_role)
+    payload = guard_experience_boundaries(payload, raw_input)
+    payload = cleanup_uncertain_expressions(payload, raw_input)
     payload = guard_hard_facts(payload, raw_input)
 
     doc = Document()

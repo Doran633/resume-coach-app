@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 
 from .experience_segmentation_service import ExperienceSegment, split_experience_segments
+from .supported_inference_service import build_supported_inference_context
 
 
 TECH_TERMS = [
@@ -40,6 +41,21 @@ RISK_TERMS = ["高并发", "企业级", "生产级", "核心算法", "模型训�
 
 
 @dataclass
+class LongInputSegment:
+    experience_id: str
+    label: str
+    title: str
+    content: str
+    summary: str
+    tech_terms: list[str]
+    evidence_terms: list[str]
+    risk_terms: list[str]
+    supported_resume_terms: list[str]
+    supported_interview_terms: list[str]
+    supported_wordings: list[str]
+
+
+@dataclass
 class LongInputContext:
     long_input_mode: bool
     raw_input_length: int
@@ -48,7 +64,7 @@ class LongInputContext:
     compact_context: str
     raw_input_for_prompt: str
     estimated_token_saving_hint: str
-    segments: list[ExperienceSegment]
+    segments: list[LongInputSegment]
 
 
 def extract_terms(text: str, terms: list[str]) -> list[str]:
@@ -70,19 +86,41 @@ def _line_count(raw_input: str) -> int:
     return len([line for line in raw_input.splitlines() if line.strip()])
 
 
-def build_compact_context(segments: list[ExperienceSegment]) -> str:
-    lines = [f"系统本地预处理识别到 {len(segments)} 段主要经历。以下摘要只来自用户原文，不包含编造信息："]
+def enrich_segments(segments: list[ExperienceSegment]) -> list[LongInputSegment]:
+    enriched: list[LongInputSegment] = []
     for index, segment in enumerate(segments, start=1):
-        tech_terms = extract_terms(segment.content, TECH_TERMS)
-        evidence_terms = extract_terms(segment.content, EVIDENCE_TERMS)
-        risk_terms = extract_terms(segment.content, RISK_TERMS)
+        inference = build_supported_inference_context(segment.content)
+        enriched.append(
+            LongInputSegment(
+                experience_id=f"EXP-{index:03d}",
+                label=segment.label,
+                title=segment.title,
+                content=segment.content,
+                summary=compact_text(segment.content, 210),
+                tech_terms=extract_terms(segment.content, TECH_TERMS),
+                evidence_terms=extract_terms(segment.content, EVIDENCE_TERMS),
+                risk_terms=extract_terms(segment.content, RISK_TERMS),
+                supported_resume_terms=inference.resume_terms,
+                supported_interview_terms=inference.interview_terms,
+                supported_wordings=inference.wordings,
+            )
+        )
+    return enriched
+
+
+def build_compact_context(segments: list[LongInputSegment]) -> str:
+    lines = [f"系统本地预处理识别到 {len(segments)} 段主要经历。以下摘要只来自用户原文，不包含编造信息："]
+    lines.append("经历边界规则：每段经历只能使用本段 experience_id 下的事实；禁止把其他 experience_id 的技术、数据、成果写入本段经历。")
+    for segment in segments:
         lines.extend(
             [
-                f"{index}. 类型/标题：{segment.label}｜{segment.title}",
-                f"   摘要：{compact_text(segment.content, 210)}",
-                f"   技术词：{'、'.join(tech_terms) if tech_terms else '未识别'}",
-                f"   结果/证据词：{'、'.join(evidence_terms) if evidence_terms else '未识别'}",
-                f"   风险词：{'、'.join(risk_terms) if risk_terms else '未识别'}",
+                f"{segment.experience_id}. 类型/标题：{segment.label}｜{segment.title}",
+                f"   摘要：{segment.summary}",
+                f"   本段明确技术词：{'、'.join(segment.tech_terms) if segment.tech_terms else '未识别'}",
+                f"   本段结果/证据词：{'、'.join(segment.evidence_terms) if segment.evidence_terms else '未识别'}",
+                f"   本段风险词：{'、'.join(segment.risk_terms) if segment.risk_terms else '未识别'}",
+                f"   本段可写入简历的自然承接知识：{'、'.join(segment.supported_resume_terms) if segment.supported_resume_terms else '无'}",
+                f"   本段需要面试补齐的承接知识：{'、'.join(segment.supported_interview_terms) if segment.supported_interview_terms else '无'}",
             ]
         )
     return "\n".join(lines)
@@ -90,7 +128,7 @@ def build_compact_context(segments: list[ExperienceSegment]) -> str:
 
 def analyze_long_input(raw_input: str) -> LongInputContext:
     raw_input = raw_input or ""
-    segments = split_experience_segments(raw_input)
+    segments = enrich_segments(split_experience_segments(raw_input))
     raw_input_length = len(raw_input)
     line_count = _line_count(raw_input)
     segment_count = len(segments)
