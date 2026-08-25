@@ -7,6 +7,17 @@
 - 经历类型：{experience_type}
 - 长输入摘要：
 {compact_experience_context}
+- 内部 experience_id 边界表：
+{experience_identity_context}
+
+系统识别出的低置信度分段追问（只能加入 missing_questions，不得自行认定）：
+{segmentation_question_context}
+
+混合自然语言输入规则：
+- 用户背景、年级和求职意向不是项目，不得写入 projects 或项目 details。
+- 输入已由后端按 experience_id 分段；识别到多个 experience_id 时严禁生成“综合经历项目”。
+- 每个项目只能使用对应 source_experience_id 的技术、奖项、职责和证据。
+- 不确定分段关系时写入 missing_questions，不得把不同经历合并后交给 fallback 擦除。
 
 生成重点：
 1. 优先保证 resume_sections.projects 完整，不要丢失主要经历。
@@ -16,7 +27,7 @@
 5. claims 最多 8 条，interview_plan 最多 6 条，knowledge_checklist 最多 10 条。
 6. 硬事实不能编造：学校、专业、公司、用户数、star、并发、奖项、模型训练等未提供就不要写成事实。
 7. 软事实要适度包装：职责、技术动作、问题排查、结果表达可以更正式，但不能改变硬事实。
-8. 经历边界隔离：每个 project 只能使用对应 experience_id 的事实，不得把 EXP-001 的技术、数据、成果写入 EXP-002。
+8. 经历边界隔离：每个 project 必须尽量包含内部字段 source_experience_id，只能使用对应 experience_id 的事实，不得把 EXP-001 的技术、数据、成果写入 EXP-002。如果无法判断来源，把不确定内容放入 missing_questions / claims。
 9. 自然承接知识：可以使用本段标记为“可写入简历”的自然承接知识，但必须同步放入 interview_plan 或 knowledge_checklist 作为面试补齐点；标记为只需面试补齐的内容不得写成已实现。
 10. 简历主体禁止出现“如有”“如使用”“可补充”“建议掌握”“建议了解”“待补充”“可以学习”“需要学习”“可进一步补齐”等不确定表达。
 11. 项目专属表达：每个 project 的 intro、role、details 必须围绕本段经历生成，不得把同一句 RAG、接口联调、组件化、状态管理等通用技术描述复制到多个经历中；通用能力写入 summary / skills。
@@ -42,7 +53,7 @@ resume_sections 必须包含：
 - personal_info: 未知个人信息保留 [待填写]
 - summary: 字符串数组
 - skills: 字符串数组
-- projects: 数组，每项包含 name、meta、time、intro、role、details
+- projects: 数组，每项包含 name、meta、time、intro、role、details，并尽量包含内部字段 source_experience_id
 - education: 未知保留 [待填写]
 - interview_preparation: 字符串数组
 

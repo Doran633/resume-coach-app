@@ -1,9 +1,17 @@
+import json
 import re
 from copy import deepcopy
+from datetime import datetime
+from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .long_input_service import analyze_long_input
+from .experience_identity_service import ExperienceIdentity, build_experience_identities
+
+
+LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
+LOG_PATH = LOG_DIR / "experience_boundary.jsonl"
 
 
 def _normalize(text: str) -> str:
@@ -22,18 +30,77 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
-def _match_project_to_segment(project: dict[str, Any], segments: list, index: int):
+class BoundaryStats:
+    def __init__(self, generation_result_id: int | None = None, stage: str = "unknown"):
+        self.generation_result_id = generation_result_id
+        self.stage = stage
+        self.total_experiences = 0
+        self.projects_with_source_id = 0
+        self.projects_missing_source_id = 0
+        self.contamination_fixed_count = 0
+        self.fixed_fields: list[str] = []
+
+    def fixed(self, field: str):
+        self.contamination_fixed_count += 1
+        if field not in self.fixed_fields:
+            self.fixed_fields.append(field)
+
+
+def _write_boundary_log(stats: BoundaryStats):
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log = {
+            "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "generation_result_id": stats.generation_result_id,
+            "total_experiences": stats.total_experiences,
+            "projects_with_source_id": stats.projects_with_source_id,
+            "projects_missing_source_id": stats.projects_missing_source_id,
+            "contamination_fixed_count": stats.contamination_fixed_count,
+            "fixed_fields": stats.fixed_fields,
+            "stage": stats.stage,
+        }
+        with LOG_PATH.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(log, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
+def _project_text(project: dict[str, Any]) -> str:
+    return "\n".join(str(project.get(key, "")) for key in ["name", "meta", "intro", "role", "details"])
+
+
+def _score_project_identity(project: dict[str, Any], identity: ExperienceIdentity) -> int:
+    project_text = _normalize(_project_text(project))
+    score = 0
+    title = _normalize(identity.title)
+    if title and title in project_text:
+        score += 16
+    if identity.experience_type and identity.experience_type in _project_text(project):
+        score += 5
+    for term in identity.explicit_tech_terms + identity.evidence_terms + identity.risk_terms:
+        if _contains_term(_project_text(project), term):
+            score += 3
+    return score
+
+
+def _match_project_to_segment(project: dict[str, Any], segments: list[ExperienceIdentity], index: int):
+    source_id = str(project.get("source_experience_id") or "").strip()
+    if source_id:
+        for segment in segments:
+            if segment.experience_id == source_id:
+                return segment
+
     project_text = _normalize(" ".join(str(project.get(key, "")) for key in ["name", "meta", "intro", "role"]))
     for segment in segments:
         title = _normalize(segment.title)
-        label = _normalize(segment.label)
         if title and (title in project_text or project_text in title):
             return segment
-        if label and label in project_text:
+        if segment.experience_type != "项目经历" and segment.experience_type in _project_text(project):
             return segment
-    if index < len(segments):
-        return segments[index]
-    return segments[0] if segments else None
+    ranked = sorted(segments, key=lambda item: _score_project_identity(project, item), reverse=True)
+    if ranked and _score_project_identity(project, ranked[0]) > 0:
+        return ranked[0]
+    return None
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -59,26 +126,35 @@ def _has_metric_contamination(text: str, segment_content: str) -> bool:
     return any(re.search(pattern, text or "", re.IGNORECASE) and not re.search(pattern, segment_content or "", re.IGNORECASE) for pattern in metric_patterns)
 
 
-def _allowed_terms(segment) -> set[str]:
-    return set(segment.tech_terms + segment.evidence_terms + segment.risk_terms + segment.supported_resume_terms)
+def _allowed_terms(segment: ExperienceIdentity) -> set[str]:
+    return set(segment.explicit_tech_terms + segment.evidence_terms + segment.risk_terms + segment.supported_inference_terms)
 
 
-def _global_terms(segments: list) -> set[str]:
+def _global_terms(segments: list[ExperienceIdentity]) -> set[str]:
     result: set[str] = set()
     for segment in segments:
-        result.update(segment.tech_terms)
+        result.update(segment.explicit_tech_terms)
         result.update(term for term in segment.evidence_terms if term not in {"用户", "奖"})
         result.update(segment.risk_terms)
         for term in ["论文", "实验结果", "科研", "排名", "立项", "证书"]:
-            if _contains_term(segment.content, term):
+            if _contains_term(segment.raw_text, term):
                 result.add(term)
     return result
 
 
-def guard_experience_boundaries(payload: schemas.GenerationPayload, raw_input: str) -> schemas.GenerationPayload:
-    context = analyze_long_input(raw_input)
-    segments = context.segments
+def guard_experience_boundaries(
+    payload: schemas.GenerationPayload,
+    raw_input: str,
+    generation_result_id: int | None = None,
+    stage: str = "unknown",
+    write_log: bool = True,
+) -> schemas.GenerationPayload:
+    segments = build_experience_identities(raw_input)
+    stats = BoundaryStats(generation_result_id=generation_result_id, stage=stage)
+    stats.total_experiences = len(segments)
     if len(segments) <= 1:
+        if write_log:
+            _write_boundary_log(stats)
         return payload
 
     updated = payload.model_copy(deep=True)
@@ -87,32 +163,49 @@ def guard_experience_boundaries(payload: schemas.GenerationPayload, raw_input: s
 
     for index, project in enumerate(updated.resume_sections.projects):
         guarded = deepcopy(project)
+        if guarded.get("source_experience_id"):
+            stats.projects_with_source_id += 1
+        else:
+            stats.projects_missing_source_id += 1
         segment = _match_project_to_segment(guarded, segments, index)
         if not segment:
             guarded_projects.append(guarded)
             continue
+        guarded["source_experience_id"] = segment.experience_id
 
         blocked_terms = all_terms - _allowed_terms(segment)
         for key in ["intro", "role"]:
             cleaned = _remove_contaminated_sentences(str(guarded.get(key, "")), blocked_terms)
-            if _has_metric_contamination(cleaned, segment.content):
+            if cleaned != str(guarded.get(key, "")):
+                stats.fixed(f"projects[{index}].{key}")
+            if _has_metric_contamination(cleaned, segment.raw_text):
+                stats.fixed(f"projects[{index}].{key}")
                 cleaned = ""
             if cleaned:
                 guarded[key] = cleaned
             elif key == "intro":
-                guarded[key] = segment.summary
+                guarded[key] = segment.raw_text[:180].strip()
             else:
                 guarded[key] = "围绕该段经历完成相关任务，具体职责以用户原文提供的信息为准。"
         details = []
-        for detail in guarded.get("details", []) or []:
+        original_details = guarded.get("details", []) or []
+        for detail in original_details:
             detail_text = str(detail)
             if any(_contains_term(detail_text, term) for term in blocked_terms):
+                stats.fixed(f"projects[{index}].details")
                 continue
-            if _has_metric_contamination(detail_text, segment.content):
+            if _has_metric_contamination(detail_text, segment.raw_text):
+                stats.fixed(f"projects[{index}].details")
                 continue
             details.append(detail_text)
         guarded["details"] = _dedupe(details) or guarded.get("details", [])[:1]
         guarded_projects.append(guarded)
 
     updated.resume_sections.projects = guarded_projects
+    if stats.contamination_fixed_count:
+        note = "已清理部分跨经历混用的技术、指标或成果表达；面试时请按每段经历分别准备事实证据。"
+        if note not in updated.resume_sections.interview_preparation:
+            updated.resume_sections.interview_preparation.append(note)
+    if write_log:
+        _write_boundary_log(stats)
     return updated

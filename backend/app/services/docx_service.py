@@ -158,7 +158,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = guard_hard_facts(payload, raw_input)
     payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
     payload = ensure_packaging_gain(payload, raw_input, target_role)
-    payload = guard_experience_boundaries(payload, raw_input)
+    payload = guard_experience_boundaries(payload, raw_input, generation_result_id=request.generation_result_id, stage="docx_export")
     payload = cleanup_uncertain_expressions(payload, raw_input)
     payload = guard_project_specificity(payload, raw_input)
     payload = strengthen_weak_profile_payload(payload, raw_input, target_role)

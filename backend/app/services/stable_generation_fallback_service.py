@@ -1,6 +1,7 @@
 import re
 
 from .. import schemas
+from .experience_identity_service import build_segmentation_questions
 from .long_input_service import EVIDENCE_TERMS, RISK_TERMS, TECH_TERMS, LongInputContext, compact_text, extract_terms
 
 
@@ -125,6 +126,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "intro": _intro_from_content(segment.content),
                 "role": _role_for_meta(meta),
                 "details": details[:5],
+                "source_experience_id": segment.experience_id,
             }
         )
 
@@ -137,6 +139,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "intro": compact_text(request.raw_input, 180),
                 "role": "基于用户原始经历整理项目目标、职责边界和技术动作。",
                 "details": _split_details(request.raw_input, limit=5),
+                "source_experience_id": "EXP-001",
             }
         )
 
@@ -146,10 +149,11 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     boundary = "边界参考：未提供的学校、专业、用户数、并发、奖项、模型训练等硬事实不能补写；缺少证据的强表达应降级。"
     recommended = f"{normal}\n{bold}"
 
+    segmentation_questions = build_segmentation_questions(request.raw_input)
     return schemas.GenerationPayload(
         completeness_score=72 if context.long_input_mode else 64,
         confirmed_facts=["系统基于用户原文识别出主要经历", f"识别到 {context.segment_count} 段经历"],
-        missing_questions=["每段经历的时间、个人贡献边界和证据材料可以继续补充。"],
+        missing_questions=(segmentation_questions + ["每段经历的时间、个人贡献边界和证据材料可以继续补充。"])[:8],
         normal_version=normal,
         bold_version=bold,
         boundary_version=boundary,

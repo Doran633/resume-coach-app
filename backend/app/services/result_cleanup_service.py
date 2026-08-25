@@ -201,16 +201,18 @@ def _clean_projects(projects, stats: CleanupStats) -> list[dict]:
     for index, project in enumerate(projects[:5]):
         if not isinstance(project, dict):
             project = {"name": "项目经历", "intro": project}
-        cleaned_projects.append(
-            {
-                "name": _clean_text(project.get("name"), stats, f"resume_sections.projects[{index}].name"),
-                "meta": _clean_text(project.get("meta"), stats, f"resume_sections.projects[{index}].meta"),
-                "time": _clean_text(project.get("time"), stats, f"resume_sections.projects[{index}].time"),
-                "intro": _clean_text(project.get("intro"), stats, f"resume_sections.projects[{index}].intro"),
-                "role": _clean_text(project.get("role"), stats, f"resume_sections.projects[{index}].role"),
-                "details": _clean_list(project.get("details"), stats, f"resume_sections.projects[{index}].details", limit=8),
-            }
-        )
+        cleaned_project = {
+            "name": _clean_text(project.get("name"), stats, f"resume_sections.projects[{index}].name"),
+            "meta": _clean_text(project.get("meta"), stats, f"resume_sections.projects[{index}].meta"),
+            "time": _clean_text(project.get("time"), stats, f"resume_sections.projects[{index}].time"),
+            "intro": _clean_text(project.get("intro"), stats, f"resume_sections.projects[{index}].intro"),
+            "role": _clean_text(project.get("role"), stats, f"resume_sections.projects[{index}].role"),
+            "details": _clean_list(project.get("details"), stats, f"resume_sections.projects[{index}].details", limit=8),
+        }
+        source_experience_id = project.get("source_experience_id")
+        if isinstance(source_experience_id, str) and re.fullmatch(r"EXP-\d{3}", source_experience_id.strip()):
+            cleaned_project["source_experience_id"] = source_experience_id.strip()
+        cleaned_projects.append(cleaned_project)
     return cleaned_projects
 
 

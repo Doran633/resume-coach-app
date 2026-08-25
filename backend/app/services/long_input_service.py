@@ -126,8 +126,12 @@ def build_compact_context(segments: list[LongInputSegment]) -> str:
     return "\n".join(lines)
 
 
-def analyze_long_input(raw_input: str) -> LongInputContext:
+def analyze_long_input(raw_input: str, write_segmentation_log: bool = False, stage: str = "unknown") -> LongInputContext:
     raw_input = raw_input or ""
+    if write_segmentation_log:
+        from .semantic_experience_segmentation_service import segment_semantic_experiences
+
+        segment_semantic_experiences(raw_input, write_log=True, stage=stage)
     segments = enrich_segments(split_experience_segments(raw_input))
     raw_input_length = len(raw_input)
     line_count = _line_count(raw_input)

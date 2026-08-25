@@ -10,6 +10,18 @@
 - 经历类型：{experience_type}
 - 系统预解析经历：
 {experience_context}
+- 内部 experience_id 边界表：
+{experience_identity_context}
+
+系统识别出的低置信度分段追问（只能加入 missing_questions，不得自行认定）：
+{segmentation_question_context}
+
+混合自然语言输入规则：
+- 用户背景、年级和求职意向不是项目，不得写入 projects 或项目 details。
+- 输入已由后端按 experience_id 分段；不得将多个 experience_id 重新塞进“综合经历项目”。
+- 只有系统明确提供合并关系时才能合并；否则每个 source_experience_id 独立生成。
+- 奖项、技术、组织职责和结果只能属于对应 source_experience_id。
+- 不确定经历类型时使用保守中文类型，并把关系确认问题放入 missing_questions。
 - 用户原始输入：
 {raw_input}
 
@@ -52,7 +64,7 @@ resume_sections 必须包含：
 - personal_info: 对象，未知个人信息保留 [待填写]
 - summary: 字符串数组
 - skills: 字符串数组
-- projects: 对象数组，每个项目包含 name、meta、time、intro、role、details
+- projects: 对象数组，每个项目包含 name、meta、time、intro、role、details，并尽量包含内部字段 source_experience_id
 - education: 对象，未知保留 [待填写]
 - interview_preparation: 字符串数组
 
@@ -90,10 +102,12 @@ resume_sections 必须包含：
 8. 如果用户输入多类经历，应尽量分别保留，除非信息极少或明显重复。
 
 经历边界隔离规则：
-1. 如果输入中存在 EXP-001、EXP-002、EXP-003 等内部 experience_id，每个 resume_sections.projects 项目只能使用对应 experience_id 下的事实、技术词、证据词、风险词和允许的自然承接知识。
-2. 不得把 EXP-001 的技术、数据、成果写入 EXP-002；不得把项目经历的成果写入实习经历；不得把竞赛奖项写入科研经历。
-3. 如果需要综合表达多段经历，只能写在 summary / recommended_version 中，不能污染具体项目。
-4. 每个项目的 details 应优先来自该段经历原文和该段允许的自然承接知识。
+1. 内部 experience_id 是事实边界锚点。每个 resume_sections.projects 项目必须尽量填写 source_experience_id，值只能来自 EXP-001、EXP-002、EXP-003 等已给出的 ID。
+2. 每个项目只能使用对应 source_experience_id 下的事实、技术词、证据词、风险词和允许的自然承接知识。
+3. 不得把 EXP-001 的技术、数据、成果写入 EXP-002；不得把项目经历的成果写入实习经历；不得把竞赛奖项写入科研经历。
+4. 如果无法判断某个项目属于哪个 source_experience_id，应放入 missing_questions 或 claims，而不是写进简历主体。
+5. 如果需要综合表达多段经历，只能写在 summary / recommended_version 中，不能污染具体项目。
+6. 每个项目的 details 应优先来自该段经历原文和该段允许的自然承接知识。
 
 自然承接知识规则：
 1. 可以使用 compact_context 中标记为“可写入简历”的自然承接知识，例如 RAG 测试集可以自然承接 Top-K、Retrieval、Chunk、Embedding、Recall、Groundedness 等概念。

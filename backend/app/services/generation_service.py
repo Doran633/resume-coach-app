@@ -352,7 +352,7 @@ def build_llm_generation(request: schemas.GenerateRequest, long_input_context: L
 
 def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.GenerateResponse:
     started_at = time.perf_counter()
-    long_input_context = analyze_long_input(request.raw_input)
+    long_input_context = analyze_long_input(request.raw_input, write_segmentation_log=True, stage="generation")
     user = get_or_create_anonymous_user(db, request.anonymous_user_id)
     ensure_session(db, user, request.session_id)
 
@@ -423,7 +423,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_hard_facts(payload, request.raw_input)
     payload = fill_resume_sections(payload, stage="generation", raw_input=request.raw_input)
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
-    payload = guard_experience_boundaries(payload, request.raw_input)
+    payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
     payload = guard_project_specificity(payload, request.raw_input)
     payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)

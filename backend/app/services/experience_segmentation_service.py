@@ -1,6 +1,8 @@
 import re
 from dataclasses import dataclass
 
+from .semantic_experience_segmentation_service import segment_semantic_experiences
+
 
 SEGMENT_PATTERN = re.compile(
     r"(^|\n)\s*(?:#{1,6}\s*)?"
@@ -36,7 +38,11 @@ def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[Exp
 
     matches = list(SEGMENT_PATTERN.finditer(text))
     if not matches:
-        return [ExperienceSegment(label="经历一", title="综合经历", content=text)]
+        semantic = segment_semantic_experiences(text)
+        return [
+            ExperienceSegment(label=item.experience_type, title=item.title, content=item.raw_text)
+            for item in semantic.segments[:max_segments]
+        ]
 
     segments: list[ExperienceSegment] = []
     for index, match in enumerate(matches[:max_segments]):

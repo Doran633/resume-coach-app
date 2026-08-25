@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .experience_identity_service import ExperienceIdentity, build_experience_identities
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -85,6 +86,7 @@ class FallbackStats:
         self.fallback_sections: list[str] = []
         self.fallback_reasons: list[str] = []
         self.source_fields: list[str] = []
+        self.used_experience_id = False
 
     @property
     def changed(self) -> bool:
@@ -118,6 +120,7 @@ def _write_fallback_log(stats: FallbackStats):
             "fallback_reasons": stats.fallback_reasons,
             "fallback_reason": stats.fallback_reason,
             "source_fields": stats.source_fields,
+            "used_experience_id": stats.used_experience_id,
             "generation_result_id": stats.generation_result_id,
             "stage": stats.stage,
         }
@@ -359,6 +362,95 @@ def _project_signature(project: dict) -> str:
     return f"{_text(project.get('name'))}|{_text(project.get('meta'))}"
 
 
+def _normalize_match_text(text: str) -> str:
+    return re.sub(r"\s+", "", text or "").lower()
+
+
+def _project_text(project: dict) -> str:
+    return "\n".join(_text(project.get(key)) for key in ["name", "meta", "intro", "role", "details"])
+
+
+def _score_project_identity(project: dict, identity: ExperienceIdentity) -> int:
+    project_text = _normalize_match_text(_project_text(project))
+    raw_text = _normalize_match_text(identity.raw_text)
+    score = 0
+    title = _normalize_match_text(identity.title)
+    if title and title in project_text:
+        score += 16
+    if identity.experience_type and identity.experience_type in _project_text(project):
+        score += 5
+    for term in identity.explicit_tech_terms:
+        if re.search(re.escape(term), _project_text(project), re.IGNORECASE):
+            score += 3
+    for term in identity.evidence_terms + identity.risk_terms:
+        if term and term in _project_text(project):
+            score += 3
+    if raw_text and project_text and (project_text[:18] in raw_text or raw_text[:18] in project_text):
+        score += 4
+    return score
+
+
+def _assign_source_experience_ids(projects: list, raw_input: str, stats: FallbackStats) -> list:
+    if not isinstance(projects, list) or not raw_input:
+        return projects
+    identities = build_experience_identities(raw_input)
+    if not identities:
+        return projects
+
+    assigned: list[dict] = []
+    used_ids: set[str] = set()
+    for index, project in enumerate(projects):
+        if not isinstance(project, dict):
+            assigned.append(project)
+            continue
+        source_id = _text(project.get("source_experience_id"))
+        if source_id and any(source_id == item.experience_id for item in identities):
+            assigned.append(project)
+            used_ids.add(source_id)
+            stats.used_experience_id = True
+            continue
+
+        ranked = sorted(
+            identities,
+            key=lambda item: (
+                _score_project_identity(project, item),
+                0 if item.experience_id in used_ids else 1,
+            ),
+            reverse=True,
+        )
+        chosen = ranked[0] if ranked else None
+        if chosen and (_score_project_identity(project, chosen) > 0 or index < len(identities)):
+            if _score_project_identity(project, chosen) == 0 and index < len(identities):
+                chosen = identities[index]
+            project["source_experience_id"] = chosen.experience_id
+            used_ids.add(chosen.experience_id)
+            stats.used_experience_id = True
+        assigned.append(project)
+    return assigned
+
+
+def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict]:
+    projects = []
+    for identity in build_experience_identities(raw_input)[:5]:
+        details = _details_from_text(identity.raw_text, limit=6)
+        if not details:
+            continue
+        stats.fill("projects", "experience_id/raw_input")
+        stats.used_experience_id = True
+        projects.append(
+            {
+                "name": identity.title or identity.experience_type,
+                "meta": identity.experience_type,
+                "time": "[待填写]",
+                "intro": details[0],
+                "role": "围绕该段经历完成相关任务，具体职责以用户原文提供的信息为准。",
+                "details": details,
+                "source_experience_id": identity.experience_id,
+            }
+        )
+    return projects
+
+
 def _merge_missing_projects(existing: list, candidates: list[dict], stats: FallbackStats, source: str) -> list:
     merged = list(existing) if isinstance(existing, list) else []
     signatures = {_project_signature(project) for project in merged if isinstance(project, dict)}
@@ -421,6 +513,15 @@ def fill_resume_sections(
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}
     sections["education"] = sections.get("education") if isinstance(sections.get("education"), dict) else {}
 
+    identities = build_experience_identities(raw_source) if raw_source else []
+    existing_projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
+    if len(identities) >= 2 and len(existing_projects) == 1 and isinstance(existing_projects[0], dict):
+        project_name = _text(existing_projects[0].get("name"))
+        project_meta = _text(existing_projects[0].get("meta"))
+        if "综合经历" in project_name or "综合经历" in project_meta:
+            sections["projects"] = _projects_from_identities(raw_source, stats)
+            stats.add_reason("combined_project_replaced")
+
     empty_sections = [
         section
         for section in ["summary", "skills", "projects", "interview_preparation"]
@@ -439,11 +540,17 @@ def fill_resume_sections(
 
     if "projects" in empty_sections:
         raw_projects = _parse_projects(raw_source, "raw_input", stats) if raw_source else []
+        raw_projects = _assign_source_experience_ids(raw_projects, raw_source, stats)
+        if not raw_projects and raw_source:
+            raw_projects = _projects_from_identities(raw_source, stats)
         sections["projects"] = raw_projects or _parse_projects(source, source_field, stats)
+        sections["projects"] = _assign_source_experience_ids(sections["projects"], raw_source, stats)
     elif raw_source:
         raw_projects = _parse_projects(raw_source, "raw_input", stats)
+        raw_projects = _assign_source_experience_ids(raw_projects, raw_source, stats)
         if raw_projects:
             sections["projects"] = _merge_missing_projects(sections.get("projects"), raw_projects, stats, "raw_input")
+        sections["projects"] = _assign_source_experience_ids(sections.get("projects"), raw_source, stats)
 
     if "interview_preparation" in empty_sections:
         sections["interview_preparation"] = _build_interview_preparation(data, stats)

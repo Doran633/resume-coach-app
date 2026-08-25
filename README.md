@@ -29,6 +29,8 @@ Resume Coach App 面向有项目、实习、开源、比赛或校园经历，但
 - 项目专属表达：清理多个经历之间重复出现的模板句，让通用能力进入个人优势 / 技能栈，具体经历保留差异化细节。
 - 弱经历增强：对课程大作业、小项目、学生工作、竞赛参与等薄弱履历进行成长型包装，不伪造成实习或企业项目。
 - 正文去负面化：清理“没有实习、未上线、没有获奖、只是作业”等自降表达，缺失事实进入面试准备而不是正式简历。
+- Experience ID 边界：每段经历在内部绑定 `EXP-001 / EXP-002`，生成、fallback、guard 和 DOCX 导出前都会尽量按经历身份隔离事实。
+- 混合输入语义分段：即使用户没有写标题或换行，系统也会结合新动作、组织、经历类型、主题变化和独立结果谨慎识别多段经历。
 - DOCX 导出：根据结构化简历生成正式技术简历，支持最多两页内容承载，并在结构为空时自动兜底，避免页面有内容但 DOCX 空白。
 - 数据闭环：匿名用户、会话、事件、输入、生成结果、反馈、LLM 调用日志和 fallback 日志。
 - 数据导出：将 SQLite 埋点导出为 Markdown 和 CSV 报告，并汇总 fallback 触发率。
@@ -168,6 +170,32 @@ v0.3.9 修复弱经历增强后的两个问题：正式简历中不应出现“�
 
 - 新增简历正文净化器，清理 summary、项目名称、项目类型、项目简介、我的职责和技术细节中的负面表达。
 - “没有实习 / 未上线 / 没有获奖”等边界事实不会进入正式简历正文，而是转入面试准备、追问或边界判断。
+
+## v0.4.0 Experience ID 事实边界
+
+v0.4.0 将多经历处理从“生成后修补”推进到“生成前分段、生成中绑定、生成后校验”。
+
+主要能力：
+
+- 每段经历在预处理阶段生成内部 `experience_id`，例如 `EXP-001`、`EXP-002`。
+- prompt 中注入 experience_id 边界表，要求模型为每个简历项目绑定 `source_experience_id`。
+- `source_experience_id` 只在后端内部使用，不展示给用户，也不会进入 DOCX。
+- 后端边界守卫优先按 `source_experience_id` 校验；模型漏填时，再用项目名称、经历类型、技术词、证据词回匹配。
+- Resume Section Fallback 和稳定 fallback 也会按 experience_id 逐段生成项目，避免把多段经历兜成一个“综合经历项目”。
+- 新增 `backend/logs/experience_boundary.jsonl`，记录经历数、项目 source id 缺失数、跨经历污染修复次数和修复字段。
+
+这一步的目标不是让系统更保守，而是让每段经历独立、真实、可包装、可承接。
+
+## v0.4.1 混合自然语言经历识别
+
+v0.4.1 解决用户把项目、校园活动、社会实践、社团工作和竞赛内容连续写在一段话中时，系统错误生成“综合经历项目”的问题。
+
+- 显式标题仍然优先；没有标题时，后端根据标点、新经历动作、组织或角色变化、经历类型变化、主题变化和独立证据计算分段置信度。
+- 功能列表和同一项目的技术链路不会仅因逗号而被拆散；相邻且信息较少的校园活动允许谨慎合并。
+- 年级、个人背景和求职意向会从项目候选内容中剥离，不会成为项目名称或技术细节。
+- 识别到多个 experience_id 后，LLM 和 fallback 都不能再用一个“综合经历项目”容纳全部内容。
+- 无法可靠判断的关系进入 `missing_questions`，不会直接写成确定事实。
+- 分段日志写入 `backend/logs/experience_segmentation.jsonl`，只记录长度、类型、置信度和截断标题，不记录完整用户原文。
 - “只是课程作业”“简单小项目”“写了几个页面”“调了一些接口”等不专业原话会改写为“课程项目”“个人项目实践”“页面开发与交互流程实现”“接口联调与数据流转校验”。
 - fact guard 增强实习幻觉防护：原文没有实习、公司、工作、岗位等线索时，`meta=实习经历` 会被降级为课程项目、个人项目、校园 / 社团经历、竞赛经历或项目经历。
 - DOCX 导出前也执行正文净化和事实守卫，历史结果重新导出时同样不会把缺点写进正式简历。
@@ -358,6 +386,8 @@ sqlite3 backend/data/resume_coach.db "select id, generation_result_id, file_type
 - 结果清洗日志：`backend/logs/result_cleanup.jsonl`
 - 简历结构兜底日志：`backend/logs/resume_section_fallback.jsonl`
 - 长输入稳定性日志：`backend/logs/generation_stability.jsonl`
+- 经历边界守卫日志：`backend/logs/experience_boundary.jsonl`
+- 混合输入分段日志：`backend/logs/experience_segmentation.jsonl`
 - 生成文件：`backend/outputs/`
 - 数据报告：`backend/reports/`
 
@@ -383,6 +413,18 @@ tail -n 50 backend/logs/resume_section_fallback.jsonl
 
 ```bash
 tail -n 50 backend/logs/generation_stability.jsonl
+```
+
+查看最近经历边界守卫日志：
+
+```bash
+tail -n 50 backend/logs/experience_boundary.jsonl
+```
+
+查看最近混合输入分段日志：
+
+```bash
+tail -n 50 backend/logs/experience_segmentation.jsonl
 ```
 
 ## 常见问题
