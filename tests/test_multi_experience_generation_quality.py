@@ -164,6 +164,16 @@ def test_multi_project_docx_contains_multiple_project_names():
     db = SessionLocal()
 
     payload = schemas.GenerationPayload.model_validate(build_multi_project_payload(2))
+    db.add(models.ExperienceInput(
+        id=1,
+        anonymous_user_id=1,
+        session_id="s-test",
+        target_role="AI / 大模型 / Agent",
+        mode="full_resume",
+        packaging_level="大胆",
+        experience_type="项目经历",
+        raw_input=payload.recommended_version,
+    ))
     row = models.GenerationResult(
         id=301,
         experience_input_id=1,

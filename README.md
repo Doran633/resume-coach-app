@@ -1,5 +1,13 @@
 # Resume Coach App
 
+## v0.4.9 正式简历与教练方案分离
+
+- 正式 DOCX 不再输出面试准备、知识补齐、Claim 风险、证据建议和降级表达，下载后只需补充个人信息并核对时间即可形成初步投递版本。
+- DOCX 渲染前执行投递就绪检查，日志位于 `backend/logs/docx_delivery_readiness.jsonl`，不记录用户原始输入或完整简历正文。
+- 导出页完整保留求职教练能力，并将内容分为面试问题、技术知识补齐、证据材料准备和表达边界四组。
+- 新增 `copy_interview_group`、`copy_all_interview_plan` 和 `expand_interview_group` 埋点。
+
+
 ## v0.4.8 关系语义驱动的经历类型解析
 
 - 经历类型从关键词命中升级为“作者 + 关系动作 + 经历对象”证据评分，区分作者任职、产品目标用户和招聘对象。

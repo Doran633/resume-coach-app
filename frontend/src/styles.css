@@ -845,6 +845,72 @@ body {
   color: #64748b;
 }
 
+.export-note {
+  border-left: 3px solid #4b67b0;
+  padding-left: 12px;
+}
+
+.interview-plan-groups {
+  display: grid;
+  gap: 16px;
+}
+
+.interview-plan-group {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 18px;
+}
+
+.interview-plan-group:first-child {
+  border-top: 0;
+  padding-top: 6px;
+}
+
+.interview-plan-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.interview-plan-heading h3 {
+  margin: 0 0 4px;
+  color: #111827;
+  font-size: 17px;
+}
+
+.interview-plan-heading p {
+  margin: 0;
+}
+
+.interview-plan-list {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding-left: 24px;
+}
+
+.interview-plan-list li {
+  padding-left: 4px;
+  color: #24324a;
+  line-height: 1.75;
+}
+
+.interview-plan-list span,
+.interview-plan-list small {
+  display: block;
+}
+
+.interview-plan-list small {
+  margin-top: 3px;
+  color: #718096;
+  font-size: 13px;
+}
+
+.expand-plan-button {
+  margin-top: 8px;
+  padding-left: 0;
+}
+
 .resume-preview-panel .project-preview {
   margin-top: 18px;
 }
@@ -1211,6 +1277,23 @@ body {
 
   .delivery-card {
     padding: 14px 16px;
+  }
+
+  .interview-plan-heading {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .interview-plan-heading .ant-btn {
+    min-height: 40px;
+  }
+
+  .interview-plan-list {
+    padding-left: 20px;
+  }
+
+  .interview-plan-list li {
+    font-size: 15px;
   }
 
   .ant-form-item .ant-radio-group {

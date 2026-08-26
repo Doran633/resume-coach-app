@@ -46,6 +46,8 @@
 20. project.meta 只能由对应 source_experience_id 的局部事实决定，其他经历中的“实习、公司、竞赛”等词不得影响当前项目；同一 source_fact_ids 不得生成语义重复详情。
 21. resume_sections 只允许规定的英文 key，中文模块名只用于展示；正文禁止 section summary、summary chunk、section 个人优势 chunk 等内部标记，但不得误删文档 Chunk、chunk size、Text Chunking 等合法技术内容。
 22. “实习”可能只是目标用户、招聘对象或产品场景；只有作者与公司/组织/岗位存在明确任职或实习关系时才能生成实习经历，project.meta 必须服从对应 source_experience_id 的后端 resolved_type。
+23. resume_sections.interview_preparation、interview_plan 和 knowledge_checklist 只用于网页求职教练展示，不进入正式 DOCX；这些内容仍需完整生成。
+24. 正式简历正文不得出现“如果被问到、建议学习、准备证据、降级表达”等面试准备或系统建议话术。
 
 JSON 顶层字段必须包含：
 - completeness_score: 0-100 整数

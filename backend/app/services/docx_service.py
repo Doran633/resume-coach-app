@@ -31,6 +31,7 @@ from .experience_type_resolution_service import resolve_project_types
 from .resume_section_routing_service import route_resume_projects
 from .resume_fact_dedup_service import deduplicate_resume_facts
 from .generation_stage_quality_service import log_generation_stage
+from .docx_delivery_readiness_service import prepare_docx_delivery
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -112,14 +113,6 @@ def _project_detail_limit(project_count: int) -> int:
     if project_count <= 3:
         return 8
     return 5
-
-
-def _interview_limit(project_count: int) -> int:
-    if project_count <= 2:
-        return 10
-    if project_count == 3:
-        return 8
-    return 6
 
 
 def _experience_heading(meta: str | None) -> str:
@@ -233,6 +226,10 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="before_docx_render",
         generation_result_id=request.generation_result_id,
     )
+    payload = prepare_docx_delivery(
+        payload,
+        generation_result_id=request.generation_result_id,
+    )
     log_generation_stage(payload, "before_docx_render", request.generation_result_id)
 
     doc = Document()
@@ -283,10 +280,6 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
             _bullet(doc, "技术细节：", bold_label=True)
             for detail in project.get("details", [])[:detail_limit]:
                 _bullet(doc, detail, level=1)
-
-    _heading(doc, "面试准备清单")
-    for item in payload.resume_sections.interview_preparation[: _interview_limit(len(projects))]:
-        _bullet(doc, item)
 
     path = _next_path("resume-coach-v0")
     doc.save(path)

@@ -134,6 +134,8 @@ resume_sections 必须包含：
 3. summary 禁止出现“候选人、爱好者、适合将经历整理为、可面试承接、可投递表达、包装经历、履历薄弱、持续补齐、准备降级表达”等话术。
 4. 每条优势必须能够映射到 experience_id 或 fact_id；没有协作、指标或跨场景事实时，不得生成对应能力。
 5. 面试准备、知识补齐和降级口径只能进入 interview_plan / knowledge_checklist，不得进入 summary。
+6. resume_sections.interview_preparation、interview_plan 和 knowledge_checklist 只用于网页求职教练展示，不进入正式 DOCX。
+7. 简历正文不得为了面试准备加入“如果被问到、建议学习、准备证据、降级表达”等话术；面试准备仍需完整生成，不得因为不进入 DOCX 而省略。
 
 输入内容分层规则：
 1. 用户经历事实用于生成简历；目标岗位只用于决定表达重点；包装要求只用于控制表达强度；自降或不确定说明只用于边界判断和面试准备。
