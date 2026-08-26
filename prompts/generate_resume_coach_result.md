@@ -145,6 +145,13 @@ resume_sections 必须包含：
 2. 使用“设计、构建、实现、开发、集成、优化、排查、校验、部署、沉淀”等明确行动动词，项目详情采用“动作 + 对象/技术 + 结果或目的”结构。
 3. 专业化改写只能重组已有事实，不得擅自升级为主导、核心负责人、企业级、生产级、高并发或新增指标与技术栈。
 
+经历类型、事实去重与 Section 规则：
+1. 每个 project.meta 必须由对应 source_experience_id 的局部事实决定，不得因为其他经历包含实习、公司、竞赛等词污染当前项目类型。
+2. 同一 source_fact_ids 不得生成多条语义重复的详情；相似事实可以合并增强，但必须保留独有技术、动作、结果和指标。
+3. resume_sections 只能包含 personal_info、education、summary、skills、projects、interview_preparation 六个英文 key。
+4. “个人优势、技能与能力”等中文词只作为展示标题，不得作为 JSON key。
+5. 用户可见正文不得出现 section、section summary、summary chunk、section 个人优势 chunk 等内部标记；文档 Chunk、chunk size、Text Chunking 等技术语境可以正常保留。
+
 弱经历用户增强规则：
 1. 如果用户只有课程项目 / 大作业 / 课设 / 简单小项目，不要直接判定为不可包装，应组织为“课程项目”“软件工程实践”或“独立项目实践”。
 2. 课程项目不能写成企业项目，个人小项目不能写成公司业务，未上线项目不能写成真实生产系统。

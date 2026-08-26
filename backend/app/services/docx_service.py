@@ -25,6 +25,12 @@ from .fact_coverage_guard_service import guard_fact_coverage
 from .resume_summary_quality_service import ensure_resume_summary_quality
 from .resume_output_firewall_service import guard_resume_output
 from .resume_language_professionalization_service import professionalize_resume_language
+from .resume_section_schema_service import normalize_resume_section_schema
+from .resume_section_integrity_service import ensure_resume_section_integrity
+from .experience_type_resolution_service import resolve_project_types
+from .resume_section_routing_service import route_resume_projects
+from .resume_fact_dedup_service import deduplicate_resume_facts
+from .generation_stage_quality_service import log_generation_stage
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -134,12 +140,7 @@ def _experience_heading(meta: str | None) -> str:
 
 
 def _group_experiences(projects: list[dict]) -> list[tuple[str, list[dict]]]:
-    order = ["实习经历", "项目经历", "科研经历", "竞赛获奖", "竞赛经历", "开源经历", "校园 / 社团经历"]
-    groups: dict[str, list[dict]] = {}
-    for project in projects:
-        heading = _experience_heading(project.get("meta"))
-        groups.setdefault(heading, []).append(project)
-    return [(heading, groups[heading]) for heading in order if heading in groups]
+    return route_resume_projects(projects)
 
 
 def _next_path(prefix: str) -> Path:
@@ -160,6 +161,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     experience = db.query(models.ExperienceInput).filter_by(id=result_row.experience_input_id).first() if result_row else None
     raw_input = experience.raw_input if experience else ""
     target_role = experience.target_role if experience else ""
+    payload = normalize_resume_section_schema(payload)
     payload = sanitize_resume_body(payload, raw_input)
     payload = guard_hard_facts(payload, raw_input)
     payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
@@ -175,6 +177,10 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    payload = resolve_project_types(
+        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
+    )
+    route_resume_projects(payload.resume_sections.projects)
     payload = guard_fact_coverage(
         payload,
         raw_input,
@@ -186,6 +192,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         raw_input,
         stage="docx_export",
         generation_result_id=request.generation_result_id,
+    )
+    payload = deduplicate_resume_facts(
+        payload, stage="docx_export", generation_result_id=request.generation_result_id,
     )
     payload = ensure_resume_summary_quality(
         payload,
@@ -204,6 +213,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    payload = ensure_resume_section_integrity(payload)
     payload = ensure_resume_text_integrity(
         payload,
         raw_input,
@@ -217,6 +227,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    log_generation_stage(payload, "before_docx_render", request.generation_result_id)
 
     doc = Document()
     _setup(doc)

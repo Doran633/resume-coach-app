@@ -29,6 +29,12 @@ from .fact_coverage_guard_service import guard_fact_coverage
 from .resume_summary_quality_service import ensure_resume_summary_quality
 from .resume_output_firewall_service import guard_resume_output
 from .resume_language_professionalization_service import professionalize_resume_language
+from .resume_section_schema_service import normalize_resume_section_schema
+from .resume_section_integrity_service import ensure_resume_section_integrity
+from .experience_type_resolution_service import resolve_project_types
+from .resume_section_routing_service import route_resume_projects
+from .resume_fact_dedup_service import deduplicate_resume_facts
+from .generation_stage_quality_service import log_generation_stage
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -425,9 +431,13 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     else:
         raise GenerationServiceError(f"Unsupported LLM_MODE: {mode}. Use mock or openai.")
 
+    log_generation_stage(payload, "after_llm")
+    payload = normalize_resume_section_schema(payload)
     payload = cleanup_generation_payload(payload, source=mode)
+    log_generation_stage(payload, "after_normalize")
     payload = guard_hard_facts(payload, request.raw_input)
     payload = fill_resume_sections(payload, stage="generation", raw_input=request.raw_input)
+    log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
@@ -435,14 +445,23 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)
     payload = sanitize_resume_body(payload, request.raw_input)
     payload = reconcile_resume_projects(payload, request.raw_input, stage="generation")
+    log_generation_stage(payload, "after_reconciliation")
+    payload = resolve_project_types(payload, request.raw_input, stage="generation")
+    route_resume_projects(payload.resume_sections.projects)
+    log_generation_stage(payload, "after_type_resolution")
     payload = guard_fact_coverage(payload, request.raw_input, stage="generation")
+    log_generation_stage(payload, "after_fact_coverage")
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
+    payload = deduplicate_resume_facts(payload, stage="generation")
+    log_generation_stage(payload, "after_dedup")
     payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = professionalize_resume_language(payload, stage="generation")
+    payload = ensure_resume_section_integrity(payload)
     payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
+    log_generation_stage(payload, "before_save")
 
     result = models.GenerationResult(
         experience_input_id=experience.id,

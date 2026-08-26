@@ -1,5 +1,14 @@
 # Resume Coach App
 
+## v0.4.7 类型路由、事实去重与 Section 完整性
+
+- 经历类型由对应 `experience_id` 的局部标题和事实解析，类型确认与 DOCX Section Routing 解耦。
+- 新增事实级语义去重，高置信重复合并、中置信相似保留，平衡 Dedup Precision 与 Recall。
+- 修复 `result_cleanup` 全局替换独立 `summary` 导致的 `section 个人优势 chunk` 污染。
+- Section Schema 只保留标准英文 key，中文模块名仅由 renderer 展示，合法技术语境中的 Chunk 不受影响。
+- 新增生成阶段质量快照，可定位类型、重复和污染第一次出现的处理阶段。
+- 日志位于 `backend/logs/experience_type_resolution.jsonl`、`resume_fact_dedup.jsonl` 和 `generation_stage_quality.jsonl`。
+
 ## v0.4.6 正式简历输出质量防火墙
 
 - 将混合输入分为经历事实、目标岗位、包装指令、不确定说明、模板残片和噪声，只有事实可以进入正式简历。
@@ -66,6 +75,7 @@ Resume Coach App 面向有项目、实习、开源、比赛或校园经历，但
 - 项目级内容对账：删除重复综合经历前先回收尚未覆盖的有效事实，将技术、指标和职责放回对应 experience_id。
 - 候选人视角个人优势：个人优势只呈现事实支撑的已具备能力，求职教练诊断、包装方法和未来准备事项不会进入正式简历。
 - 输出质量防火墙：求职意图、包装指令和模板残片不会进入简历，项目事实会被转换为更专业的行动表达。
+- 可追踪类型与路由：长输入中的经历类型由局部证据决定，事实级去重与 Section 完整性检查降低重复和内部标记污染。
 - DOCX 导出：根据结构化简历生成正式技术简历，支持最多两页内容承载，并在结构为空时自动兜底，避免页面有内容但 DOCX 空白。
 - 数据闭环：匿名用户、会话、事件、输入、生成结果、反馈、LLM 调用日志和 fallback 日志。
 - 数据导出：将 SQLite 埋点导出为 Markdown 和 CSV 报告，并汇总 fallback 触发率。

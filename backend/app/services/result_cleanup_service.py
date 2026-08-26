@@ -90,9 +90,10 @@ def _replace_field_markers(text: str, stats: CleanupStats) -> str:
         )
         cleaned, label_count = label_pattern.subn(lambda match: f"{match.group(1)}{replacement}：", cleaned)
 
-        standalone_pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(marker)}(?![A-Za-z0-9_])", re.IGNORECASE)
-        cleaned, standalone_count = standalone_pattern.subn(replacement, cleaned)
-        stats.add_replacement(marker, label_count + standalone_count)
+        # Internal section names in prose are not labels. Replacing standalone
+        # `summary` here previously turned `section summary chunk` into the
+        # user-visible corruption `section 个人优势 chunk`.
+        stats.add_replacement(marker, label_count)
     return cleaned
 
 
