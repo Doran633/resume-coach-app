@@ -23,6 +23,8 @@ from .resume_project_reconciliation_service import reconcile_resume_projects
 from .resume_text_integrity_service import ensure_resume_text_integrity
 from .fact_coverage_guard_service import guard_fact_coverage
 from .resume_summary_quality_service import ensure_resume_summary_quality
+from .resume_output_firewall_service import guard_resume_output
+from .resume_language_professionalization_service import professionalize_resume_language
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -191,6 +193,17 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    payload = guard_resume_output(
+        payload,
+        raw_input,
+        stage="docx_export",
+        generation_result_id=request.generation_result_id,
+    )
+    payload = professionalize_resume_language(
+        payload,
+        stage="docx_export",
+        generation_result_id=request.generation_result_id,
+    )
     payload = ensure_resume_text_integrity(
         payload,
         raw_input,
@@ -198,6 +211,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         generation_result_id=request.generation_result_id,
     )
     payload = guard_hard_facts(payload, raw_input)
+    payload = guard_resume_output(
+        payload,
+        raw_input,
+        stage="docx_export",
+        generation_result_id=request.generation_result_id,
+    )
 
     doc = Document()
     _setup(doc)

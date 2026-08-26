@@ -27,6 +27,8 @@ from .resume_project_reconciliation_service import reconcile_resume_projects
 from .resume_text_integrity_service import ensure_resume_text_integrity
 from .fact_coverage_guard_service import guard_fact_coverage
 from .resume_summary_quality_service import ensure_resume_summary_quality
+from .resume_output_firewall_service import guard_resume_output
+from .resume_language_professionalization_service import professionalize_resume_language
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -436,8 +438,11 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_fact_coverage(payload, request.raw_input, stage="generation")
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
     payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
+    payload = guard_resume_output(payload, request.raw_input, stage="generation")
+    payload = professionalize_resume_language(payload, stage="generation")
     payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
     payload = guard_hard_facts(payload, request.raw_input)
+    payload = guard_resume_output(payload, request.raw_input, stage="generation")
 
     result = models.GenerationResult(
         experience_input_id=experience.id,
