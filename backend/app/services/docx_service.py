@@ -22,6 +22,7 @@ from .resume_body_sanitizer_service import sanitize_resume_body
 from .resume_project_reconciliation_service import reconcile_resume_projects
 from .resume_text_integrity_service import ensure_resume_text_integrity
 from .fact_coverage_guard_service import guard_fact_coverage
+from .resume_summary_quality_service import ensure_resume_summary_quality
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -179,6 +180,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         generation_result_id=request.generation_result_id,
     )
     payload = guard_experience_boundaries(
+        payload,
+        raw_input,
+        stage="docx_export",
+        generation_result_id=request.generation_result_id,
+    )
+    payload = ensure_resume_summary_quality(
         payload,
         raw_input,
         stage="docx_export",

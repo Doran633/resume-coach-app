@@ -2,6 +2,7 @@ import re
 from copy import deepcopy
 
 from .. import schemas
+from .resume_summary_quality_service import build_grounded_summary_candidates
 from .long_input_service import EVIDENCE_TERMS, TECH_TERMS, analyze_long_input
 
 
@@ -73,13 +74,6 @@ NEGATIVE_RESUME_PHRASES = [
     ("简单项目", "个人项目实践"),
     ("写了几个页面", "参与核心页面开发与交互流程实现"),
     ("调了一些接口", "完成接口联调与数据流转校验"),
-]
-
-SUMMARY_SEEDS = [
-    "项目驱动型候选人，能够围绕已有任务梳理目标、功能链路、技术动作和结果证据。",
-    "具备学习迁移能力，适合将课程项目、小项目或竞赛经历整理为可面试承接的实践表达。",
-    "具备技术实践意识，能够从页面开发、接口联调、文档沉淀或展示答辩中提炼岗位相关能力。",
-    "具备持续补齐技术深度的意识，可围绕目标岗位准备项目原理、实现细节和降级表达。",
 ]
 
 WEAK_PROFILE_QUESTIONS = [
@@ -285,8 +279,9 @@ def strengthen_weak_profile_payload(
 
     summary = [str(item).strip() for item in sections.get("summary", []) if str(item).strip()] if isinstance(sections.get("summary"), list) else []
     summary = [_sanitize_strong_phrases(item, raw_input) for item in summary]
-    _unique_append(summary, SUMMARY_SEEDS, 4)
-    sections["summary"] = summary[:5]
+    grounded_seeds = [candidate.text for candidate in build_grounded_summary_candidates(raw_input)]
+    _unique_append(summary, grounded_seeds, 4)
+    sections["summary"] = summary[:4]
 
     projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
     if not projects:
