@@ -461,6 +461,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
+    payload = resolve_project_types(payload, request.raw_input, stage="before_save")
     log_generation_stage(payload, "before_save")
 
     result = models.GenerationResult(

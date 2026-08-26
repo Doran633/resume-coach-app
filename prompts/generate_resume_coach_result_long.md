@@ -45,6 +45,7 @@
 19. 简历语言必须专业化：禁止“我做过、我写了、我调了、技术动作、项目动作”等口语和内部标签；使用行动动词组织“动作 + 对象/技术 + 结果或目的”，且不得借专业化新增职责等级、硬指标或技术事实。
 20. project.meta 只能由对应 source_experience_id 的局部事实决定，其他经历中的“实习、公司、竞赛”等词不得影响当前项目；同一 source_fact_ids 不得生成语义重复详情。
 21. resume_sections 只允许规定的英文 key，中文模块名只用于展示；正文禁止 section summary、summary chunk、section 个人优势 chunk 等内部标记，但不得误删文档 Chunk、chunk size、Text Chunking 等合法技术内容。
+22. “实习”可能只是目标用户、招聘对象或产品场景；只有作者与公司/组织/岗位存在明确任职或实习关系时才能生成实习经历，project.meta 必须服从对应 source_experience_id 的后端 resolved_type。
 
 JSON 顶层字段必须包含：
 - completeness_score: 0-100 整数

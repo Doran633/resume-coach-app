@@ -151,6 +151,8 @@ resume_sections 必须包含：
 3. resume_sections 只能包含 personal_info、education、summary、skills、projects、interview_preparation 六个英文 key。
 4. “个人优势、技能与能力”等中文词只作为展示标题，不得作为 JSON key。
 5. 用户可见正文不得出现 section、section summary、summary chunk、section 个人优势 chunk 等内部标记；文档 Chunk、chunk size、Text Chunking 等技术语境可以正常保留。
+6. “实习”可能描述产品目标用户、招聘对象或求职场景，不能据此认定作者拥有实习经历；只有作者与公司、组织或岗位之间存在明确任职/实习关系时，才能生成实习经历。
+7. project.meta 必须服从后端基于 source_experience_id 提供的 resolved_type，不得根据整段 raw_input 或其他经历自行改变类型。
 
 弱经历用户增强规则：
 1. 如果用户只有课程项目 / 大作业 / 课设 / 简单小项目，不要直接判定为不可包装，应组织为“课程项目”“软件工程实践”或“独立项目实践”。

@@ -20,7 +20,12 @@ class ExperienceIdentity:
 
 def _experience_type(segment: LongInputSegment) -> str:
     text = f"{segment.label}\n{segment.title}\n{segment.content}"
-    if "实习" in text and not any(pattern in text for pattern in ["没有实习", "无实习", "没实习"]):
+    internship_relation = re.search(
+        r"(?:在[^。；\n]{2,50}(?:公司|企业|事务所|研究院)[^。；\n]{0,30}(?:实习|担任)|"
+        r"担任[^。；\n]{0,30}实习生|实习期间(?:负责|参与)|作为[^。；\n]{0,40}实习生)",
+        text,
+    )
+    if internship_relation or re.search(r"(?:^|\n)\s*实习经历(?:\s|$|[:：|｜])", text):
         return "实习经历"
     if any(term in text for term in ["科研", "研究", "论文"]):
         return "科研经历"

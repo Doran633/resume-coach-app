@@ -208,11 +208,11 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
     cleaned_projects = []
     for project in projects if isinstance(projects, list) else []:
         item = project if isinstance(project, dict) else {"name": "项目经历", "intro": project}
-        meta = _clean_text(item.get("meta"), facts) or "项目经历"
-        if not facts["company"] and "实习" in meta:
+        locked_type = str(item.get("resolved_experience_type") or "") if item.get("type_locked") else ""
+        meta = locked_type or _clean_text(item.get("meta"), facts) or "项目经历"
+        if not locked_type and not facts["company"] and "实习" in meta:
             meta = _infer_non_work_meta(item)
-        cleaned_projects.append(
-            {
+        cleaned = {
                 "name": _clean_text(item.get("name"), facts) or "项目经历",
                 "meta": meta,
                 "time": _clean_text(item.get("time"), facts) or PLACEHOLDER,
@@ -220,7 +220,10 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
                 "role": _clean_text(item.get("role"), facts),
                 "details": _clean_list(item.get("details"), facts),
             }
-        )
+        for key in ["source_experience_id", "resolved_experience_type", "type_resolution_version", "type_locked", "source_fact_ids"]:
+            if key in item:
+                cleaned[key] = item[key]
+        cleaned_projects.append(cleaned)
     return cleaned_projects
 
 

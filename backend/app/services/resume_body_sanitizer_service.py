@@ -76,7 +76,7 @@ def _clean_project(project: dict) -> dict:
         meta = "个人项目"
     if meta == "只是课程作业":
         meta = "课程项目"
-    return {
+    cleaned = {
         "name": _clean_text(item.get("name")) or "项目实践",
         "meta": meta,
         "time": _clean_text(item.get("time")) or "[待填写]",
@@ -84,6 +84,10 @@ def _clean_project(project: dict) -> dict:
         "role": _clean_text(item.get("role")),
         "details": _clean_list(item.get("details")),
     }
+    for key in ["source_experience_id", "resolved_experience_type", "type_resolution_version", "type_locked", "source_fact_ids"]:
+        if key in item:
+            cleaned[key] = item[key]
+    return cleaned
 
 
 def _add_interview_notes(data: dict, raw_input: str) -> None:

@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.4.8：关系语义驱动的经历类型解析
+
+- 修复“面向实习求职者”导致个人项目被识别为实习经历的真实问题。
+- 将类型判断从单关键词匹配升级为作者关系、项目 ownership 与排除语境共同参与的证据评分。
+- 移除 Reconciliation 对 `project.meta` 的直接修改，使类型解析和内容对账职责分离。
+- 增加高置信类型锁和 provenance 保留，防止 Sanitizer/Fact Guard 重建项目时丢失来源身份。
+- DOCX Routing 保持纯路由，并通过完整三段长输入回归验证项目与真实实习的分组顺序。
+
 ## v0.4.7：类型路由、事实去重与 Section 完整性
 
 - 将 Experience Type Resolution 与 DOCX Section Routing 解耦，阻止长输入中的全局类型信号污染单段经历。

@@ -227,6 +227,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    payload = resolve_project_types(
+        payload,
+        raw_input,
+        stage="before_docx_render",
+        generation_result_id=request.generation_result_id,
+    )
     log_generation_stage(payload, "before_docx_render", request.generation_result_id)
 
     doc = Document()

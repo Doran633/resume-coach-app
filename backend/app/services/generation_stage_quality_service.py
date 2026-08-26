@@ -30,6 +30,16 @@ def log_generation_stage(payload: schemas.GenerationPayload | dict, stage_name: 
             "section_keys": list(sections.keys()), "illegal_section_keys": [key for key in sections if key not in ALLOWED_SECTION_KEYS],
             "duplicate_fact_count": 0, "contamination_count": sum(1 for text in texts if CONTAMINATION.search(text)),
             "type_conflict_count": 0,
+            "project_type_lineage": [
+                {
+                    "experience_id": str(item.get("source_experience_id") or ""),
+                    "current_type": str(item.get("meta") or ""),
+                    "resolved_type": str(item.get("resolved_experience_type") or ""),
+                    "type_locked": bool(item.get("type_locked")),
+                    "resolver_version": str(item.get("type_resolution_version") or ""),
+                }
+                for item in projects if isinstance(item, dict)
+            ],
         }
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with LOG_PATH.open("a", encoding="utf-8") as handle:
