@@ -12,6 +12,8 @@
 {experience_context}
 - 内部 experience_id 边界表：
 {experience_identity_context}
+- 内部 experience_id 事实账本：
+{experience_fact_ledger_context}
 
 内部摘要只用于定位经历边界，长度裁剪不代表用户原文缺失。正式简历不得出现“原文截断”“需补充原文”“内容被截断”“文本不完整”“因长度限制省略”或省略号截断句。经历类型必须服从 source_experience_id 对应的 experience_type，不得因为其他经历出现“实习”就把个人项目标成实习经历。
 
@@ -110,6 +112,8 @@ resume_sections 必须包含：
 4. 如果无法判断某个项目属于哪个 source_experience_id，应放入 missing_questions 或 claims，而不是写进简历主体。
 5. 如果需要综合表达多段经历，只能写在 summary / recommended_version 中，不能污染具体项目。
 6. 每个项目的 details 应优先来自该段经历原文和该段允许的自然承接知识。
+7. 每条 detail 应尽量绑定本段事实账本中的 source_fact_ids；不得用通用包装句替代 high importance 明确事实。
+8. 输入事实越充实，输出应越完整；独有功能、工程实践、证据、问题排查和指标不得因摘要而消失。
 
 自然承接知识规则：
 1. 可以使用 compact_context 中标记为“可写入简历”的自然承接知识，例如 RAG 测试集可以自然承接 Top-K、Retrieval、Chunk、Embedding、Recall、Groundedness 等概念。

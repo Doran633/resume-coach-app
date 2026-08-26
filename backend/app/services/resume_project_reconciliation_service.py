@@ -9,12 +9,13 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score, is_generic_detail
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
 LOG_PATH = LOG_DIR / "resume_project_reconciliation.jsonl"
 MAX_PROJECT_DETAILS = 8
-MAX_TOTAL_DETAILS = 18
+MAX_TOTAL_DETAILS = 20
 
 GENERIC_MARKERS = [
     "综合经历",
@@ -160,7 +161,8 @@ def _assign_project_sources(projects: list[dict], identities: list[ExperienceIde
     return coverage
 
 
-def _apply_detail_budget(projects: list[dict]) -> None:
+def _apply_detail_budget(projects: list[dict], raw_input: str) -> None:
+    ledger = build_experience_fact_ledger(raw_input)
     prepared: list[list[str]] = []
     for project in projects:
         details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
@@ -168,7 +170,22 @@ def _apply_detail_budget(projects: list[dict]) -> None:
         for detail in details:
             if not any(_similar(detail, existing) >= 0.82 for existing in unique):
                 unique.append(detail)
-        prepared.append(unique[:MAX_PROJECT_DETAILS])
+        source_id = str(project.get("source_experience_id") or "")
+        local_facts = ledger.for_experience(source_id)
+
+        def priority(item: tuple[int, str]) -> tuple[int, int]:
+            index, detail = item
+            ranked = sorted(((fact, fact_match_score(detail, fact)) for fact in local_facts), key=lambda pair: pair[1], reverse=True)
+            if ranked and ranked[0][1] >= 0.45:
+                importance = {"high": 0, "medium": 1, "low": 2}[ranked[0][0].importance]
+            else:
+                importance = 3
+            if is_generic_detail(detail):
+                importance = 4
+            return importance, index
+
+        ordered = [detail for _, detail in sorted(enumerate(unique), key=priority)]
+        prepared.append(ordered[:MAX_PROJECT_DETAILS])
 
     allocations = [min(3, len(items)) for items in prepared]
     remaining = max(0, MAX_TOTAL_DETAILS - sum(allocations))
@@ -259,7 +276,7 @@ def reconcile_resume_projects(
     if comprehensive and concrete:
         stats.comprehensive_projects_removed = len(comprehensive)
 
-    _apply_detail_budget(concrete)
+    _apply_detail_budget(concrete, raw_input)
     coverage = _assign_project_sources(concrete, identities)
     stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in coverage]
     stats.projects_after = len(concrete)

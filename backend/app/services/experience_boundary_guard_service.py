@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -169,8 +170,10 @@ def guard_experience_boundaries(
         return payload
 
     updated = payload.model_copy(deep=True)
+    ledger = build_experience_fact_ledger(raw_input)
     all_terms = _global_terms(segments)
     guarded_projects: list[dict[str, Any]] = []
+    pending_moves: list[tuple[str, str, str]] = []
 
     for index, project in enumerate(updated.resume_sections.projects):
         guarded = deepcopy(project)
@@ -209,9 +212,27 @@ def guard_experience_boundaries(
             if _has_metric_contamination(detail_text, segment.raw_text):
                 stats.fixed(f"projects[{index}].details")
                 continue
+            all_ranked = sorted(((fact, fact_match_score(detail_text, fact)) for fact in ledger.facts), key=lambda item: item[1], reverse=True)
+            local_ranked = sorted(
+                ((fact, fact_match_score(detail_text, fact)) for fact in ledger.for_experience(segment.experience_id)),
+                key=lambda item: item[1], reverse=True,
+            )
+            best_fact, best_score = all_ranked[0] if all_ranked else (None, 0.0)
+            local_score = local_ranked[0][1] if local_ranked else 0.0
+            if best_fact and best_fact.experience_id != segment.experience_id and best_score >= 0.62 and local_score < 0.45:
+                stats.fixed(f"projects[{index}].details")
+                pending_moves.append((best_fact.experience_id, detail_text, best_fact.fact_id))
+                continue
             details.append(detail_text)
         guarded["details"] = _dedupe(details) or guarded.get("details", [])[:1]
         guarded_projects.append(guarded)
+
+    by_source = {str(project.get("source_experience_id") or ""): project for project in guarded_projects}
+    for target_id, detail, fact_id in pending_moves:
+        target = by_source.get(target_id)
+        if target is not None and detail not in target.get("details", []):
+            target.setdefault("details", []).append(detail)
+            target.setdefault("detail_fact_ids", []).append([fact_id])
 
     updated.resume_sections.projects = guarded_projects
     if stats.contamination_fixed_count:

@@ -9,6 +9,8 @@
 {compact_experience_context}
 - 内部 experience_id 边界表：
 {experience_identity_context}
+- 内部 experience_id 事实账本：
+{experience_fact_ledger_context}
 
 长输入摘要和内部检索摘要只用于定位经历边界，裁剪不代表用户原文缺失。不得把摘要末尾、内部标记、省略号或“原文截断/需补充”等提示写入正式简历。项目 meta 必须与 source_experience_id 对应的 experience_type 一致。
 
@@ -37,6 +39,7 @@
 13. 弱经历用户增强：只有课程项目、大作业、简单小项目、学生工作或竞赛参与时，也要整理为可投递的成长型实践表达；不能编造实习、公司、上线、用户数、star、奖项，但要突出需求理解、功能实现、协作沟通、材料沉淀、展示答辩和复盘能力。
 14. 简历正文去负面化：用户说“没有实习 / 没有上线 / 没有获奖 / 只是课程作业”等内容时，不能原样写入 resume_sections.summary 或 projects；这些内容只能进入边界判断、追问或面试准备。没有明确实习事实时，严禁生成“实习经历”模块。
 15. 输出必须是合法 JSON 对象，字段齐全，不要代码块。
+16. 每段经历优先覆盖事实账本中的 high importance 事实；每条 detail 应尽量绑定 source_fact_ids，不能用通用包装句挤占明确事实。
 
 JSON 顶层字段必须包含：
 - completeness_score: 0-100 整数

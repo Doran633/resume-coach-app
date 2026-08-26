@@ -3,6 +3,7 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 
 from .. import schemas
+from .experience_identity_service import build_experience_identities
 
 
 LOW_LEVEL_UPGRADES = [
@@ -17,15 +18,6 @@ LOW_LEVEL_UPGRADES = [
     ("做了 RAG", "围绕文档解析、切块、Embedding、向量检索和回答生成构建 RAG 应用链路"),
     ("做了RAG", "围绕文档解析、切块、Embedding、向量检索和回答生成构建 RAG 应用链路"),
 ]
-
-GENERIC_ENHANCEMENTS = [
-    "项目定位：围绕真实使用场景梳理需求、功能链路和交付目标，将原始经历整理为可投递的项目表达。",
-    "我的职责：基于已有事实提炼个人负责边界，突出方案设计、功能实现、联调排查和结果交付。",
-    "技术动作：将具体开发内容拆解为前端交互、后端接口、数据处理、工程部署或 AI 应用链路等可解释模块。",
-    "结果证据：优先保留用户已经提供的日志、部署、仓库、文档、访问记录或反馈材料，不额外编造硬指标。",
-    "面试承接：为每个强表达准备实现细节、证据口径和降级说法，避免简历写强后无法解释。",
-]
-
 
 def _as_payload_dict(payload: schemas.GenerationPayload | dict) -> dict:
     return deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
@@ -79,28 +71,24 @@ def _build_recommended_from_projects(projects: list[dict], target_role: str, raw
     return "\n".join(parts)
 
 
-def _enhance_project_details(project: dict, raw_input: str) -> dict:
+def _enhance_project_details(project: dict, raw_input: str, source_text: str = "") -> dict:
     enhanced = dict(project)
+    local_input = source_text or raw_input
     details = [str(item).strip() for item in project.get("details", []) if str(item).strip()] if isinstance(project.get("details"), list) else []
     rewritten: list[str] = []
     for detail in details:
-        if _similarity(detail, raw_input) > 0.92 and len(detail) > 40:
+        if _similarity(detail, local_input) > 0.92 and len(detail) > 40:
             rewritten.append("技术动作：" + detail[:160])
         else:
             rewritten.append(detail)
 
-    for upgrade in _soft_upgrades_from_raw(raw_input):
+    for upgrade in _soft_upgrades_from_raw(local_input):
         if upgrade not in rewritten:
             rewritten.append(upgrade)
 
-    for item in GENERIC_ENHANCEMENTS:
-        if len(rewritten) >= 5:
-            break
-        rewritten.append(item)
-
     enhanced["details"] = rewritten[:8]
-    if _similarity(enhanced.get("intro", ""), raw_input) > 0.9:
-        enhanced["intro"] = "围绕用户提供的真实经历，整理项目目标、功能链路、技术实现和可验证结果。"
+    if _similarity(enhanced.get("intro", ""), local_input) > 0.9 and source_text:
+        enhanced["intro"] = re.split(r"[。；;]", source_text, maxsplit=1)[0].strip()
     if not enhanced.get("role"):
         enhanced["role"] = "基于已有事实梳理个人职责边界，突出技术实现、联调排查和结果交付。"
     return enhanced
@@ -114,8 +102,16 @@ def ensure_packaging_gain(
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
     projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
-
-    enhanced_projects = [_enhance_project_details(project, raw_input) for project in projects]
+    identities = {item.experience_id: item for item in build_experience_identities(raw_input)}
+    enhanced_projects = [
+        _enhance_project_details(
+            project,
+            raw_input,
+            identities.get(str(project.get("source_experience_id") or "")).raw_text
+            if identities.get(str(project.get("source_experience_id") or "")) else "",
+        )
+        for project in projects
+    ]
     sections["projects"] = enhanced_projects
 
     recommended = str(data.get("recommended_version") or "")

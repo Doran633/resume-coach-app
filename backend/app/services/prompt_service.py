@@ -5,6 +5,7 @@ from .experience_segmentation_service import build_experience_context
 from .experience_identity_service import build_experience_identity_context
 from .experience_identity_service import build_segmentation_questions
 from .long_input_service import LongInputContext
+from .experience_fact_ledger_service import build_fact_ledger_context
 
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -30,6 +31,7 @@ def build_generation_prompt(request: schemas.GenerateRequest, long_input_context
             experience_type=request.experience_type,
             compact_experience_context=long_input_context.compact_context,
             experience_identity_context=build_experience_identity_context(request.raw_input),
+            experience_fact_ledger_context=build_fact_ledger_context(request.raw_input),
             segmentation_question_context=segmentation_question_context,
         )
 
@@ -42,5 +44,6 @@ def build_generation_prompt(request: schemas.GenerateRequest, long_input_context
         raw_input=long_input_context.raw_input_for_prompt if long_input_context else request.raw_input,
         experience_context=build_experience_context(request.raw_input),
         experience_identity_context=build_experience_identity_context(request.raw_input),
+        experience_fact_ledger_context=build_fact_ledger_context(request.raw_input),
         segmentation_question_context=segmentation_question_context,
     )
