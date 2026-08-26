@@ -34,6 +34,7 @@ from .resume_section_integrity_service import ensure_resume_section_integrity
 from .experience_type_resolution_service import resolve_project_types
 from .resume_section_routing_service import route_resume_projects
 from .resume_fact_dedup_service import deduplicate_resume_facts
+from .resume_title_format_service import resolve_resume_titles
 from .generation_stage_quality_service import log_generation_stage
 
 
@@ -446,6 +447,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = sanitize_resume_body(payload, request.raw_input)
     payload = reconcile_resume_projects(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "after_reconciliation")
+    payload = deduplicate_resume_facts(payload, stage="generation_pre_coverage")
     payload = resolve_project_types(payload, request.raw_input, stage="generation")
     route_resume_projects(payload.resume_sections.projects)
     log_generation_stage(payload, "after_type_resolution")
@@ -462,6 +464,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = resolve_project_types(payload, request.raw_input, stage="before_save")
+    payload = resolve_resume_titles(payload, request.raw_input)
     log_generation_stage(payload, "before_save")
 
     result = models.GenerationResult(

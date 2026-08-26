@@ -164,7 +164,9 @@ def test_historical_payload_docx_removes_comprehensive_project():
             assert "综合经历项目" not in document_text
             assert "AI RAG 助手" in document_text
             assert "AI 简历定位与包装网站" in document_text
-            assert "企业级 Agent 助手 RAG 模块优化" in document_text
+            assert "自行者科技有限公司" in document_text
+            assert "AI Agent 开发实习" in document_text
+            assert "0.4315" in document_text and "0.7258" in document_text
             assert "BAAI/bge-m3" in document_text
         finally:
             docx_service.OUTPUT_DIR = original_output_dir

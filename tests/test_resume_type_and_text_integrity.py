@@ -89,7 +89,8 @@ def test_docx_orders_internship_before_projects_and_hides_source_id():
                 anonymous_user_id="u-test", session_id="s-test", generation_result_id=601))
             text = "\n".join(p.text for p in Document(Path(tmpdir) / response.file_name).paragraphs)
             assert text.index("技能与能力") < text.index("实习经历") < text.index("项目经历")
-            assert "AI 简历定位与包装网站 | 项目经历" in text
+            assert "AI 简历定位与包装网站｜个人项目｜[待填写]" in text
+            assert "自行者科技有限公司｜AI Agent 开发实习｜[待填写]" in text
             assert "source_experience_id" not in text and "原文截断" not in text
         finally:
             docx_service.OUTPUT_DIR = old_output

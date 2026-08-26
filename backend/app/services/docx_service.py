@@ -32,6 +32,7 @@ from .resume_section_routing_service import route_resume_projects
 from .resume_fact_dedup_service import deduplicate_resume_facts
 from .generation_stage_quality_service import log_generation_stage
 from .docx_delivery_readiness_service import prepare_docx_delivery
+from .resume_title_format_service import resolve_resume_titles
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -173,6 +174,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = resolve_project_types(
         payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
     )
+    payload = deduplicate_resume_facts(
+        payload, stage="docx_export_pre_coverage", generation_result_id=request.generation_result_id,
+    )
     route_resume_projects(payload.resume_sections.projects)
     payload = guard_fact_coverage(
         payload,
@@ -226,6 +230,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="before_docx_render",
         generation_result_id=request.generation_result_id,
     )
+    payload = resolve_resume_titles(payload, raw_input)
     payload = prepare_docx_delivery(
         payload,
         generation_result_id=request.generation_result_id,
@@ -273,7 +278,11 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     for heading, group in _group_experiences(projects):
         _heading(doc, heading)
         for project in group:
-            _p(doc, f"{project.get('name')} | {project.get('meta')} | {project.get('time')}", 11, True, "1F3763")
+            if heading == "实习经历":
+                title_line = f"{project.get('name') or '[待填写]'}｜{project.get('position') or '[待填写]'}｜{project.get('time') or '[待填写]'}"
+            else:
+                title_line = f"{project.get('name') or '[待填写]'}｜{project.get('meta') or '项目经历'}｜{project.get('time') or '[待填写]'}"
+            _p(doc, title_line, 11, True, "1F3763")
             intro_label = "经历简介：" if heading != "项目经历" else "项目简介："
             _bullet(doc, intro_label + project.get("intro", ""), bold_label=True)
             _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)

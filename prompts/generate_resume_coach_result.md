@@ -68,7 +68,7 @@ resume_sections 必须包含：
 - personal_info: 对象，未知个人信息保留 [待填写]
 - summary: 字符串数组
 - skills: 字符串数组
-- projects: 对象数组，每个项目包含 name、meta、time、intro、role、details，并尽量包含内部字段 source_experience_id
+- projects: 对象数组，每个项目包含 name、meta、time、intro、role、details，并尽量包含内部字段 source_experience_id；实习经历可额外包含 position
 - education: 对象，未知保留 [待填写]
 - interview_preparation: 字符串数组
 
@@ -136,6 +136,10 @@ resume_sections 必须包含：
 5. 面试准备、知识补齐和降级口径只能进入 interview_plan / knowledge_checklist，不得进入 summary。
 6. resume_sections.interview_preparation、interview_plan 和 knowledge_checklist 只用于网页求职教练展示，不进入正式 DOCX。
 7. 简历正文不得为了面试准备加入“如果被问到、建议学习、准备证据、降级表达”等话术；面试准备仍需完整生成，不得因为不进入 DOCX 而省略。
+8. 每条 project.detail 必须承载独立事实，不得把同一 source_fact_ids 改写成多条近义描述；概括句如果已经被详细事实完整覆盖，应删除概括句。
+9. 独立高价值事实可以保留 6-8 条，不要为了简短而吞掉用户明确提供的技术、工程动作、结果、指标或架构决策。
+10. 实习经历应尽量返回内部字段 position；用户未明确提供实习岗位时必须使用 [待填写]，不得根据 target_role 或其他经历推断。
+11. 用户未提供评估口径时，不得自行补写测试集规模、指标名称、计算方式或评估方法。
 
 输入内容分层规则：
 1. 用户经历事实用于生成简历；目标岗位只用于决定表达重点；包装要求只用于控制表达强度；自降或不确定说明只用于边界判断和面试准备。

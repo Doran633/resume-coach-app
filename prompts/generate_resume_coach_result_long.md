@@ -48,6 +48,10 @@
 22. “实习”可能只是目标用户、招聘对象或产品场景；只有作者与公司/组织/岗位存在明确任职或实习关系时才能生成实习经历，project.meta 必须服从对应 source_experience_id 的后端 resolved_type。
 23. resume_sections.interview_preparation、interview_plan 和 knowledge_checklist 只用于网页求职教练展示，不进入正式 DOCX；这些内容仍需完整生成。
 24. 正式简历正文不得出现“如果被问到、建议学习、准备证据、降级表达”等面试准备或系统建议话术。
+25. 每条 project.detail 必须承载独立事实，不得把同一 source_fact_ids 改写成多条近义描述；已被详细事实完整覆盖的概括句应删除。
+26. 单段经历存在 6-8 条独立高价值事实时应尽量完整保留，不得为了缩短输出吞掉明确技术、工程动作、指标或架构决策。
+27. 实习经历应尽量返回内部字段 position；用户未明确提供实习岗位时使用 [待填写]，不得根据 target_role 或其他经历技术栈推断。
+28. 用户未提供评估口径时，不得自行补写测试集规模、指标名称、计算方式或评估方法。
 
 JSON 顶层字段必须包含：
 - completeness_score: 0-100 整数
@@ -66,7 +70,7 @@ resume_sections 必须包含：
 - personal_info: 未知个人信息保留 [待填写]
 - summary: 字符串数组
 - skills: 字符串数组
-- projects: 数组，每项包含 name、meta、time、intro、role、details，并尽量包含内部字段 source_experience_id
+- projects: 数组，每项包含 name、meta、time、intro、role、details，并尽量包含内部字段 source_experience_id；实习经历可额外包含 position
 - education: 未知保留 [待填写]
 - interview_preparation: 字符串数组
 

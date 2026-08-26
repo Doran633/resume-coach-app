@@ -139,7 +139,7 @@ def _is_valuable(detail: str, identity: ExperienceIdentity) -> bool:
 def _contains_equivalent(project: dict, detail: str) -> bool:
     existing = [str(project.get("intro", "")), str(project.get("role", ""))]
     existing.extend(str(item) for item in project.get("details", []) if item)
-    return any(_similar(detail, item) >= 0.72 for item in existing)
+    return any(_similar(detail, item) >= 0.92 for item in existing)
 
 
 def _assign_project_sources(projects: list[dict], identities: list[ExperienceIdentity]) -> dict[str, int]:
@@ -162,7 +162,9 @@ def _apply_detail_budget(projects: list[dict], raw_input: str) -> None:
         details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
         unique: list[str] = []
         for detail in details:
-            if not any(_similar(detail, existing) >= 0.82 for existing in unique):
+            # Reconciliation must not perform aggressive semantic deduplication;
+            # the fact-aware dedup service handles that with source_fact_ids.
+            if not any(_similar(detail, existing) >= 0.94 for existing in unique):
                 unique.append(detail)
         source_id = str(project.get("source_experience_id") or "")
         local_facts = ledger.for_experience(source_id)
