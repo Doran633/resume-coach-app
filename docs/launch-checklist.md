@@ -258,3 +258,16 @@ cd /www/wwwroot/resume-coach-app
 ```bash
 .venv/bin/python scripts/evaluate_golden_resume.py --mode openai
 ```
+
+## 13. v0.5.x 收口检查
+
+- Python 编译检查与全部 `pytest` 已通过。
+- 黄金案例、固定 Payload 和文本快照已确认匿名化。
+- 经历保留率 100%，高价值事实覆盖率不低于 90%。
+- 经历边界、经历类型和技能分类准确率均为 100%。
+- 重复详情和内部字段泄露均为 0。
+- 固定 Payload 可以生成非空 DOCX，且不包含面试准备清单。
+- Fallback 触发率、Guard 修复量和 Dedup 删除率没有异常升高。
+- 前端 TypeScript 检查与生产构建通过。
+- 真实模型评测只在需要抽查时运行；未运行时明确记录，避免无意消耗 API Token。
+- 进入 v0.6.0 后，前端改动不得绕过或复制后端生成质量逻辑。

@@ -1,5 +1,16 @@
 # Resume Coach App
 
+## v0.5.9 输出质量阶段收口
+
+v0.5.x 已完成从事实边界到专业叙事的阶段建设，后续默认冻结 Experience ID、Fact Ledger、Fact Coverage、Dedup、个人优势、技能证据和 DOCX 正文规则。质量由黄金回归和结构化日志持续守护，不再通过无限叠加 Guard 提升。
+
+- [v0.5 质量基线](docs/v0.5-quality-baseline.md)
+- [v0.5 质量可观测性](docs/v0.5-quality-observability.md)
+- [v0.5 阶段复盘](docs/v0.5-retrospective.md)
+- [生成质量管线](docs/generation-quality-pipeline.md)
+
+v0.6.0 将优先处理生成等待、错误重试、导出路径、移动端导航、首次用户引导和前端性能，除非黄金回归发现明确退化，否则不修改稳定生成主链路。
+
 ## v0.5.8 黄金样例回归
 
 - 将 v0.5.7 的高质量输出匿名化为黄金案例，固定事实、结构、经历边界、技能分类和 DOCX 投递不变量。
