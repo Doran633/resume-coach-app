@@ -217,19 +217,15 @@ def _build_summary(data: dict, source: str, source_field: str, stats: FallbackSt
 
 
 def _extract_skills(data: dict, source: str, source_field: str, stats: FallbackStats) -> list[str]:
-    haystack = "\n".join([source, _text(data.get("knowledge_checklist"))])
+    # Preparation items are not evidence that the user has used a technology.
+    haystack = source
     found = []
     for term in TECH_TERMS:
         if re.search(rf"(?<![A-Za-z0-9.+#-]){re.escape(term)}(?![A-Za-z0-9.+#-])", haystack, re.IGNORECASE):
             found.append(term)
     if found:
-        stats.fill("skills", f"{source_field}/knowledge_checklist")
+        stats.fill("skills", source_field)
         return found[:12]
-
-    checklist = [item for item in (_text(item) for item in data.get("knowledge_checklist", [])) if item]
-    if checklist:
-        stats.fill("skills", "knowledge_checklist")
-        return checklist[:8]
     return []
 
 

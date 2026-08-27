@@ -45,6 +45,10 @@ from .resume_template_language_guard_service import guard_template_language
 from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_semantic_unit_service import ensure_semantic_units
 from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
+from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
+from .recruiter_language_service import ensure_recruiter_language
+from .resume_recruiter_readability_service import ensure_recruiter_readability
+from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -478,6 +482,10 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = professionalize_resume_language(payload, stage="generation")
+    payload = guard_resume_skill_evidence(payload, request.raw_input, stage="generation")
+    payload = ensure_recruiter_language(payload, stage="generation")
+    payload = ensure_recruiter_readability(payload, stage="generation")
+    payload = ensure_paired_symbol_integrity(payload, stage="generation")
     payload = ensure_resume_section_integrity(payload)
     payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
     payload = ensure_typography_quality(payload, stage="generation")

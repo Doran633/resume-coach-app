@@ -93,6 +93,10 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "output_quality": "resume_output_quality.jsonl",
             "narrative": "resume_narrative_quality.jsonl",
             "semantic": "resume_semantic_quality.jsonl",
+            "skill_evidence": "resume_skill_evidence.jsonl",
+            "paired_symbols": "paired_symbol_integrity.jsonl",
+            "recruiter_language": "recruiter_language.jsonl",
+            "recruiter_readability": "resume_recruiter_readability.jsonl",
             "firewall": "resume_output_firewall.jsonl",
             "type": "experience_type_resolution.jsonl",
             "integrity": "resume_text_integrity.jsonl",
@@ -183,6 +187,23 @@ def build_report(log_dir: Path, days: int | None) -> str:
     avg_cluster_uniqueness = _mean([
         float(row.get("fact_cluster_uniqueness_score") or 0) for row in semantic_quality
     ])
+    skill_evidence = logs["skill_evidence"]
+    uncertain_skills_removed = _number(skill_evidence, "uncertain_skill_removed_count")
+    unsupported_skills_removed = sum(len(row.get("unsupported_skills") or []) for row in skill_evidence)
+    skills_before = _number(skill_evidence, "skill_count_before")
+    paired_symbols = logs["paired_symbols"]
+    paired_symbol_issues = _number(paired_symbols, "unmatched_symbol_count") + _number(paired_symbols, "malformed_quote_sequence_count")
+    paired_symbol_fixes = _number(paired_symbols, "fixed_symbol_count") + _number(paired_symbols, "removed_symbol_count")
+    checked_symbol_text = _number(paired_symbols, "checked_text_count")
+    recruiter_language = logs["recruiter_language"]
+    internal_field_leaks = _number(recruiter_language, "internal_field_leak_count")
+    recruiter_conversions = _number(recruiter_language, "recruiter_language_conversion_count")
+    checked_recruiter_text = _number(recruiter_language, "checked_text_count")
+    recruiter_readability = logs["recruiter_readability"]
+    developer_log_cleaned = _number(recruiter_readability, "developer_log_expression_removed_count")
+    average_recruiter_readability = _mean([
+        float(row.get("recruiter_readability_score") or 0) for row in recruiter_readability
+    ])
     warning_codes = Counter(code for row in output_quality for code in (row.get("warning_codes") or []))
     low_score_counts = Counter()
     for row in output_quality:
@@ -193,6 +214,8 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "template_diversity_score": 80, "cross_field_repetition_score": 90,
             "semantic_completeness_score": 90, "sentence_independence_score": 85,
             "information_density_score": 85, "fact_cluster_uniqueness_score": 90,
+            "skill_evidence_score": 95, "paired_symbol_integrity_score": 100,
+            "recruiter_language_score": 95, "recruiter_readability_score": 85,
         }.items():
             if key in row and float(row.get(key) or 0) < threshold:
                 low_score_counts[key] += 1
@@ -288,6 +311,18 @@ def build_report(log_dir: Path, days: int | None) -> str:
         ("平均 Fact Cluster Uniqueness Score", _display(avg_cluster_uniqueness) if semantic_quality else "暂无数据"),
         ("Cluster Dedup Precision 告警数", str(int(semantic_precision_warnings))),
     ])
+    _section(lines, "技能证据与投递语言", [
+        ("技能事实校验次数", str(len(skill_evidence))),
+        ("不确定技能删除数量", str(int(uncertain_skills_removed))),
+        ("无事实支撑技能删除数量", str(int(unsupported_skills_removed))),
+        ("配对符号异常数量", str(int(paired_symbol_issues))),
+        ("配对符号修复数量", str(int(paired_symbol_fixes))),
+        ("内部字段泄露数量", str(int(internal_field_leaks))),
+        ("内部字段招聘语言转换数量", str(int(recruiter_conversions))),
+        ("Recruiter Readability 检查次数", str(len(recruiter_readability))),
+        ("开发日志式表达清理数量", str(int(developer_log_cleaned))),
+        ("平均 Recruiter Readability Score", _display(average_recruiter_readability) if recruiter_readability else "暂无数据"),
+    ])
     _section(lines, "输出与投递质量", [
         ("输出防火墙拦截数量", str(int(firewall_removed))),
         ("实习/项目类型纠正数量", str(type_corrections)),
@@ -311,6 +346,14 @@ def build_report(log_dir: Path, days: int | None) -> str:
         alerts.append("DOCX 投递修复率超过 10%，建议检查生成结果完整性。")
     if dedup_base and dedup_removal_rate > 0.35:
         alerts.append("去重删除率超过 35%，建议抽样检查 Dedup Precision。")
+    if skills_before and unsupported_skills_removed / skills_before > 0.05:
+        alerts.append("无事实技能出现率超过 5%，建议检查 Prompt 和技能抽取链路。")
+    if checked_symbol_text and paired_symbol_fixes / checked_symbol_text > 0.03:
+        alerts.append("配对符号修复率超过 3%，建议检查文本清洗是否破坏符号结构。")
+    if checked_recruiter_text and internal_field_leaks / checked_recruiter_text > 0.05:
+        alerts.append("内部字段泄露率超过 5%，建议检查 Prompt 和 Recruiter Language 转换。")
+    if recruiter_readability and average_recruiter_readability < 85:
+        alerts.append("Recruiter Readability 低于 85，建议抽样检查项目是否过于像开发日志。")
     lines.extend(["## 观察性阈值", ""])
     lines.extend(f"- {item}" for item in alerts or ["当前可用日志未触发观察性阈值；阈值仅用于监控，不阻止生成。"])
     lines.append("")

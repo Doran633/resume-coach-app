@@ -557,3 +557,11 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - 岗位化生成策略：同一段经历针对 AI Agent、后端、前端、数据分析等岗位突出不同重点。
 - 真实案例回归集：把真实用户 case 固化为测试样例，每次 prompt 或模型配置变更后跑回归。
 - DOCX 版式优化：继续提升正式简历文件的投递质感。
+## v0.5.3 - 投递语言与技能证据
+
+- 引入 Resume Skill Evidence Guard，阻止无事实支撑或带“如掌握”等不确定标记的技能进入正式简历。
+- 切断 Resume Section Fallback 从 knowledge checklist 反向生成技能的路径。
+- 引入 Paired Symbol Integrity，修复空引号、错位引号和未闭合配对符号。
+- 引入 Recruiter Language，将内部字段枚举转换为事实边界、业务完整性和风险治理等工程价值。
+- 引入 Recruiter Readability，清理文件修改记录、开发日志式表达和项目简介重复。
+- 增加技能证据、符号完整性、招聘语言和投递可读性质量评分与日志。

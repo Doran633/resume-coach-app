@@ -15,7 +15,7 @@ COACHING_MARKERS = (
     "如果被问到", "准备降级表达", "当前信息不足", "系统建议", "用户需要补充",
 )
 INTERNAL_MARKERS = (
-    "source_experience_id", "source_fact_ids", "experience_id", "fact_id",
+    "source_experience_id", "source_fact_ids", "detail_fact_ids", "fact_id",
     "section summary", "summary chunk", "section 个人优势 chunk",
 )
 INVALID_INCOMPLETE_MARKERS = (

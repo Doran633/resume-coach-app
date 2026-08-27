@@ -137,3 +137,14 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 - 概括句被具体事实完整覆盖时删除；Citation 链路与 Citation 展示等不同价值默认保留。
 - 指标与优化对象保持在同一语义单元，无法从原文恢复的残句不进入 DOCX。
 - semantic_unit_id、related_fact_ids、cluster 标签只存在于运行时，不进入 API、数据库或 DOCX。
+## v0.5.3 投递前语言治理
+
+在事实覆盖、语义单元恢复和事实簇去重完成后，依次执行：
+
+1. `resume_skill_evidence_guard_service`：只决定技能是否有资格进入正式简历，不负责知识推荐。
+2. `recruiter_language_service`：把内部字段枚举转换为招聘者可理解的工程价值，不改变事实归属。
+3. `resume_recruiter_readability_service`：清理开发日志、文件清单和与项目简介重复的低价值详情。
+4. `paired_symbol_integrity_service`：维护用户可见文本的配对符号结构，不承担普通标点美化。
+5. 原有 Text Integrity、Typography 和 Output Firewall 继续负责断句恢复、普通标点与最终污染拦截。
+
+DOCX 导出前重复执行上述投递检查，使历史结果重新导出时也能得到修复。任何后置服务不得从 knowledge checklist 补回已删除的不确定技能。

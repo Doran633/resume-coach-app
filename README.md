@@ -643,3 +643,11 @@ v0.3 建议主题：输出质量优化。
 - 同一事实簇只保留信息增量最高的表达，不同工程价值即使共享技术词也继续保留。
 - 扩展 Information Density 与 Sentence Independence 评分。
 - 质量日志：`backend/logs/resume_semantic_quality.jsonl`。
+### v0.5.3：投递语言净化与技能证据
+
+- 技能栏增加事实证据校验，岗位要求和知识补齐不再被当作已掌握技能。
+- 不确定技能从正式简历移出，保留到追问或面试准备中。
+- 增加中文引号、括号、书名号、方括号和反引号的配对完整性检查。
+- 将内部字段枚举转换为招聘者可理解的工程价值表达。
+- 增加 Recruiter Readability 检查，减少开发日志、文件清单和字段说明书式表达。
+- 新增日志：`backend/logs/resume_skill_evidence.jsonl`、`paired_symbol_integrity.jsonl`、`recruiter_language.jsonl`、`resume_recruiter_readability.jsonl`。

@@ -11,6 +11,10 @@ from .resume_fact_dedup_service import same_fact_action, similarity
 from .resume_typography_quality_service import count_typography_issues
 from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_fact_cluster_dedup_service import evaluate_semantic_quality
+from .resume_skill_evidence_guard_service import evaluate_skill_evidence
+from .paired_symbol_integrity_service import has_unbalanced_symbols
+from .recruiter_language_service import recruiter_language_score
+from .resume_recruiter_readability_service import recruiter_readability_score
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_output_quality.jsonl"
@@ -39,6 +43,10 @@ class OutputQualityScores:
     sentence_independence_score: int
     information_density_score: int
     fact_cluster_uniqueness_score: int
+    skill_evidence_score: int
+    paired_symbol_integrity_score: int
+    recruiter_language_score: int
+    recruiter_readability_score: int
     overall_quality_score: int
     warning_codes: list[str] = field(default_factory=list)
 
@@ -127,6 +135,10 @@ def evaluate_resume_output_quality(
         "template_diversity_score": narrative.template_diversity_score,
         "cross_field_repetition_score": narrative.cross_field_repetition_score,
         **semantic,
+        "skill_evidence_score": evaluate_skill_evidence(payload, raw_input),
+        "paired_symbol_integrity_score": 100 if not has_unbalanced_symbols(text) else 0,
+        "recruiter_language_score": recruiter_language_score(payload),
+        "recruiter_readability_score": recruiter_readability_score(payload),
     }
     warning_codes = []
     thresholds = {
@@ -144,6 +156,10 @@ def evaluate_resume_output_quality(
         "sentence_independence_score": (85, "SENTENCE_DEPENDENCY_RISK"),
         "information_density_score": (85, "LOW_INFORMATION_DENSITY"),
         "fact_cluster_uniqueness_score": (90, "FACT_CLUSTER_DUPLICATION"),
+        "skill_evidence_score": (95, "UNSUPPORTED_SKILL"),
+        "paired_symbol_integrity_score": (100, "PAIRED_SYMBOL_ISSUE"),
+        "recruiter_language_score": (95, "INTERNAL_FIELD_LANGUAGE"),
+        "recruiter_readability_score": (85, "RECRUITER_READABILITY_RISK"),
     }
     for key, (threshold, code) in thresholds.items():
         if scores[key] < threshold:

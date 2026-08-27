@@ -94,3 +94,11 @@ risk_level 只能是 green、yellow、red、black。
 3. 同一事实簇只在最合适的位置表达一次；概括句被具体细节覆盖时删除概括句。
 4. 多个项目共享 RAG、Agent 等技术词不代表事实重复，必须依据 experience_id、动作、对象、指标和证据判断。
 5. 不得通过把一条长事实拆成多个低信息 bullet 来增加内容数量。
+## v0.5.3 长输入投递语言规则
+
+- skills 只保留用户原文或对应 experience_id 事实账本明确支持的技术，不得从岗位要求、knowledge_checklist 或面试准备反推技能。
+- 不确定技术不得使用“如掌握、如有、建议学习、待确认”等括号说明保留在正式简历中。
+- 不直接输出 raw_text、experience_type、explicit_tech_terms、explicit_metrics、evidence_terms、risk_terms、source_fact_ids 等内部字段枚举。
+- Experience ID 和 Fact Ledger 可以保留，但必须用于解释多经历事实边界、事实覆盖或污染治理价值。
+- 每条 detail 必须包含新的问题、动作、机制、证据或结果；不写文件新增记录、服务清单和无价值字段流转。
+- 输出前验证所有成对符号完整，不产生空引号、错位引号、未闭合括号或调试标记。
