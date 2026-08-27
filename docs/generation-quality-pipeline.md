@@ -1,0 +1,109 @@
+# 生成质量管线
+
+## 目标
+
+Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance 的结构化生成系统。管线必须同时保证：经历不串通、明确事实不丢失、硬事实不编造、文案专业、DOCX 可直接进入投递前核对。
+
+```text
+原始输入
+  -> 输入分类 / 语义分段
+  -> Experience Identity (EXP-xxx)
+  -> Experience Fact Ledger (EXP-xxx-Fxxx)
+  -> LLM 或 Stable Fallback
+  -> Schema Normalize / Result Cleanup
+  -> 初始事实与结构修复
+  -> 项目对账、类型解析和事实覆盖
+  -> 边界复检、事实去重和正文质量检查
+  -> 投递标题处理
+  -> 保存 GenerationPayload
+  -> DOCX 导出前二次质量检查
+```
+
+## 生成阶段
+
+| 阶段 | 主要服务 | 是否修改正文 | 职责 |
+|---|---|---:|---|
+| 输入分类 | `input_content_classification_service` | 否 | 区分经历事实、求职意图、包装指令和噪声 |
+| 语义分段 | `semantic_experience_segmentation_service` | 否 | 在无标题或混合段落中识别经历边界 |
+| Experience Identity | `experience_identity_service` | 否 | 生成 `EXP-001` 等内部身份和局部事实范围 |
+| Fact Ledger | `experience_fact_ledger_service` | 否 | 提取原子事实并生成 `fact_id`、类型和重要度 |
+| 模型生成 | `llm_service` / `stable_generation_fallback_service` | 是 | 生成结构化 Payload；异常时提供可控安全网 |
+| Schema 清理 | `resume_section_schema_service` / `result_cleanup_service` | 是 | 标准化 key、修复缺失字段和内部字段泄露 |
+| 硬事实检查 | `fact_guard_service` | 是 | 删除或降级未被原文支持的硬事实 |
+| Section Fallback | `resume_section_fallback_service` | 是 | 只在结构缺失时恢复 summary、skills、projects |
+| 包装增益 | `enhancement_guard_service` | 是 | 将口语事实整理为岗位化表达，不增加硬事实 |
+| 经历边界 | `experience_boundary_guard_service` | 是 | 按 `source_experience_id` 清理跨经历污染 |
+| 不确定表达 | `uncertain_expression_cleanup_service` | 是 | 将“如有、建议掌握”等移出正式正文 |
+| 项目专属性 | `project_specificity_guard_service` | 是 | 清理跨项目模板句，保留项目专属事实 |
+| 弱履历策略 | `weak_profile_strategy_service` | 是 | 正向组织课程项目、竞赛和校园经历 |
+| 正文净化 | `resume_body_sanitizer_service` | 是 | 清理“没有实习、只是作业”等负面正文 |
+| 项目对账 | `resume_project_reconciliation_service` | 是 | 移除综合经历并把遗漏内容归还正确项目 |
+| 去重检查点 A | `resume_fact_dedup_service` | 是 | 在覆盖恢复前清理高置信重复，减少模板内容 |
+| 类型解析 | `experience_type_resolution_service` | 修改 meta | 使用局部关系证据锁定项目、实习等类型 |
+| Section Routing | `resume_section_routing_service` | 否 | 根据最终类型决定 DOCX 分组，不重新判断类型 |
+| 事实覆盖 | `fact_coverage_guard_service` | 是 | 恢复未覆盖的高价值明确事实 |
+| 边界复检 | `experience_boundary_guard_service` | 是 | 检查覆盖恢复内容仍属于对应 experience |
+| 去重检查点 B | `resume_fact_dedup_service` | 是 | 清理恢复后新出现的重复，不删除独立事实 |
+| 个人优势 | `resume_summary_quality_service` | 是 | 生成事实支撑的候选人能力，隔离教练话术 |
+| 输出防火墙 | `resume_output_firewall_service` | 是 | 清理写作指令、模板残片和调试文本 |
+| 语言专业化 | `resume_language_professionalization_service` | 是 | 将口语和内部标签转换为行动表达 |
+| Section 完整性 | `resume_section_integrity_service` | 是 | 保证正式 Section 具备业务可用内容 |
+| 文本完整性 | `resume_text_integrity_service` | 是 | 修复截断句和内部摘要污染 |
+| 最终事实复检 | Fact Guard + Output Firewall | 是 | 对后续改写产生的内容做最终安全检查 |
+| 最终类型与标题 | Type Resolver + `resume_title_format_service` | 修改类型/标题 | 固化类型；生成公司、岗位、项目类型和时间标题 |
+
+## 为什么存在复检
+
+- Fact Coverage 会恢复原文事实，因此之后必须再次执行 Boundary Guard 和 Dedup。
+- 语言专业化、文本完整性会改写正文，因此保存前必须再次执行 Fact Guard 和 Output Firewall。
+- 类型解析在初次对账后运行，并在保存前复检；第二次只校验后续服务没有破坏类型锁。
+- 这些是有明确写入者位于中间的 checkpoint，不是无意义重复。
+
+## ID 生命周期
+
+### experience_id
+
+1. 输入分段生成 `EXP-001`。
+2. Prompt 要求项目返回 `source_experience_id`。
+3. Reconciliation 在缺失时根据局部标题和事实回匹配。
+4. Boundary、Coverage、Type Resolver 只在对应局部经历内工作。
+5. ID 保存在内部 Payload，前端正文与 DOCX Renderer 不展示。
+
+### fact_id
+
+1. Fact Ledger 为原子事实生成 `EXP-001-F001`。
+2. Coverage Guard 记录 detail 对应的 `source_fact_ids`。
+3. Dedup 合并同一事实表达时合并 ID，不丢 provenance。
+4. 日志只记录 ID 与统计，不记录完整原文。
+5. DOCX 渲染前过滤内部字段。
+
+## Fallback 触发边界
+
+- Stable Fallback：LLM 请求、JSON 修复或 Schema 校验失败时触发。
+- Resume Section Fallback：Payload 合法但正式简历 Section 为空或缺项时触发。
+- Fallback 必须逐 experience 生成，不得默认合并为“综合经历项目”。
+- Fallback 必须记录触发率；高触发率表示上游退化，不能因用户表面可用而忽略。
+
+## DOCX 二次检查
+
+历史结果可能由旧版本生成，因此导出时重新执行结构补全、事实边界、项目对账、事实覆盖、去重、类型解析、标题处理和投递就绪检查。DOCX 不输出面试准备、Claim、降级表达、`experience_id` 或 `fact_id`。
+
+## 新增 Guard 规范
+
+1. 先说明它保护的明确不变量，再决定是否新增服务。
+2. 优先扩展已有服务，避免一类问题出现多个写入者。
+3. 明确输入、输出、可修改字段和日志字段。
+4. 不得清除 `source_experience_id`、`source_fact_ids` 和类型锁。
+5. 如果会恢复或新增正文，后面必须有边界与事实复检。
+6. 如果只检测，不应修改 Payload。
+7. 必须提供真实失败案例回归测试。
+8. 日志不得包含完整用户输入或简历正文。
+
+## 核心原则
+
+- Fallback 是安全网，不是垃圾桶。
+- 事实恢复优先于文案压缩。
+- 事实归属优先于文本流畅。
+- 去重只能删除重复，不得删除独立高价值事实。
+- 类型解析只能依据局部经历关系证据。
+- 用户可见正文不得出现内部字段和调试文本。

@@ -1,5 +1,30 @@
 # Resume Coach App
 
+## v0.4.11 生成质量工程收口
+
+- 完成 v0.4.x 生成与 DOCX 二次检查管线审计，明确每个 Guard 的写入职责和必要复检点，详见 `docs/generation-quality-pipeline.md`。
+- 新增 10 类匿名真实案例和端到端回归测试，覆盖长输入、多 RAG 项目、真实实习、弱履历、负面边界、输入指令污染及高价值事实保留。
+- 新增 `scripts/export_generation_quality.py`，汇总 fallback、Experience ID 绑定、事实覆盖、跨经历污染、事实去重、类型纠正和 DOCX 投递质量。
+- 新增 v0.4 阶段复盘，记录从关键词分类到关系语义、从项目边界到事实 provenance 的演进及当前技术债务。
+
+生成全部质量报告：
+
+```bash
+python scripts/export_generation_quality.py
+```
+
+生成最近七天报告：
+
+```bash
+python scripts/export_generation_quality.py --days 7
+```
+
+默认输出：`backend/reports/generation-quality-YYYY-MM-DD.md`。报告只包含聚合指标，不包含用户原始输入或完整简历正文。
+
+v0.4.x 的核心质量日志位于 `backend/logs`：`generation_stability.jsonl`、`resume_section_fallback.jsonl`、`experience_boundary.jsonl`、`fact_coverage.jsonl`、`resume_fact_dedup.jsonl`、`experience_type_resolution.jsonl`、`resume_output_firewall.jsonl`、`resume_summary_quality.jsonl`、`resume_text_integrity.jsonl` 和 `docx_delivery_readiness.jsonl`。
+
+v0.5.0 将从继续堆叠 Guard 转向统一输出质量评测，重点衡量事实正确率、经历覆盖率、重复率、包装增益和投递就绪度。
+
 ## v0.4.10 高价值事实保留式去重
 
 - 事实去重同时使用文本包含关系、`source_fact_ids`、技术动作簇和高置信语义相似度，不再仅凭技术词重合删除内容。

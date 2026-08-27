@@ -198,3 +198,40 @@ systemctl restart resume-coach-backend
 ```
 
 回滚后重新检查 `/api/health`、生成链路和 DOCX 下载。
+
+## 11. v0.4 生成质量检查
+
+- 完整 `pytest` 已通过。
+- `tests/test_v04_quality_regression.py` 匿名真实案例回归已通过。
+- `scripts/export_generation_quality.py` 可以导出报告。
+- Resume Section Fallback 触发率没有异常升高。
+- `source_experience_id` 绑定率不低于观察阈值。
+- Fact Coverage 平均覆盖率没有低于 80%。
+- 跨经历污染修复率没有突然升高。
+- Dedup 删除率没有异常升高，并已抽查独立高价值事实仍然保留。
+- DOCX 不包含重复事实、内部 ID、调试文本或面试准备清单。
+- 存在真实实习时，技能之后优先展示实习经历，岗位缺失时保留 `[待填写]`。
+
+生成质量报告：
+
+```bash
+cd /www/wwwroot/resume-coach-app
+.venv/bin/python scripts/export_generation_quality.py --days 7
+```
+
+查看报告：
+
+```bash
+cat backend/reports/generation-quality-$(date +%F).md
+```
+
+重点日志：
+
+```bash
+tail -n 20 backend/logs/generation_stability.jsonl
+tail -n 20 backend/logs/resume_section_fallback.jsonl
+tail -n 20 backend/logs/experience_boundary.jsonl
+tail -n 20 backend/logs/fact_coverage.jsonl
+tail -n 20 backend/logs/resume_fact_dedup.jsonl
+tail -n 20 backend/logs/docx_delivery_readiness.jsonl
+```
