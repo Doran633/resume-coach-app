@@ -94,6 +94,7 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "narrative": "resume_narrative_quality.jsonl",
             "semantic": "resume_semantic_quality.jsonl",
             "skill_evidence": "resume_skill_evidence.jsonl",
+            "role_quality": "resume_role_quality.jsonl",
             "paired_symbols": "paired_symbol_integrity.jsonl",
             "recruiter_language": "recruiter_language.jsonl",
             "recruiter_readability": "resume_recruiter_readability.jsonl",
@@ -111,6 +112,13 @@ def build_report(log_dir: Path, days: int | None) -> str:
     stable_fallbacks = _count_true(stability, "fallback_used")
     fallback_calls = len(logs["fallback"])
     fallback_triggers = _count_true(logs["fallback"], "resume_fallback_triggered")
+    role_quality = logs["role_quality"]
+    role_resolution_calls = len(role_quality)
+    role_fallbacks = _number(role_quality, "role_fallback_triggered")
+    role_recovered = _number(role_quality, "role_recovered_from_fact_count")
+    role_left_empty = _number(role_quality, "role_left_empty_count")
+    role_internal_removed = _number(role_quality, "internal_fallback_text_removed_count")
+    section_role_internal_removed = _number(logs["fallback"], "internal_fallback_text_removed_count")
 
     boundary = logs["boundary"]
     total_projects = _number(boundary, "project_count")
@@ -265,6 +273,15 @@ def build_report(log_dir: Path, days: int | None) -> str:
         ("Experience ID 平均绑定率", _pct(bound_projects, total_projects)),
         ("缺少 source_experience_id 项目数", str(int(missing_source))),
         ("跨经历污染修复数量", str(int(contamination_fixed))),
+    ])
+    _section(lines, "职责事实化与兜底污染", [
+        ("Role Resolution 调用次数", str(role_resolution_calls)),
+        ("职责 fallback 触发次数", str(int(role_fallbacks))),
+        ("职责 fallback 触发率", _pct(role_fallbacks, role_resolution_calls)),
+        ("从本段事实恢复职责数", str(int(role_recovered))),
+        ("无法恢复而安全留空数", str(int(role_left_empty))),
+        ("Role Resolver 清理内部占位数", str(int(role_internal_removed))),
+        ("Section Fallback 清理内部占位数", str(int(section_role_internal_removed))),
     ])
     _section(lines, "Fact Ledger 与事实覆盖", [
         ("原子明确事实数量", str(int(explicit_facts))),

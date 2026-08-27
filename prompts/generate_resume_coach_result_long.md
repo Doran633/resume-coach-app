@@ -98,6 +98,7 @@ risk_level 只能是 green、yellow、red、black。
 
 - skills 只保留用户原文或对应 experience_id 事实账本明确支持的技术，不得从岗位要求、knowledge_checklist 或面试准备反推技能。
 - skills 必须输出“类别：技术一、技术二”形式的分类行，不得逐项罗列裸技术词；不使用未经证实的“精通、熟练掌握”等程度词。
+- 每段 role 必须绑定对应 experience_id 的职责或动作事实；不得输出“相关任务、以用户原文为准、根据用户输入整理”等内部兜底说明。职责不明确时留空并进入 missing_questions，不得跨经历借用或编造。
 - 不确定技术不得使用“如掌握、如有、建议学习、待确认”等括号说明保留在正式简历中。
 - 不直接输出 raw_text、experience_type、explicit_tech_terms、explicit_metrics、evidence_terms、risk_terms、source_fact_ids 等内部字段枚举。
 - Experience ID 和 Fact Ledger 可以保留，但必须用于解释多经历事实边界、事实覆盖或污染治理价值。

@@ -16,10 +16,15 @@ FORBIDDEN = [
     "不要写成", "不要写得", "不要夸张", "无法解释", "面试别", "哪些地方想重点放大",
     "建议补充", "如有", "如果会", "需要学习", "用户提供的真实经历", "根据现有经历",
     "围绕用户输入", "系统将", "模型生成", "我匹配度", "准备面试", "降级表达",
+    "以用户原文为准", "以用户提供的信息为准", "以用户已提供内容为准", "具体职责以",
+    "根据用户原文", "根据用户输入", "请结合用户信息", "待用户确认", "待用户进一步确认职责",
+    "相关工作以实际情况为准",
 ]
 DROP_WHOLE_MARKERS = [
     "围绕已有任务拆解项目目标", "准备面试中的降级表达", "梳理项目不足和后续优化方向",
     "把课程项目讲成完整项目", "解释缺少实战经历时",
+    "围绕该段经历完成相关任务", "负责相关工作", "参与相关任务", "完成相关任务",
+    "围绕项目目标完成工作", "根据现有经历整理职责", "推进项目相关事项",
 ]
 TEMPLATE_FIELD = re.compile(r"^(?:summary|project|projects|my_role|role|details|intro|meta|name|time)\s*[:：=]\s*", re.I)
 
@@ -54,7 +59,12 @@ def _clean_text(value, stats: FirewallStats, field_name: str, experience_id: str
     original = str(value or "").strip()
     if not original:
         return ""
-    if any(marker in original for marker in DROP_WHOLE_MARKERS):
+    cleaned = re.sub(
+        r"[，,；;。]?\s*(?:具体职责)?(?:以用户原文|以用户提供的信息|以用户已提供内容)[^，,；;。]*为准[。.]?",
+        "",
+        original,
+    ).strip()
+    if any(marker in cleaned for marker in DROP_WHOLE_MARKERS):
         stats.contamination_detected_count += 1
         stats.contamination_removed_count += 1
         stats.unsupported_text_removed_count += 1
@@ -62,8 +72,8 @@ def _clean_text(value, stats: FirewallStats, field_name: str, experience_id: str
         if experience_id:
             stats.affected_experience_ids.append(experience_id)
         return ""
-    has_contamination = any(term in original for term in FORBIDDEN) or bool(TEMPLATE_FIELD.search(original))
-    cleaned = TEMPLATE_FIELD.sub("", original)
+    has_contamination = cleaned != original or any(term in original for term in FORBIDDEN) or bool(TEMPLATE_FIELD.search(original))
+    cleaned = TEMPLATE_FIELD.sub("", cleaned)
     if cleaned != original:
         stats.template_residue_removed_count += 1
     cleaned, removed = strip_non_fact_fragments(cleaned)

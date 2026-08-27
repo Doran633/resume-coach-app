@@ -263,6 +263,13 @@ resume_sections 必须包含：
 - 只写用户原文或 Experience Fact Ledger 明确支持的技能，不得从目标岗位、面试准备或 knowledge_checklist 反推技能。
 - 不使用“精通、熟练掌握、全面掌握”等未经事实确认的程度词；技术专有名词保留标准英文写法。
 - 不生成空类别，同一技能只出现一次。
+
+## v0.5.6 职责事实化与内部兜底隔离规则
+
+- 每个 project.role 必须描述候选人在对应 source_experience_id 中真实承担的职责，并包含明确动作及作用对象。
+- 不得输出“负责相关工作”“参与相关任务”“围绕该段经历完成相关任务”“以用户原文为准”“根据用户输入整理”等系统说明或无事实模板句。
+- role 只能使用本段 Experience Fact Ledger 中的职责或动作事实，不得从其他经历借用职责。
+- 无法确认职责时，将问题写入 missing_questions；role 可以为空，不得为了字段完整而编造主导、owner 或核心负责。
 - 正式简历不得枚举 raw_text、experience_type、explicit_metrics、source_fact_ids 等内部字段。可以保留 Experience ID、Fact Ledger、Resume Section Fallback、JSON Schema、Pydantic 等架构概念，但必须说明其解决的业务或工程问题。
 - 每条项目 detail 应呈现问题、工程动作、机制或价值，不得写成字段说明书、文件修改记录或服务名称清单。
 - Resume Coach 类工程项目应突出真实用户需求、业务异常、解决方案、可观测性与架构演进，不得只记录开发过程。

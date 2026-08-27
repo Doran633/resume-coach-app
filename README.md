@@ -654,6 +654,14 @@ v0.3 建议主题：输出质量优化。
 - 将事实支持的裸技术词按编程语言、前后端、存储、AI 应用、工程化和测试等类别聚合，避免 DOCX 退化为关键词清单。
 - 分类顺序随目标岗位调整；历史生成结果重新导出时也会自动恢复分类式技能栈。
 - 技能呈现日志位于 `backend/logs/resume_skill_presentation.jsonl`。
+
+### v0.5.6：职责事实化与兜底污染治理
+
+- 移除 Boundary Guard、Resume Section Fallback 和 Stable Fallback 中面向系统的职责占位说明。
+- 新增经历级职责恢复：只从对应 `experience_id` 的职责或动作事实生成“我的职责”，无法恢复时允许留空。
+- Output Firewall 在最终保存和 DOCX 渲染前拦截“以用户原文为准”“参与相关任务”等内部话术，历史结果重新导出也会清理。
+- 职责质量日志位于 `backend/logs/resume_role_quality.jsonl`，Section Fallback 日志同步记录职责恢复和留空数量。
+- `python scripts/export_generation_quality.py` 会汇总职责 fallback 触发率、事实恢复数量、留空数量和内部占位清理数量。
 - 增加中文引号、括号、书名号、方括号和反引号的配对完整性检查。
 - 将内部字段枚举转换为招聘者可理解的工程价值表达。
 - 增加 Recruiter Readability 检查，减少开发日志、文件清单和字段说明书式表达。

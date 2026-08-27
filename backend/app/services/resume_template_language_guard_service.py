@@ -15,6 +15,10 @@ PREFIX_REPLACEMENTS = [
     (re.compile(r"^做了一些"), "完成"),
     (re.compile(r"^进行了相关工作[：:]?\s*"), ""),
 ]
+GENERIC_ROLE_PATTERNS = [
+    re.compile(r"^(?:负责相关工作|参与相关任务|完成相关任务|围绕项目目标完成工作|根据现有经历整理职责|推进项目相关事项)[。.]?$"),
+    re.compile(r".*(?:以用户原文|以用户提供的信息|以用户已提供内容).*为准[。.]?$"),
+]
 
 
 def professionalize_sentence(text: str) -> str:
@@ -30,6 +34,8 @@ def guard_template_language(payload: schemas.GenerationPayload, stats: dict | No
     for project in updated.resume_sections.projects:
         project["intro"] = professionalize_sentence(str(project.get("intro") or ""))
         project["role"] = professionalize_sentence(str(project.get("role") or ""))
+        if any(pattern.fullmatch(project["role"]) for pattern in GENERIC_ROLE_PATTERNS):
+            project["role"] = ""
         original_details = [str(item) for item in project.get("details", [])]
         cleaned_details = [professionalize_sentence(item) for item in original_details]
         project["details"] = [item for item in cleaned_details if item]

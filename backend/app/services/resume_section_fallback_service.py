@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .experience_fact_ledger_service import build_experience_fact_ledger
+from .resume_role_resolution_service import is_internal_or_generic_role, resolve_role_for_experience
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -93,10 +95,16 @@ class FallbackStats:
         self.projects_added = 0
         self.projects_removed = 0
         self.uncovered_experience_ids: list[str] = []
+        self.role_fallback_triggered = 0
+        self.role_recovered_from_fact_count = 0
+        self.role_left_empty_count = 0
+        self.internal_fallback_text_removed_count = 0
+        self.role_source_experience_ids: list[str] = []
+        self.role_source_fact_ids: list[str] = []
 
     @property
     def changed(self) -> bool:
-        return bool(self.fallback_sections)
+        return bool(self.fallback_sections or self.role_fallback_triggered or self.internal_fallback_text_removed_count)
 
     @property
     def fallback_reason(self) -> str:
@@ -134,6 +142,12 @@ def _write_fallback_log(stats: FallbackStats):
             "projects_added": stats.projects_added,
             "projects_removed": stats.projects_removed,
             "uncovered_experience_ids": stats.uncovered_experience_ids,
+            "role_fallback_triggered": stats.role_fallback_triggered,
+            "role_recovered_from_fact_count": stats.role_recovered_from_fact_count,
+            "role_left_empty_count": stats.role_left_empty_count,
+            "internal_fallback_text_removed_count": stats.internal_fallback_text_removed_count,
+            "role_source_experience_ids": sorted(set(stats.role_source_experience_ids)),
+            "role_source_fact_ids": sorted(set(stats.role_source_fact_ids)),
             "generation_result_id": stats.generation_result_id,
             "stage": stats.stage,
         }
@@ -360,7 +374,7 @@ def _parse_projects(source: str, source_field: str, stats: FallbackStats) -> lis
                 "meta": "综合经历",
                 "time": "[待填写]",
                 "intro": details[0],
-                "role": "根据现有经历整理个人参与内容与项目亮点。",
+                "role": "",
                 "details": details,
             }
         ]
@@ -433,20 +447,32 @@ def _assign_source_experience_ids(projects: list, raw_input: str, stats: Fallbac
 
 def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict]:
     projects = []
+    ledger = build_experience_fact_ledger(raw_input)
     for identity in build_experience_identities(raw_input)[:5]:
         details = _details_from_text(identity.raw_text, limit=6)
         if not details:
             continue
         stats.used_experience_id = True
+        role, role_fact_ids = resolve_role_for_experience(
+            raw_input, identity.experience_id, details=details, intro=details[0], ledger=ledger,
+        )
+        stats.role_fallback_triggered += 1
+        if role:
+            stats.role_recovered_from_fact_count += 1
+            stats.role_source_experience_ids.append(identity.experience_id)
+            stats.role_source_fact_ids.extend(role_fact_ids)
+        else:
+            stats.role_left_empty_count += 1
         projects.append(
             {
                 "name": identity.title or identity.experience_type,
                 "meta": identity.experience_type,
                 "time": "[待填写]",
                 "intro": details[0],
-                "role": "围绕该段经历完成相关任务，具体职责以用户原文提供的信息为准。",
+                "role": role,
                 "details": details,
                 "source_experience_id": identity.experience_id,
+                "role_source_fact_ids": role_fact_ids,
             }
         )
     return projects
@@ -563,6 +589,29 @@ def fill_resume_sections(
 
     if "interview_preparation" in empty_sections:
         sections["interview_preparation"] = _build_interview_preparation(data, stats)
+
+    ledger = build_experience_fact_ledger(raw_source) if raw_source else None
+    for project in sections.get("projects", []):
+        if not isinstance(project, dict) or not is_internal_or_generic_role(_text(project.get("role"))):
+            continue
+        stats.internal_fallback_text_removed_count += 1
+        stats.role_fallback_triggered += 1
+        source_id = _text(project.get("source_experience_id"))
+        recovered, fact_ids = resolve_role_for_experience(
+            raw_source,
+            source_id,
+            details=project.get("details", []),
+            intro=_text(project.get("intro")),
+            ledger=ledger,
+        ) if raw_source and source_id and ledger else ("", [])
+        project["role"] = recovered
+        if recovered:
+            stats.role_recovered_from_fact_count += 1
+            stats.role_source_experience_ids.append(source_id)
+            stats.role_source_fact_ids.extend(fact_ids)
+            project["role_source_fact_ids"] = fact_ids
+        else:
+            stats.role_left_empty_count += 1
 
     data["resume_sections"] = sections
     stats.projects_after = len(sections.get("projects", [])) if isinstance(sections.get("projects"), list) else 0

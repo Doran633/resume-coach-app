@@ -48,6 +48,7 @@ from .recruiter_language_service import ensure_recruiter_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
+from .resume_role_resolution_service import resolve_resume_roles
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -205,6 +206,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    payload = resolve_resume_roles(
+        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
+    )
     narrative_changes: dict[str, int] = {}
     payload = ensure_semantic_units(payload, raw_input, narrative_changes)
     payload = organize_adaptive_narrative(payload, narrative_changes)
@@ -237,6 +241,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         raw_input,
         stage="docx_export",
         generation_result_id=request.generation_result_id,
+    )
+    payload = resolve_resume_roles(
+        payload, raw_input, stage="before_docx_render", generation_result_id=request.generation_result_id,
+    )
+    payload = guard_resume_output(
+        payload, raw_input, stage="before_docx_render", generation_result_id=request.generation_result_id,
     )
     payload = professionalize_resume_language(
         payload,
@@ -342,7 +352,8 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
             _p(doc, title_line, 11, True, "1F3763")
             intro_label = "经历简介：" if heading != "项目经历" else "项目简介："
             _bullet(doc, intro_label + project.get("intro", ""), bold_label=True)
-            _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
+            if str(project.get("role") or "").strip():
+                _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
             _bullet(doc, "技术细节：", bold_label=True)
             for detail in project.get("details", [])[:detail_limit]:
                 _bullet(doc, detail, level=1)

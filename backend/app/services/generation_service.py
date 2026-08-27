@@ -51,6 +51,7 @@ from .recruiter_language_service import ensure_recruiter_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
+from .resume_role_resolution_service import resolve_resume_roles
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -456,6 +457,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
+    payload = resolve_resume_roles(payload, request.raw_input, stage="generation")
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
     payload = guard_project_specificity(payload, request.raw_input)
     payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)
@@ -483,6 +485,8 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     log_generation_stage(payload, "after_dedup")
     payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
+    payload = resolve_resume_roles(payload, request.raw_input, stage="before_save")
+    payload = guard_resume_output(payload, request.raw_input, stage="before_save")
     payload = professionalize_resume_language(payload, stage="generation")
     payload = guard_resume_skill_evidence(payload, request.raw_input, stage="generation")
     payload = organize_resume_skills(payload, request.target_role, stage="generation")

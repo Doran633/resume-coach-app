@@ -3,6 +3,7 @@ import re
 from .. import schemas
 from .experience_identity_service import build_segmentation_questions
 from .long_input_service import EVIDENCE_TERMS, RISK_TERMS, TECH_TERMS, LongInputContext, compact_text, extract_terms
+from .resume_role_resolution_service import resolve_role_for_experience
 
 
 NEGATIVE_INTERNSHIP_PATTERNS = ["没有实习", "无实习", "没实习", "没有实习经历", "没有实习经验"]
@@ -49,18 +50,6 @@ def _intro_from_content(content: str) -> str:
 
 def _wording_key(text: str) -> str:
     return re.sub(r"[\s，,。；;：:、/\\|｜（）()\[\]【】《》“”\"'`~\-—–_]+", "", text or "").lower()
-
-
-def _role_for_meta(meta: str) -> str:
-    if meta == "实习经历":
-        return "围绕实习任务参与功能开发、联调排查、文档整理或需求验收，具体职责以用户已提供内容为准。"
-    if meta == "科研经历":
-        return "围绕研究目标参与资料整理、方案设计、实验记录或报告撰写，突出方法理解和过程沉淀。"
-    if meta == "竞赛经历":
-        return "围绕竞赛目标参与方案设计、材料整理、展示答辩或功能实现，突出个人贡献与交付结果。"
-    if meta == "开源经历":
-        return "围绕开源项目参与问题修复、文档完善、功能贡献或工具沉淀，突出可核验贡献。"
-    return "围绕项目目标参与功能设计、技术实现、联调排查和结果交付。"
 
 
 def _build_claims(risk_terms: list[str], evidence_terms: list[str]) -> list[schemas.ClaimResult]:
@@ -118,15 +107,19 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
             if wording_key and wording_key not in used_supported_wordings and wording not in details:
                 details.append(wording)
                 used_supported_wordings.add(wording_key)
+        role, role_fact_ids = resolve_role_for_experience(
+            request.raw_input, segment.experience_id, details=details, intro=_intro_from_content(segment.content),
+        )
         projects.append(
             {
                 "name": segment.title,
                 "meta": meta,
                 "time": "[待填写]",
                 "intro": _intro_from_content(segment.content),
-                "role": _role_for_meta(meta),
+                "role": role,
                 "details": details[:5],
                 "source_experience_id": segment.experience_id,
+                "role_source_fact_ids": role_fact_ids,
             }
         )
 
@@ -137,14 +130,14 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "meta": "综合经历",
                 "time": "[待填写]",
                 "intro": compact_text(request.raw_input, 180),
-                "role": "基于用户原始经历整理项目目标、职责边界和技术动作。",
+                "role": "",
                 "details": _split_details(request.raw_input, limit=5),
                 "source_experience_id": "EXP-001",
             }
         )
 
     project_names = "、".join(project["name"] for project in projects[:3])
-    normal = f"稳定模式已根据用户原文识别并保留主要经历：{project_names}。建议围绕目标岗位整理项目定位、个人职责、技术动作和结果证据。"
+    normal = f"稳定模式已识别并保留主要经历：{project_names}。建议围绕目标岗位整理项目定位、个人职责、技术动作和结果证据。"
     bold = f"可将这些经历包装为面向{request.target_role}的连续实践：突出多段经历中的技术链路、问题排查、交付结果和可面试承接的证据材料。"
     boundary = "边界参考：未提供的学校、专业、用户数、并发、奖项、模型训练等硬事实不能补写；缺少证据的强表达应降级。"
     recommended = f"{normal}\n{bold}"

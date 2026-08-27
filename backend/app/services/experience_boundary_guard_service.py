@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
+from .resume_role_resolution_service import resolve_role_for_experience
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -201,7 +202,15 @@ def guard_experience_boundaries(
             elif key == "intro":
                 guarded[key] = segment.raw_text[:180].strip()
             else:
-                guarded[key] = "围绕该段经历完成相关任务，具体职责以用户原文提供的信息为准。"
+                guarded[key], role_fact_ids = resolve_role_for_experience(
+                    raw_input,
+                    segment.experience_id,
+                    details=guarded.get("details", []),
+                    intro=str(guarded.get("intro") or ""),
+                    ledger=ledger,
+                )
+                if role_fact_ids:
+                    guarded["role_source_fact_ids"] = role_fact_ids
         details = []
         original_details = guarded.get("details", []) or []
         for detail in original_details:

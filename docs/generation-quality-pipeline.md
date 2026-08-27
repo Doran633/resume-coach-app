@@ -145,6 +145,8 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 2. `resume_skill_presentation_service`：仅组织已经通过证据校验的技能，负责分类、去重和目标岗位排序，不得新增技术事实。
 
 技能处理顺序固定为：Skill Evidence Guard -> Resume Skill Presentation -> Recruiter Language -> Whitespace Quality。后置文本清洗不得删除技能分类标题。
+
+职责处理遵循：Experience Boundary Guard -> Resume Role Resolution -> Template Language Guard -> Resume Output Firewall。Role Resolution 只能使用当前 `experience_id` 的职责/动作事实；无法恢复时允许留空，任何后置服务不得重新写入系统占位说明。
 2. `recruiter_language_service`：把内部字段枚举转换为招聘者可理解的工程价值，不改变事实归属。
 3. `resume_recruiter_readability_service`：清理开发日志、文件清单和与项目简介重复的低价值详情。
 4. `paired_symbol_integrity_service`：维护用户可见文本的配对符号结构，不承担普通标点美化。
