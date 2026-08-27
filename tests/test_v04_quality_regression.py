@@ -27,6 +27,9 @@ from app.services.resume_section_integrity_service import ensure_resume_section_
 from app.services.resume_summary_quality_service import ensure_resume_summary_quality  # noqa: E402
 from app.services.resume_text_integrity_service import ensure_resume_text_integrity  # noqa: E402
 from app.services.resume_title_format_service import resolve_resume_titles  # noqa: E402
+from app.services.resume_dedup_quality_service import ensure_dedup_quality  # noqa: E402
+from app.services.resume_typography_quality_service import ensure_typography_quality  # noqa: E402
+from app.services.resume_output_quality_gate_service import evaluate_resume_output_quality  # noqa: E402
 from app.services.stable_generation_fallback_service import build_stable_generation_fallback  # noqa: E402
 from app.services.uncertain_expression_cleanup_service import cleanup_uncertain_expressions  # noqa: E402
 from app.services.weak_profile_strategy_service import strengthen_weak_profile_payload  # noqa: E402
@@ -71,6 +74,7 @@ def _quality_pipeline(case: dict) -> schemas.GenerationPayload:
     payload = sanitize_resume_body(payload, raw)
     payload = reconcile_resume_projects(payload, raw, stage="test", write_log=False)
     payload = deduplicate_resume_facts(payload, stage="test", write_log=False)
+    payload = ensure_dedup_quality(payload, stage="test", write_log=False)
     payload = resolve_project_types(payload, raw, stage="test", write_log=False)
     payload = guard_fact_coverage(payload, raw, stage="test", write_log=False)
     payload = guard_experience_boundaries(payload, raw, stage="test", write_log=False)
@@ -80,7 +84,10 @@ def _quality_pipeline(case: dict) -> schemas.GenerationPayload:
     payload = ensure_resume_text_integrity(payload, raw, stage="test", write_log=False)
     payload = guard_hard_facts(payload, raw)
     payload = guard_resume_output(payload, raw, stage="test", write_log=False)
-    return resolve_resume_titles(payload, raw)
+    payload = ensure_typography_quality(payload, stage="test", write_log=False)
+    payload = resolve_resume_titles(payload, raw)
+    evaluate_resume_output_quality(payload, raw, stage="test", write_log=False)
+    return payload
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
@@ -93,6 +100,7 @@ def test_real_world_case_preserves_boundaries_and_delivery_quality(case):
     assert all(project.get("source_experience_id") for project in projects)
     assert len({project["source_experience_id"] for project in projects}) == len(projects)
     assert not any(term in formal_text for term in BODY_FORBIDDEN)
+    assert not any(term in formal_text for term in ["、、", "，，", "。。", "、,", ",、"])
     assert not any(term in formal_text for term in case.get("forbidden_resume_terms", []))
     for term in case["required_terms"]:
         assert term.lower() in formal_text.lower(), f"missing high-value term: {term}"

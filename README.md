@@ -1,5 +1,13 @@
 # Resume Coach App
 
+## v0.5.0 事实簇去重与最终输出质量门
+
+- 去重从单纯句子相似度升级为 Fact Cluster Dedup，结合 `source_fact_ids`、包含关系、事实动作、语义侧面和信息量评分选择最佳表达。
+- 新增跨字段去重检查，明确 intro 负责项目定位、role 负责职责边界、details 负责独立技术事实，减少同一事实跨字段复述。
+- 新增中文标点和异常字符净化，修复连续顿号、重复逗号、尾部标点和异常空格，同时保护 Query Intent、C++、Node.js、BAAI/bge-m3 等技术词。
+- 新增只评分不改写的 Output Quality Gate，记录事实覆盖、经历边界、重复、语言专业度、标点、内部字段和投递就绪度七项分数。
+- 新日志位于 `backend/logs/resume_dedup_quality.jsonl`、`resume_typography_quality.jsonl` 和 `resume_output_quality.jsonl`，并汇总进 generation quality 报告。
+
 ## v0.4.11 生成质量工程收口
 
 - 完成 v0.4.x 生成与 DOCX 二次检查管线审计，明确每个 Guard 的写入职责和必要复检点，详见 `docs/generation-quality-pipeline.md`。

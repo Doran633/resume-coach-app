@@ -15,13 +15,24 @@ WEAK_PREFIXES = ["之后", "进一步", "同时", "随后", "在多段经历输�
 EXPERIMENT_TERMS = {"chunk size", "chunk overlap", "top-k", "score threshold", "retrieval ranking"}
 RAG_CHAIN_TERMS = {"文档解析", "切块", "embedding", "向量检索", "回答生成"}
 DISTINCT_FACETS = {
+    "project_positioning": ["面向", "目标", "定位", "场景", "解决"],
+    "ownership": ["负责", "主导", "独立", "owner", "承担"],
     "implementation": ["实现", "开发", "构建", "接入", "功能", "链路"],
+    "retrieval_pipeline": ["切块", "embedding", "向量检索", "回答生成", "rag"],
     "evaluation": ["评测", "测试集", "groundedness", "retrieval", "指标", "质量"],
     "citation": ["citation", "来源", "source cards", "溯源"],
     "deployment": ["部署", "上线", "nginx", "systemd", "公网", "健康检查"],
+    "observability": ["日志", "健康检查", "smoke test", "trace", "监控"],
     "isolation": ["数据隔离", "权限隔离", "课程隔离", "用户隔离"],
-    "experiment": ["实验", "调优", "参数", "top-k", "score threshold", "ranking"],
+    "optimization": ["实验", "调优", "参数", "top-k", "score threshold", "ranking", "优化"],
+    "result": ["提升", "降低", "用户", "奖项", "一等奖", "相关度", "%"],
+    "product_iteration": ["用户反馈", "版本迭代", "架构调整", "重构", "迭代"],
+    "problem_solving": ["定位", "排查", "修复", "cors", "端口冲突", "配置问题"],
 }
+ACTION_TERMS = ["实现", "构建", "设计", "开发", "优化", "部署", "定位", "修复", "建立", "拆分", "识别", "解决", "负责", "主导"]
+RESULT_TERMS = ["提升", "降低", "上线", "交付", "获奖", "一等奖", "验证", "支持", "完成"]
+EVIDENCE_TERMS = ["日志", "测试集", "指标", "用户反馈", "仓库", "文档", "截图", "记录", "证书"]
+WEAK_WORDING = ["进一步发现", "持续优化", "围绕项目目标", "完成相关工作", "提升项目质量", "具备相关能力", "技术动作", "之后", "同时"]
 
 
 @dataclass
@@ -106,6 +117,33 @@ def _facets(text: str) -> set[str]:
     return {name for name, markers in DISTINCT_FACETS.items() if any(marker in lowered for marker in markers)}
 
 
+def information_score(text: str, source_fact_ids: list[str] | None = None) -> float:
+    value = str(text or "")
+    tech_count = len(_normalized_terms(value))
+    action_count = sum(term in value for term in ACTION_TERMS)
+    result_count = sum(term in value for term in RESULT_TERMS)
+    evidence_count = sum(term.lower() in value.lower() for term in EVIDENCE_TERMS)
+    metric_count = len(re.findall(r"\d+(?:\.\d+)?(?:%|ms|s|秒|次|人|token)?", value, re.I))
+    problem_count = sum(term.lower() in value.lower() for term in DISTINCT_FACETS["problem_solving"])
+    weak_count = sum(term in value for term in WEAK_WORDING)
+    completeness = 2 if re.search(r"[。！？]$", value.strip()) else 0
+    return (
+        tech_count * 3 + action_count * 2 + result_count * 2 + evidence_count * 2
+        + metric_count * 3 + problem_count * 2 + len(source_fact_ids or []) * 2
+        + min(len(value), 120) / 30 + completeness - weak_count * 2
+    )
+
+
+def same_fact_action(left: str, right: str) -> bool:
+    left_core, right_core = _core(left), _core(right)
+    if "experiencedilution" in left_core and "experiencedilution" in right_core:
+        return bool({"发现", "识别", "解决"} & _terms(left)) and bool({"发现", "识别", "解决"} & _terms(right))
+    facets = _facets(left) & _facets(right)
+    terms_left, terms_right = _normalized_terms(left), _normalized_terms(right)
+    term_overlap = len(terms_left & terms_right) / max(1, min(len(terms_left), len(terms_right)))
+    return bool(facets) and term_overlap >= 0.75 and similarity(left, right) >= 0.82
+
+
 def _same_experiment(left: str, right: str) -> bool:
     left_terms = _normalized_terms(left) & EXPERIMENT_TERMS
     right_terms = _normalized_terms(right) & EXPERIMENT_TERMS
@@ -119,8 +157,8 @@ def _merge_records(left: DetailRecord, right: DetailRecord) -> DetailRecord:
     elif right_core in left_core:
         text = left.text
     else:
-        left_score = len(_normalized_terms(left.text)) * 12 + len(left.text)
-        right_score = len(_normalized_terms(right.text)) * 12 + len(right.text)
+        left_score = information_score(left.text, left.source_fact_ids)
+        right_score = information_score(right.text, right.source_fact_ids)
         text = right.text if right_score > left_score else left.text
     return DetailRecord(
         text=text,
@@ -197,11 +235,12 @@ def deduplicate_resume_facts(payload: schemas.GenerationPayload, *, stage: str =
                 containment = min(len(left_core), len(right_core)) >= 12 and (left_core in right_core or right_core in left_core)
                 same_fact_ids = bool(set(existing.source_fact_ids) & set(candidate.source_fact_ids)) and score >= 0.68
                 same_experiment = _same_experiment(existing.text, candidate.text)
+                same_action = same_fact_action(existing.text, candidate.text)
                 semantic = score >= 0.90 and bool(_facets(existing.text) & _facets(candidate.text))
-                if exact or containment or same_fact_ids or same_experiment or semantic:
+                if exact or containment or same_fact_ids or same_experiment or same_action or semantic:
                     matched_index = index
                     matched_score = score
-                    matched_reason = "exact" if exact else "containment" if containment else "same_source_fact_ids" if same_fact_ids else "same_experiment" if same_experiment else "high_semantic_similarity"
+                    matched_reason = "exact" if exact else "containment" if containment else "same_source_fact_ids" if same_fact_ids else "same_experiment" if same_experiment else "same_fact_action" if same_action else "high_semantic_similarity"
                     break
                 stats.dedup_confidence_distribution["medium" if score >= 0.72 else "low"] += 1
             if matched_index < 0:

@@ -44,13 +44,16 @@ Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance �
 | 事实覆盖 | `fact_coverage_guard_service` | 是 | 恢复未覆盖的高价值明确事实 |
 | 边界复检 | `experience_boundary_guard_service` | 是 | 检查覆盖恢复内容仍属于对应 experience |
 | 去重检查点 B | `resume_fact_dedup_service` | 是 | 清理恢复后新出现的重复，不删除独立事实 |
+| 去重质量复检 | `resume_dedup_quality_service` | 是 | 检查跨字段与事实簇重复，保护去重前后 provenance 覆盖 |
 | 个人优势 | `resume_summary_quality_service` | 是 | 生成事实支撑的候选人能力，隔离教练话术 |
 | 输出防火墙 | `resume_output_firewall_service` | 是 | 清理写作指令、模板残片和调试文本 |
 | 语言专业化 | `resume_language_professionalization_service` | 是 | 将口语和内部标签转换为行动表达 |
 | Section 完整性 | `resume_section_integrity_service` | 是 | 保证正式 Section 具备业务可用内容 |
 | 文本完整性 | `resume_text_integrity_service` | 是 | 修复截断句和内部摘要污染 |
+| 标点净化 | `resume_typography_quality_service` | 是 | 修复连续/混合标点和异常空格，不改变技术词与事实 |
 | 最终事实复检 | Fact Guard + Output Firewall | 是 | 对后续改写产生的内容做最终安全检查 |
 | 最终类型与标题 | Type Resolver + `resume_title_format_service` | 修改类型/标题 | 固化类型；生成公司、岗位、项目类型和时间标题 |
+| 输出质量评分 | `resume_output_quality_gate_service` | 否 | 记录七项质量分数和告警，不修改正文或阻断交付 |
 
 ## 为什么存在复检
 
@@ -58,6 +61,13 @@ Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance �
 - 语言专业化、文本完整性会改写正文，因此保存前必须再次执行 Fact Guard 和 Output Firewall。
 - 类型解析在初次对账后运行，并在保存前复检；第二次只校验后续服务没有破坏类型锁。
 - 这些是有明确写入者位于中间的 checkpoint，不是无意义重复。
+- v0.5.0 的 Output Quality Gate 是只读观察器，不能为了提高分数删除、恢复或编造内容。
+
+## v0.5 事实簇与质量分数
+
+事实簇去重按 `source_fact_ids`、包含关系、同一事实动作和高置信语义顺序判断。表达选择使用信息量评分，奖励具体技术、动作、指标、证据和问题排查，降低空泛前缀权重。只有没有新增技术、证据、指标或工程侧面的内容才会合并。
+
+Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`duplicate_score`、`language_professionalism_score`、`typography_score`、`internal_marker_score`、`delivery_readiness_score` 和总分。分数只用于观察模型、Prompt 与管线变化，不进入 API 和数据库。
 
 ## ID 生命周期
 

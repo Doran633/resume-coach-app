@@ -33,6 +33,9 @@ from .resume_fact_dedup_service import deduplicate_resume_facts
 from .generation_stage_quality_service import log_generation_stage
 from .docx_delivery_readiness_service import prepare_docx_delivery
 from .resume_title_format_service import resolve_resume_titles
+from .resume_dedup_quality_service import ensure_dedup_quality
+from .resume_typography_quality_service import ensure_typography_quality
+from .resume_output_quality_gate_service import evaluate_resume_output_quality
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -193,6 +196,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = deduplicate_resume_facts(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
     )
+    payload = ensure_dedup_quality(
+        payload, stage="docx_export", generation_result_id=request.generation_result_id,
+    )
     payload = ensure_resume_summary_quality(
         payload,
         raw_input,
@@ -217,6 +223,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    payload = ensure_typography_quality(
+        payload, stage="docx_export", generation_result_id=request.generation_result_id,
+    )
     payload = guard_hard_facts(payload, raw_input)
     payload = guard_resume_output(
         payload,
@@ -234,6 +243,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = prepare_docx_delivery(
         payload,
         generation_result_id=request.generation_result_id,
+    )
+    evaluate_resume_output_quality(
+        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
     )
     log_generation_stage(payload, "before_docx_render", request.generation_result_id)
 

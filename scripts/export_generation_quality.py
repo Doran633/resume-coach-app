@@ -88,6 +88,9 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "boundary": "experience_boundary.jsonl",
             "coverage": "fact_coverage.jsonl",
             "dedup": "resume_fact_dedup.jsonl",
+            "dedup_quality": "resume_dedup_quality.jsonl",
+            "typography": "resume_typography_quality.jsonl",
+            "output_quality": "resume_output_quality.jsonl",
             "firewall": "resume_output_firewall.jsonl",
             "type": "experience_type_resolution.jsonl",
             "integrity": "resume_text_integrity.jsonl",
@@ -131,6 +134,31 @@ def build_report(log_dir: Path, days: int | None) -> str:
     retained = _number(dedup, "retained_unique_fact_count")
     dedup_base = removed + retained
     dedup_removal_rate = removed / dedup_base if dedup_base else 0.0
+
+    dedup_quality = logs["dedup_quality"]
+    duplicate_candidates = _number(dedup_quality, "duplicate_candidate_count")
+    duplicate_clusters = _number(dedup_quality, "duplicate_cluster_count")
+    quality_removed = _number(dedup_quality, "removed_duplicate_count")
+    quality_merged = _number(dedup_quality, "merged_duplicate_count")
+    precision_warnings = _number(dedup_quality, "dedup_precision_warning_count")
+    typography = logs["typography"]
+    typography_abnormal = _number(typography, "abnormal_punctuation_count")
+    typography_repeated = _number(typography, "repeated_punctuation_fixed_count")
+    typography_mixed = _number(typography, "mixed_punctuation_fixed_count")
+    typography_spacing = _number(typography, "spacing_fixed_count")
+    output_quality = logs["output_quality"]
+    average_duplicate_score = _mean([float(row.get("duplicate_score") or 0) for row in output_quality])
+    average_typography_score = _mean([float(row.get("typography_score") or 0) for row in output_quality])
+    average_overall_score = _mean([float(row.get("overall_quality_score") or 0) for row in output_quality])
+    warning_codes = Counter(code for row in output_quality for code in (row.get("warning_codes") or []))
+    low_score_counts = Counter()
+    for row in output_quality:
+        for key, threshold in {
+            "fact_coverage_score": 80, "experience_boundary_score": 90, "duplicate_score": 85,
+            "typography_score": 95, "internal_marker_score": 100, "delivery_readiness_score": 90,
+        }.items():
+            if float(row.get(key) or 0) < threshold:
+                low_score_counts[key] += 1
 
     firewall_removed = _number(logs["firewall"], "contamination_removed_count")
     firewall_removed += _number(logs["firewall"], "coach_instruction_removed_count")
@@ -179,6 +207,20 @@ def build_report(log_dir: Path, days: int | None) -> str:
         ("删除或合并详情数", str(int(removed))),
         ("去重后保留事实数", str(int(retained))),
         ("去重删除率", _pct(removed, dedup_base)),
+        ("最终重复候选数", str(int(duplicate_candidates))),
+        ("最终重复事实簇数", str(int(duplicate_clusters))),
+        ("最终质量门删除数", str(int(quality_removed))),
+        ("最终质量门合并数", str(int(quality_merged))),
+        ("Dedup Precision 警告数", str(int(precision_warnings))),
+    ])
+    _section(lines, "标点与最终质量评分", [
+        ("平均 Duplicate Score", _display(average_duplicate_score)),
+        ("平均 Typography Score", _display(average_typography_score)),
+        ("平均 Overall Quality Score", _display(average_overall_score)),
+        ("异常标点发现数", str(int(typography_abnormal))),
+        ("连续标点修复数", str(int(typography_repeated))),
+        ("混合标点修复数", str(int(typography_mixed))),
+        ("空格修复数", str(int(typography_spacing))),
     ])
     _section(lines, "输出与投递质量", [
         ("输出防火墙拦截数量", str(int(firewall_removed))),
@@ -205,6 +247,16 @@ def build_report(log_dir: Path, days: int | None) -> str:
         alerts.append("去重删除率超过 35%，建议抽样检查 Dedup Precision。")
     lines.extend(["## 观察性阈值", ""])
     lines.extend(f"- {item}" for item in alerts or ["当前可用日志未触发观察性阈值；阈值仅用于监控，不阻止生成。"])
+    lines.append("")
+
+    lines.extend(["## Quality Gate 告警分布", ""])
+    if warning_codes:
+        lines.extend(f"- `{code}`：{count} 次" for code, count in warning_codes.most_common())
+    else:
+        lines.append("暂无 Output Quality Gate 告警。")
+    if low_score_counts:
+        lines.extend(["", "低于观察阈值的评分项："])
+        lines.extend(f"- `{key}`：{count} 次" for key, count in low_score_counts.most_common())
     lines.append("")
 
     missing = [name for name, rows in logs.items() if not rows]

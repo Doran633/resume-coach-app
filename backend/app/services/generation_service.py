@@ -36,6 +36,9 @@ from .resume_section_routing_service import route_resume_projects
 from .resume_fact_dedup_service import deduplicate_resume_facts
 from .resume_title_format_service import resolve_resume_titles
 from .generation_stage_quality_service import log_generation_stage
+from .resume_dedup_quality_service import ensure_dedup_quality
+from .resume_typography_quality_service import ensure_typography_quality
+from .resume_output_quality_gate_service import evaluate_resume_output_quality
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -455,16 +458,19 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     log_generation_stage(payload, "after_fact_coverage")
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
     payload = deduplicate_resume_facts(payload, stage="generation")
+    payload = ensure_dedup_quality(payload, stage="generation")
     log_generation_stage(payload, "after_dedup")
     payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = professionalize_resume_language(payload, stage="generation")
     payload = ensure_resume_section_integrity(payload)
     payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
+    payload = ensure_typography_quality(payload, stage="generation")
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = resolve_project_types(payload, request.raw_input, stage="before_save")
     payload = resolve_resume_titles(payload, request.raw_input)
+    evaluate_resume_output_quality(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "before_save")
 
     result = models.GenerationResult(
