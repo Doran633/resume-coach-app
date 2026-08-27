@@ -46,6 +46,7 @@ from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
 from .recruiter_language_service import ensure_recruiter_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
+from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -259,6 +260,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         raw_input,
         stage="docx_export",
         generation_result_id=request.generation_result_id,
+    )
+    payload = ensure_resume_whitespace_quality(
+        payload, stage="docx_export", generation_result_id=request.generation_result_id,
     )
     payload = ensure_typography_quality(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,

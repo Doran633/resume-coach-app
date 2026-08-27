@@ -78,7 +78,7 @@ def _balanced_cleanup(text: str, stats: SymbolStats | None = None) -> str:
         if stats:
             stats.unmatched_symbol_count += 1
             stats.removed_symbol_count += 2
-    return re.sub(r"\s+", " ", value).strip()
+    return value.strip()
 
 
 def has_unbalanced_symbols(text: str) -> bool:

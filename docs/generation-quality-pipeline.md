@@ -148,3 +148,12 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 5. 原有 Text Integrity、Typography 和 Output Firewall 继续负责断句恢复、普通标点与最终污染拦截。
 
 DOCX 导出前重复执行上述投递检查，使历史结果重新导出时也能得到修复。任何后置服务不得从 knowledge checklist 补回已删除的不确定技能。
+## v0.5.4 语义空格阶段
+
+正式文本后处理顺序调整为：Recruiter Language → Paired Symbol Integrity → Text Integrity → Whitespace Quality → Typography Quality → Output Firewall。
+
+- Whitespace Quality 独占中文词内空格、标点空格和特殊空白字符治理职责。
+- Paired Symbol Integrity 只维护配对符号，不再全局压缩空白。
+- Recruiter Language 只转换内部字段表达，不再固化切割边界空格。
+- 输入分段继续保留原始 `segment.content` 和 Fact Ledger source span；内部摘要中的压缩不会覆盖原文事实。
+- 受保护技术短语通过临时占位符恢复，内部占位符不得进入日志或用户输出。

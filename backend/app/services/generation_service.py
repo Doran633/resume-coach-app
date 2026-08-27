@@ -49,6 +49,7 @@ from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
 from .recruiter_language_service import ensure_recruiter_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
+from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -488,6 +489,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = ensure_paired_symbol_integrity(payload, stage="generation")
     payload = ensure_resume_section_integrity(payload)
     payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
+    payload = ensure_resume_whitespace_quality(payload, stage="generation")
     payload = ensure_typography_quality(payload, stage="generation")
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")

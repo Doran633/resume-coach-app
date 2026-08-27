@@ -97,6 +97,7 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "paired_symbols": "paired_symbol_integrity.jsonl",
             "recruiter_language": "recruiter_language.jsonl",
             "recruiter_readability": "resume_recruiter_readability.jsonl",
+            "whitespace": "resume_whitespace_quality.jsonl",
             "firewall": "resume_output_firewall.jsonl",
             "type": "experience_type_resolution.jsonl",
             "integrity": "resume_text_integrity.jsonl",
@@ -204,6 +205,18 @@ def build_report(log_dir: Path, days: int | None) -> str:
     average_recruiter_readability = _mean([
         float(row.get("recruiter_readability_score") or 0) for row in recruiter_readability
     ])
+    whitespace = logs["whitespace"]
+    whitespace_checked = _number(whitespace, "checked_text_count")
+    abnormal_spaces = _number(whitespace, "abnormal_space_count")
+    chinese_spaces_fixed = _number(whitespace, "chinese_internal_space_fixed_count")
+    special_spaces_fixed = _number(whitespace, "special_space_fixed_count")
+    punctuation_spaces_fixed = _number(whitespace, "punctuation_space_fixed_count")
+    protected_phrases = _number(whitespace, "protected_phrase_count")
+    protected_restore_failed = _number(whitespace, "protected_phrase_restore_failed_count")
+    average_whitespace_score = _mean([
+        float(row.get("whitespace_quality_score") or 0) for row in output_quality
+        if "whitespace_quality_score" in row
+    ])
     warning_codes = Counter(code for row in output_quality for code in (row.get("warning_codes") or []))
     low_score_counts = Counter()
     for row in output_quality:
@@ -216,6 +229,7 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "information_density_score": 85, "fact_cluster_uniqueness_score": 90,
             "skill_evidence_score": 95, "paired_symbol_integrity_score": 100,
             "recruiter_language_score": 95, "recruiter_readability_score": 85,
+            "whitespace_quality_score": 95,
         }.items():
             if key in row and float(row.get(key) or 0) < threshold:
                 low_score_counts[key] += 1
@@ -323,6 +337,16 @@ def build_report(log_dir: Path, days: int | None) -> str:
         ("开发日志式表达清理数量", str(int(developer_log_cleaned))),
         ("平均 Recruiter Readability Score", _display(average_recruiter_readability) if recruiter_readability else "暂无数据"),
     ])
+    _section(lines, "语义空格质量", [
+        ("空格质量检查次数", str(len(whitespace))),
+        ("异常空格发现数量", str(int(abnormal_spaces))),
+        ("中文内部空格修复数量", str(int(chinese_spaces_fixed))),
+        ("特殊空白字符修复数量", str(int(special_spaces_fixed))),
+        ("标点空格修复数量", str(int(punctuation_spaces_fixed))),
+        ("技术短语保护数量", str(int(protected_phrases))),
+        ("技术短语恢复失败数量", str(int(protected_restore_failed))),
+        ("平均 Whitespace Quality Score", _display(average_whitespace_score) if average_whitespace_score else "暂无数据"),
+    ])
     _section(lines, "输出与投递质量", [
         ("输出防火墙拦截数量", str(int(firewall_removed))),
         ("实习/项目类型纠正数量", str(type_corrections)),
@@ -354,6 +378,10 @@ def build_report(log_dir: Path, days: int | None) -> str:
         alerts.append("内部字段泄露率超过 5%，建议检查 Prompt 和 Recruiter Language 转换。")
     if recruiter_readability and average_recruiter_readability < 85:
         alerts.append("Recruiter Readability 低于 85，建议抽样检查项目是否过于像开发日志。")
+    if whitespace_checked and abnormal_spaces / whitespace_checked > 0.05:
+        alerts.append("异常空格修复率超过 5%，建议检查输入切割、LLM 输出和文本转换阶段。")
+    if protected_restore_failed:
+        alerts.append("存在受保护技术短语恢复失败，请立即检查 Whitespace Quality 服务。")
     lines.extend(["## 观察性阈值", ""])
     lines.extend(f"- {item}" for item in alerts or ["当前可用日志未触发观察性阈值；阈值仅用于监控，不阻止生成。"])
     lines.append("")

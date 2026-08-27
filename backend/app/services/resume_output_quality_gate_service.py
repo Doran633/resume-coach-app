@@ -15,6 +15,7 @@ from .resume_skill_evidence_guard_service import evaluate_skill_evidence
 from .paired_symbol_integrity_service import has_unbalanced_symbols
 from .recruiter_language_service import recruiter_language_score
 from .resume_recruiter_readability_service import recruiter_readability_score
+from .resume_whitespace_quality_service import count_broken_protected_phrases, count_whitespace_issues
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_output_quality.jsonl"
@@ -47,6 +48,7 @@ class OutputQualityScores:
     paired_symbol_integrity_score: int
     recruiter_language_score: int
     recruiter_readability_score: int
+    whitespace_quality_score: int
     overall_quality_score: int
     warning_codes: list[str] = field(default_factory=list)
 
@@ -139,6 +141,7 @@ def evaluate_resume_output_quality(
         "paired_symbol_integrity_score": 100 if not has_unbalanced_symbols(text) else 0,
         "recruiter_language_score": recruiter_language_score(payload),
         "recruiter_readability_score": recruiter_readability_score(payload),
+        "whitespace_quality_score": max(0, 100 - count_whitespace_issues(text) * 10),
     }
     warning_codes = []
     thresholds = {
@@ -160,10 +163,13 @@ def evaluate_resume_output_quality(
         "paired_symbol_integrity_score": (100, "PAIRED_SYMBOL_ISSUE"),
         "recruiter_language_score": (95, "INTERNAL_FIELD_LANGUAGE"),
         "recruiter_readability_score": (85, "RECRUITER_READABILITY_RISK"),
+        "whitespace_quality_score": (95, "ABNORMAL_WHITESPACE"),
     }
     for key, (threshold, code) in thresholds.items():
         if scores[key] < threshold:
             warning_codes.append(code)
+    if count_broken_protected_phrases(text):
+        warning_codes.append("PROTECTED_TECH_PHRASE_BROKEN")
     overall = round(sum(scores.values()) / len(scores))
     result = OutputQualityScores(
         created_at=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),

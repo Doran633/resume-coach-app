@@ -81,7 +81,7 @@ def convert_to_recruiter_language(text: str) -> tuple[str, int, int]:
         for old, new in replacements.items():
             value, count = re.subn(re.escape(old), new, value, flags=re.I)
             conversions += count
-    value = re.sub(r"\s+", " ", value).strip(" ，,、；;")
+    value = value.strip(" ，,、；;")
     return value, before_count, conversions
 
 

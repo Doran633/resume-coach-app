@@ -651,3 +651,10 @@ v0.3 建议主题：输出质量优化。
 - 将内部字段枚举转换为招聘者可理解的工程价值表达。
 - 增加 Recruiter Readability 检查，减少开发日志、文件清单和字段说明书式表达。
 - 新增日志：`backend/logs/resume_skill_evidence.jsonl`、`paired_symbol_integrity.jsonl`、`recruiter_language.jsonl`、`resume_recruiter_readability.jsonl`。
+### v0.5.4：语义空格与文本拼接治理
+
+- 增加中文词内、中文标点、引号和括号内侧的异常空格清理。
+- 识别不间断空格、全角空格、零宽空格和复制产生的特殊空白字符。
+- 保护 AI Agent、JSON Schema、Resume Section Fallback 等多词技术短语。
+- 空格治理位于 Text Integrity 与 Typography 之间，不改变 Experience ID、Fact ID 或事实边界。
+- 质量日志：`backend/logs/resume_whitespace_quality.jsonl`。
