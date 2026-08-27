@@ -19,6 +19,7 @@ UNCERTAIN_MARKERS = (
 SKILL_TERMS = list(dict.fromkeys([
     *TECH_TERMS, *INFERENCE_TERMS, "Git", "Linux", "Pydantic", "SQLAlchemy",
     "python-docx", "PyPDF2", "Nginx", "systemd", "Vite", "Zustand", "Ant Design",
+    "pytest", "Smoke Test", "JMeter", "Groundedness", "Citation", "Retrieval", "Debug Trace",
 ]))
 
 

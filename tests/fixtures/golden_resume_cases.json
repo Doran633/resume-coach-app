@@ -1,0 +1,112 @@
+[
+  {
+    "case_id": "v057_ai_agent_full_resume",
+    "description": "匿名化的 AI Agent 求职简历黄金案例，包含两个个人项目和一段真实实习。",
+    "raw_input": "独立设计并持续开发课程资料 RAG 学习助手，使用 React、TypeScript、Python、FastAPI、SQLite，实现文档解析、文本切块、Embedding、向量检索、RAG 问答、Citation 和连续对话。围绕 Chunk Size、Top-K、Score Threshold 与 Retrieval Ranking 进行检索实验，建立 Debug Trace、固定测试集以及 Groundedness、Citation、Retrieval 评测指标。完成用户数据隔离、日志、健康检查和 Smoke Test，并通过 VPS、Nginx、systemd 完成公网部署。\n\n独立设计并开发 Resume Coach，负责产品设计、前后端开发与 LLM 生成质量治理。针对结构化输出合法但正式简历字段为空的问题，引入 Resume Section Fallback 和触发日志；针对多经历输入中的 Experience Dilution 与事实串用问题，引入 Experience ID、Fact Ledger、事实覆盖、边界校验和输出防火墙，并根据真实用户反馈持续迭代。\n\n在某科技公司担任 AI Agent 开发实习生，参与企业 Agent 的测试、优化与部署，负责 RAG 测试集建设、检索效果调优和 Token 成本控制，将回答相关度从 0.4315 提升至 0.7243，将平均 Token 消耗从约 1400 降低至约 600 Token/次。",
+    "target_role": "AI / 大模型 / Agent",
+    "packaging_level": "大胆",
+    "experience_type": "综合经历",
+    "expected_experience_count": 3,
+    "expected_experience_types": ["项目经历", "项目经历", "实习经历"],
+    "required_facts": [
+      {"label": "真实实习岗位", "experience_id": "EXP-003", "all_terms": ["AI Agent", "实习"]},
+      {"label": "RAG 测试集建设", "experience_id": "EXP-003", "all_terms": ["RAG", "测试集"]},
+      {"label": "相关度优化指标", "experience_id": "EXP-003", "all_terms": ["0.4315", "0.7243"]},
+      {"label": "Token 成本指标", "experience_id": "EXP-003", "all_terms": ["1400", "600"]},
+      {"label": "RAG 文档链路", "experience_id": "EXP-001", "all_terms": ["文档解析", "向量检索", "Citation"]},
+      {"label": "公网部署", "experience_id": "EXP-001", "all_terms": ["Nginx", "systemd", "公网部署"]},
+      {"label": "质量评测", "experience_id": "EXP-001", "all_terms": ["Groundedness", "Retrieval", "测试集"]},
+      {"label": "结构完整性兜底", "experience_id": "EXP-002", "all_terms": ["Resume Section Fallback", "结构完整性"]},
+      {"label": "经历级事实边界", "experience_id": "EXP-002", "all_terms": ["Experience ID", "Fact Ledger", "事实边界"]},
+      {"label": "真实用户反馈", "experience_id": "EXP-002", "all_terms": ["用户反馈", "迭代"]}
+    ],
+    "required_technical_terms": ["Python", "TypeScript", "React", "FastAPI", "SQLite", "RAG", "Agent", "Embedding", "Nginx", "systemd"],
+    "expected_skill_categories": {
+      "编程语言": ["Python", "TypeScript"],
+      "AI / 大模型应用": ["RAG", "Agent", "Embedding"],
+      "前端开发": ["React"],
+      "后端开发": ["FastAPI"],
+      "数据库与存储": ["SQLite"],
+      "测试与评测": ["Groundedness", "Retrieval", "Smoke Test"],
+      "工程化与部署": ["Nginx", "systemd"]
+    },
+    "forbidden_phrases": ["综合经历项目", "技术动作", "我做过", "希望包装", "原文截断", "需补充原文", "适合将", "可面试承接"],
+    "forbidden_internal_fields": ["raw_text", "explicit_metrics", "retrieved_count", "source_fact_ids", "detail_fact_ids", "source_experience_id", "fact_id"],
+    "summary_min_count": 1,
+    "summary_max_count": 2,
+    "project_detail_limits": {"min": 3, "max": 8},
+    "expected_section_order": ["实习经历", "项目经历"],
+    "experience_boundaries": {
+      "EXP-001": {"required": ["RAG", "Citation"], "forbidden": ["Resume Section Fallback", "0.7243"]},
+      "EXP-002": {"required": ["Resume Coach", "Experience ID"], "forbidden": ["Citation Source Cards", "0.7243"]},
+      "EXP-003": {"required": ["测试集", "0.7243", "600"], "forbidden": ["Resume Section Fallback", "Citation Source Cards"]}
+    },
+    "fixed_payload": {
+      "completeness_score": 94,
+      "confirmed_facts": ["包含两个个人项目和一段真实 AI Agent 实习"],
+      "missing_questions": [],
+      "normal_version": "",
+      "bold_version": "",
+      "boundary_version": "",
+      "recommended_version": "",
+      "claims": [],
+      "interview_plan": ["准备说明 RAG 检索实验与评测口径。"],
+      "knowledge_checklist": ["RAG 评测与 Agent 工程化"],
+      "resume_sections": {
+        "personal_info": {"姓名": "[待填写]", "邮箱": "[待填写]", "手机号": "[待填写]", "求职意向": "AI Agent 开发"},
+        "education": {"学校": "[待填写]", "专业": "[待填写]", "学历": "[待填写]", "时间": "[待填写]"},
+        "summary": ["具备 AI 应用从产品设计、RAG 链路实现到部署评测的完整交付能力，能够结合真实用户反馈持续定位生成质量问题并推动工程化优化。"],
+        "skills": ["后端技术：Python、FastAPI、SQLite", "前端技术：TypeScript、React", "AI 技术：RAG、Agent、Embedding", "测试：Groundedness、Retrieval、Smoke Test", "部署：Nginx、systemd"],
+        "projects": [
+          {
+            "name": "课程资料 RAG 学习助手",
+            "meta": "项目经历",
+            "time": "2026",
+            "intro": "面向课程资料问答场景设计并开发 RAG 学习助手，支持资料上传、检索问答和答案溯源。",
+            "role": "独立开发，负责产品设计、前后端实现、RAG 检索链路、质量评测及公网部署。",
+            "details": [
+              "实现文档解析、文本切块、Embedding、向量检索、RAG 问答和 Citation 答案溯源。",
+              "围绕 Chunk Size、Top-K、Score Threshold 与 Retrieval Ranking 进行检索参数实验。",
+              "建立 Debug Trace、固定测试集及 Groundedness、Citation、Retrieval 评测指标。",
+              "实现用户数据隔离、日志、健康检查和 Smoke Test，增强服务稳定性。",
+              "通过 VPS、Nginx 与 systemd 完成公网部署。"
+            ],
+            "detail_fact_ids": [["EXP-001-F001"], ["EXP-001-F002"], ["EXP-001-F003"], ["EXP-001-F004"], ["EXP-001-F005"]],
+            "source_experience_id": "EXP-001"
+          },
+          {
+            "name": "Resume Coach",
+            "meta": "项目经历",
+            "time": "2026",
+            "intro": "面向技术求职者设计 AI 简历定位与面试承接平台，提升真实经历的表达质量和可解释性。",
+            "role": "独立开发，负责产品设计、前后端实现、LLM 生成链路和质量治理。",
+            "details": [
+              "针对结构化输出合法但正式简历字段为空的问题，引入业务完整性校验和 Resume Section Fallback。",
+              "建立 Fallback 触发日志，持续监控上游结构化输出退化。",
+              "针对 Experience Dilution 与事实串用问题，引入 Experience ID 和 Fact Ledger 建立经历级事实边界。",
+              "建立事实覆盖、边界校验和输出防火墙，并根据真实用户反馈持续迭代。"
+            ],
+            "detail_fact_ids": [["EXP-002-F001"], ["EXP-002-F002"], ["EXP-002-F003"], ["EXP-002-F004"]],
+            "source_experience_id": "EXP-002"
+          },
+          {
+            "name": "某科技公司",
+            "position": "AI Agent 开发实习生",
+            "meta": "实习经历",
+            "time": "2026",
+            "intro": "参与企业 AI Agent 的测试、优化与部署，重点改善 RAG 问答质量和推理成本。",
+            "role": "负责 RAG 测试集建设、检索效果调优和 Token 成本控制。",
+            "details": [
+              "建立面向 RAG 问答质量的固定测试集，持续评估检索和回答效果。",
+              "通过检索参数调优将回答相关度从 0.4315 提升至 0.7243。",
+              "在保证回答效果的前提下，将平均 Token 消耗从约 1400 降低至约 600 Token/次。"
+            ],
+            "detail_fact_ids": [["EXP-003-F001"], ["EXP-003-F002"], ["EXP-003-F003"]],
+            "source_experience_id": "EXP-003"
+          }
+        ],
+        "interview_preparation": ["准备说明评测指标和优化过程。"]
+      }
+    }
+  }
+]

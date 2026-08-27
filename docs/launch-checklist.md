@@ -235,3 +235,26 @@ tail -n 20 backend/logs/fact_coverage.jsonl
 tail -n 20 backend/logs/resume_fact_dedup.jsonl
 tail -n 20 backend/logs/docx_delivery_readiness.jsonl
 ```
+
+## 12. 黄金样例回归
+
+- `python -m pytest tests/test_golden_resume_regression.py -q` 已通过。
+- 黄金案例与文本快照已确认匿名化。
+- 高价值事实覆盖率不低于 90%。
+- 经历边界准确率和技能分类准确率均为 100%。
+- 重复详情和内部字段泄露均为 0。
+- 固定 Payload 可以生成非空 DOCX，且不包含面试准备清单和内部 ID。
+- 修改 Prompt、Guard、Fallback、技能分类或 DOCX 服务后，必须重新运行黄金回归。
+
+固定基线评测：
+
+```bash
+cd /www/wwwroot/resume-coach-app
+.venv/bin/python scripts/evaluate_golden_resume.py --mode mock
+```
+
+真实模型评测仅在已配置 API 时运行，不作为普通发布门禁：
+
+```bash
+.venv/bin/python scripts/evaluate_golden_resume.py --mode openai
+```

@@ -1,5 +1,32 @@
 # Resume Coach App
 
+## v0.5.8 黄金样例回归
+
+- 将 v0.5.7 的高质量输出匿名化为黄金案例，固定事实、结构、经历边界、技能分类和 DOCX 投递不变量。
+- 确定性回归使用固定 `GenerationPayload`，执行生产 Guard 与 DOCX 链路，不受真实模型随机性影响。
+- 真实模型评测独立运行，只记录质量分数和退化项，不作为普通 `pytest` 的强制条件。
+- 回归采用语义与结构断言，不要求逐字一致，避免把合理改写误判为退化。
+
+运行确定性黄金回归：
+
+```bash
+python -m pytest tests/test_golden_resume_regression.py -q
+```
+
+生成固定基线评测报告：
+
+```bash
+python scripts/evaluate_golden_resume.py --mode mock
+```
+
+配置 LLM 后运行真实模型评测：
+
+```bash
+python scripts/evaluate_golden_resume.py --mode openai
+```
+
+新增黄金案例时，先匿名化输入与基线文本，再补充 `required_facts`、经历边界、技能分类和禁止项；不要提交姓名、联系方式、学校等个人信息。
+
 ## v0.5.7 信息分层与招聘者表达
 
 - 个人优势调整为 1-2 条高度定位，避免复述全部项目和技术栈。

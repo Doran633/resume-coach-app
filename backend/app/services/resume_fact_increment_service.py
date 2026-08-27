@@ -14,6 +14,8 @@ def _high_value(text: str) -> bool:
     return any(term.lower() in value.lower() for term in [
         "上线", "部署", "测试集", "评测", "指标", "数据隔离", "权限", "日志",
         "健康检查", "Smoke Test", "Citation", "Groundedness", "用户反馈",
+        "Resume Section Fallback", "Experience ID", "Fact Ledger", "事实边界",
+        "输出防火墙", "结构完整性", "业务完整性",
     ]) or any(char.isdigit() for char in value)
 
 
