@@ -109,7 +109,19 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 7. 必须提供真实失败案例回归测试。
 8. 日志不得包含完整用户输入或简历正文。
 
-## 核心原则
+## v0.5.7 信息分层与招聘者表达
+
+在 Fact Coverage 和 Experience Boundary 完成后执行：
+
+`Section Layering -> Fact Increment -> Dedup -> Summary Quality`
+
+- `resume_section_layering_service`：只决定事实应位于项目简介、我的职责还是技术细节，不创造新事实。
+- `resume_fact_increment_service`：检查每条 detail 是否相对标题字段和前序详情增加新的技术、动作、问题、指标或证据。
+- `resume_skill_taxonomy_service`：只分类 Skill Evidence Guard 已确认的技能，不从知识补齐清单引入待学习内容。
+- `recruiter_facing_technical_language_service`：将代码字段和内部 Pipeline 表达转换为工程价值，不改变 provenance。
+- 高价值事实保护优先于篇幅压缩；充实项目允许保留 6-8 条互不重复的详情。
+
+## 核心原则（通用）
 
 - Fallback 是安全网，不是垃圾桶。
 - 事实恢复优先于文案压缩。

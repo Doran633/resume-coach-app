@@ -125,7 +125,7 @@ def test_summary_and_details_are_filled_enough():
 
     strengthened = strengthen_weak_profile_payload(payload, raw, "前端开发")
 
-    assert len(strengthened.resume_sections.summary) >= 3
+    assert 1 <= len(strengthened.resume_sections.summary) <= 2
     assert len(strengthened.resume_sections.projects[0]["details"]) >= 3
 
 

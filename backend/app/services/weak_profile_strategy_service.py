@@ -280,8 +280,8 @@ def strengthen_weak_profile_payload(
     summary = [str(item).strip() for item in sections.get("summary", []) if str(item).strip()] if isinstance(sections.get("summary"), list) else []
     summary = [_sanitize_strong_phrases(item, raw_input) for item in summary]
     grounded_seeds = [candidate.text for candidate in build_grounded_summary_candidates(raw_input)]
-    _unique_append(summary, grounded_seeds, 4)
-    sections["summary"] = summary[:4]
+    _unique_append(summary, grounded_seeds, 2)
+    sections["summary"] = summary[:2]
 
     projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
     if not projects:

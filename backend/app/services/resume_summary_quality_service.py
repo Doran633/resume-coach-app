@@ -22,6 +22,7 @@ COACH_LANGUAGE = [
     "准备降级表达", "面试时可以", "如果被问到", "需要学习", "降级表达", "求职教练",
 ]
 EXPERT_OVERCLAIMS = ["经验丰富", "行业专家", "资深", "精通"]
+SUMMARY_MAX_COUNT = 2
 OWNERSHIP_TERMS = ["独立", "主导", "负责", "从零", "核心成员"]
 PROBLEM_TERMS = ["解决", "排查", "修复", "优化", "复盘", "冲突", "调试"]
 COLLABORATION_TERMS = ["团队", "协作", "沟通", "组织", "推进", "参与", "汇报", "答辩", "活动执行"]
@@ -150,6 +151,32 @@ def _summary_dimension(text: str) -> str:
     return "execution"
 
 
+def _compact_summary(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
+    clauses = [item.strip(" ，；。") for item in re.split(r"[；;。]", cleaned) if item.strip(" ，；。")]
+    if len(clauses) > 2:
+        clauses = clauses[:2]
+    compacted = "，".join(clauses)
+    if compacted and compacted[-1] not in "。！？":
+        compacted += "。"
+    return compacted
+
+
+def _summary_similarity(left: str, right: str) -> float:
+    def tokens(text: str) -> set[str]:
+        normalized = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9+#./-]", "", text).lower()
+        chinese = "".join(re.findall(r"[\u4e00-\u9fff]", normalized))
+        bigrams = {chinese[index:index + 2] for index in range(max(0, len(chinese) - 1))}
+        english = set(re.findall(r"[a-z][a-z0-9+#./-]*", normalized))
+        return bigrams | english
+
+    left_tokens = tokens(left)
+    right_tokens = tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens))
+
+
 def _write_log(stats: SummaryStats) -> None:
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -186,7 +213,7 @@ def ensure_resume_summary_quality(
     used_dimensions: set[str] = set()
 
     for raw_summary in updated.resume_sections.summary:
-        summary = re.sub(r"\s+", " ", str(raw_summary)).strip()
+        summary = _compact_summary(raw_summary)
         if not summary:
             continue
         if _has_coach_language(summary):
@@ -199,22 +226,34 @@ def ensure_resume_summary_quality(
         if not support or (score < 0.32 and not explicit_supported and not ability_supported):
             stats.unsupported_summary_removed_count += 1
             continue
-        if summary not in kept:
+        if summary not in kept and not any(_summary_similarity(summary, item) >= 0.65 for item in kept):
             kept.append(summary)
             used_dimensions.add(_summary_dimension(summary))
             stats.source_experience_ids.append(support.experience_id)
             stats.source_fact_ids.append(support.fact_id)
 
     for candidate in build_grounded_summary_candidates(raw_input):
-        if len(kept) >= 3:
+        if len(kept) >= SUMMARY_MAX_COUNT:
             break
-        if candidate.dimension not in used_dimensions and candidate.text not in kept:
-            kept.append(candidate.text)
+        candidate_text = _compact_summary(candidate.text)
+        if (
+            candidate.dimension not in used_dimensions
+            and candidate_text not in kept
+            and not any(_summary_similarity(candidate_text, item) >= 0.65 for item in kept)
+        ):
+            kept.append(candidate_text)
             used_dimensions.add(candidate.dimension)
             stats.source_experience_ids.extend(candidate.source_experience_ids)
             stats.source_fact_ids.extend(candidate.source_fact_ids)
 
-    updated.resume_sections.summary = kept[:4]
+    if not kept:
+        candidates = build_grounded_summary_candidates(raw_input)
+        if candidates:
+            kept.append(_compact_summary(candidates[0].text))
+            stats.source_experience_ids.extend(candidates[0].source_experience_ids)
+            stats.source_fact_ids.extend(candidates[0].source_fact_ids)
+
+    updated.resume_sections.summary = kept[:SUMMARY_MAX_COUNT]
     stats.summary_count_after = len(updated.resume_sections.summary)
     stats.fact_grounded_summary_count = stats.summary_count_after
     if write_log:

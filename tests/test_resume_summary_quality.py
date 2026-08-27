@@ -54,14 +54,14 @@ def test_coach_language_and_self_downgrading_labels_are_removed():
     text = all_summary_text(result)
     for phrase in ["适合将", "课程项目、小项目", "可面试承接", "爱好者", "候选人", "降级表达"]:
         assert phrase not in text
-    assert 3 <= len(result.resume_sections.summary) <= 4
+    assert 1 <= len(result.resume_sections.summary) <= 2
 
 
 def test_summary_is_fact_grounded_and_uses_candidate_capabilities():
     result = ensure_resume_summary_quality(payload(), RAW, write_log=False)
     text = all_summary_text(result)
     assert "独立推进" in text or "独立完成" in text
-    assert "协作" in text or "交付" in text
+    assert any(term in text for term in ["问题", "优化", "交付", "协作", "结果验证"])
     assert "经验丰富" not in text and "行业专家" not in text
     assert any(item.dimension == "learning_transfer" for item in build_grounded_summary_candidates(RAW))
 
@@ -75,6 +75,24 @@ def test_summary_candidates_carry_internal_fact_bindings():
     candidates = build_grounded_summary_candidates(RAW)
     assert candidates
     assert all(item.source_experience_ids and item.source_fact_ids for item in candidates)
+
+
+def test_summary_is_concise_and_does_not_repeat_full_resume():
+    result = ensure_resume_summary_quality(payload(), RAW, write_log=False)
+    assert 1 <= len(result.resume_sections.summary) <= 2
+    assert all(len(item) <= 90 for item in result.resume_sections.summary)
+    assert all(item.count("；") <= 1 for item in result.resume_sections.summary)
+
+
+def test_similar_summary_statements_are_merged():
+    data = payload()
+    data.resume_sections.summary = [
+        "具备独立项目开发与交付能力，能够完成需求拆解、功能实现和结果验证。",
+        "具备独立推进项目的实践能力，能够围绕目标完成需求拆解、功能实现和结果验证。",
+        "具备问题排查与工程优化能力，能够根据测试结果持续迭代。",
+    ]
+    result = ensure_resume_summary_quality(data, RAW, write_log=False)
+    assert 1 <= len(result.resume_sections.summary) <= 2
 
 
 def test_no_collaboration_or_metrics_means_no_corresponding_claim():
@@ -114,6 +132,8 @@ if __name__ == "__main__":
     test_summary_is_fact_grounded_and_uses_candidate_capabilities()
     test_single_experience_does_not_get_learning_transfer_claim()
     test_summary_candidates_carry_internal_fact_bindings()
+    test_summary_is_concise_and_does_not_repeat_full_resume()
+    test_similar_summary_statements_are_merged()
     test_no_collaboration_or_metrics_means_no_corresponding_claim()
     test_historical_docx_removes_coach_language()
     print("resume summary quality tests passed")

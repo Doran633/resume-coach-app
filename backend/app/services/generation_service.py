@@ -46,8 +46,10 @@ from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_semantic_unit_service import ensure_semantic_units
 from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
 from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
-from .resume_skill_presentation_service import organize_resume_skills
-from .recruiter_language_service import ensure_recruiter_language
+from .resume_section_layering_service import layer_resume_sections
+from .resume_fact_increment_service import ensure_resume_fact_increment
+from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
+from .recruiter_facing_technical_language_service import ensure_recruiter_facing_technical_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
@@ -472,6 +474,8 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     log_generation_stage(payload, "after_fact_coverage")
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
     narrative_changes: dict[str, int] = {}
+    payload = layer_resume_sections(payload, stage="generation")
+    payload = ensure_resume_fact_increment(payload, narrative_changes)
     payload = ensure_semantic_units(payload, request.raw_input, narrative_changes)
     payload = organize_adaptive_narrative(payload, narrative_changes)
     payload = ensure_information_gain(payload, narrative_changes)
@@ -489,8 +493,8 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_resume_output(payload, request.raw_input, stage="before_save")
     payload = professionalize_resume_language(payload, stage="generation")
     payload = guard_resume_skill_evidence(payload, request.raw_input, stage="generation")
-    payload = organize_resume_skills(payload, request.target_role, stage="generation")
-    payload = ensure_recruiter_language(payload, stage="generation")
+    payload = calibrate_resume_skill_taxonomy(payload, request.target_role, stage="generation")
+    payload = ensure_recruiter_facing_technical_language(payload, stage="generation")
     payload = ensure_recruiter_readability(payload, stage="generation")
     payload = ensure_paired_symbol_integrity(payload, stage="generation")
     payload = ensure_resume_section_integrity(payload)
