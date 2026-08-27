@@ -127,3 +127,13 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 - Narrative Coherence 根据经历类型检查自然顺序，但不要求每个项目采用相同结构。
 - Template Language Guard 清理口语和模板残留，不改变事实归属。
 - narrative dimension 只用于后端计算，不写入 API、数据库或 DOCX。
+
+## v0.5.2 语义单元与事实簇层
+
+`Fact Ledger -> Semantic Unit Recovery -> Fact Coverage -> Adaptive Narrative -> Fact Cluster -> Information Gain -> Cluster Dedup -> Narrative Quality`
+
+- Semantic Unit Recovery 只能从当前 experience_id 的原文事实与相邻 source_span 恢复内容。
+- Fact Cluster 使用动作、对象、指标、证据和工程价值识别重复簇，技术词相同不直接判重。
+- 概括句被具体事实完整覆盖时删除；Citation 链路与 Citation 展示等不同价值默认保留。
+- 指标与优化对象保持在同一语义单元，无法从原文恢复的残句不进入 DOCX。
+- semantic_unit_id、related_fact_ids、cluster 标签只存在于运行时，不进入 API、数据库或 DOCX。

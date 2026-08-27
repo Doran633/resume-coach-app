@@ -635,3 +635,11 @@ v0.3 建议主题：输出质量优化。
 - 增加 Narrative Coherence 与 Template Language Guard，改善逻辑连贯和专业表达。
 - 历史结果重新导出 DOCX 时同样执行叙事质量检查。
 - 质量日志：`backend/logs/resume_narrative_quality.jsonl`。
+
+## v0.5.2 语义单元与事实簇治理
+
+- 使用 Semantic Unit Recovery 检查残句、依赖前文表达和被错误拆开的指标关系。
+- 使用 Fact Cluster 区分核心链路、Citation、评测、检索优化、部署与可观测性等事实侧面。
+- 同一事实簇只保留信息增量最高的表达，不同工程价值即使共享技术词也继续保留。
+- 扩展 Information Density 与 Sentence Independence 评分。
+- 质量日志：`backend/logs/resume_semantic_quality.jsonl`。

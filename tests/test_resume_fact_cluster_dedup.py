@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app import schemas  # noqa: E402
 from app.services.resume_dedup_quality_service import ensure_dedup_quality  # noqa: E402
 from app.services.resume_fact_dedup_service import deduplicate_resume_facts  # noqa: E402
+from app.services.resume_fact_cluster_dedup_service import deduplicate_fact_clusters  # noqa: E402
 
 
 def payload(details, *, intro="构建面向多段经历的简历生成系统。", role="负责生成质量链路设计与实现。", detail_fact_ids=None):
@@ -30,6 +31,10 @@ def payload(details, *, intro="构建面向多段经历的简历生成系统。"
 def run(value):
     value = deduplicate_resume_facts(value, stage="test", write_log=False)
     return ensure_dedup_quality(value, stage="test", write_log=False)
+
+
+def cluster_run(value):
+    return deduplicate_fact_clusters(value, stage="test", write_log=False)
 
 
 def test_experience_dilution_paraphrase_keeps_more_informative_expression():
@@ -85,3 +90,36 @@ def test_independent_rag_facets_are_all_preserved():
 def test_quality_pass_does_not_pad_short_project_with_generic_sentences():
     result = run(payload(["实现 Citation 来源展示。", "完成 Nginx 部署。"], intro="RAG 助手。", role="独立开发。"))
     assert len(result.resume_sections.projects[0]["details"]) == 2
+
+
+def test_citation_pipeline_and_source_cards_are_independent_clusters():
+    details = [
+        "实现文档解析、Embedding、向量检索、RAG 问答和 Citation 链路。",
+        "实现 Citation Source Cards，展示来源文件、章节路径、Chunk 位置和内容预览。",
+    ]
+    result = cluster_run(payload(details))
+    assert result.resume_sections.projects[0]["details"] == details
+
+
+def test_duplicate_deployment_closure_is_kept_once():
+    result = cluster_run(payload([
+        "完成从本地 MVP 到公网部署的完整闭环。",
+        "项目已完成从本地 MVP 到公网部署的完整闭环，可进行小范围用户试用。",
+    ]))
+    assert len(result.resume_sections.projects[0]["details"]) == 1
+    assert "用户试用" in result.resume_sections.projects[0]["details"][0]
+
+
+def test_experience_dilution_problem_and_experience_id_solution_both_remain():
+    details = [
+        "识别多段输入中的 Experience Dilution 与跨经历事实串用问题。",
+        "将用户输入拆分为 EXP-001、EXP-002 等独立经历并建立事实边界。",
+    ]
+    result = cluster_run(payload(details))
+    assert result.resume_sections.projects[0]["details"] == details
+
+
+def test_distinct_metrics_in_same_outcome_cluster_are_preserved():
+    details = ["将回答相关度从 0.4315 提升至 0.7243。", "将平均 Token 消耗从 1400 降低至 600。"]
+    result = cluster_run(payload(details, detail_fact_ids=[["EXP-001-F001"], ["EXP-001-F001"]]))
+    assert result.resume_sections.projects[0]["details"] == details

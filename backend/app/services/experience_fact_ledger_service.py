@@ -35,6 +35,10 @@ class ExperienceFact:
     explicit: bool
     resume_ready_text: str
     source_span: tuple[int, int]
+    semantic_unit_id: str = ""
+    related_fact_ids: list[str] = field(default_factory=list)
+    clause_role: str = "action"
+    completeness: str = "complete"
 
 
 @dataclass
@@ -50,8 +54,48 @@ def normalize_fact_text(text: str) -> str:
 
 
 def split_atomic_facts(text: str) -> list[str]:
-    parts = re.split(r"(?<=[。！？；;])\s*|\n+|(?<=，)(?=(?:并|同时|最终|工程侧|目前|根据|通过|实现|完成|解决))", text or "")
+    # Semicolons often connect one problem/solution or action/result unit in resume input.
+    # Keep them together and only split at strong sentence boundaries or explicit lines.
+    strong_parts = re.split(r"(?<=[。！？])\s*|\n+|(?<=，)(?=(?:最终|工程侧|目前|根据|实现|完成|解决))", text or "")
+    parts: list[str] = []
+    for strong_part in strong_parts:
+        clauses = re.split(r"[；;]", strong_part)
+        cursor = 0
+        while cursor < len(clauses):
+            current = clauses[cursor].strip()
+            if cursor + 1 < len(clauses):
+                following = clauses[cursor + 1].strip()
+                problem_solution = bool(
+                    re.search(r"问题|异常|失败|为空|不足|风险|冲突", current, re.I)
+                    and re.match(r"^(?:针对|因此|从而|为此|于是|通过|引入)", following, re.I)
+                )
+                if problem_solution:
+                    current = current.rstrip("，,") + "；" + following
+                    cursor += 1
+            parts.append(current)
+            cursor += 1
     return [part.strip(" \t\r\n，、；;。") for part in parts if len(normalize_fact_text(part)) >= 8]
+
+
+def _clause_role(text: str) -> str:
+    if re.search(r"提升|降低|达到|获奖|上线|用户|\d+(?:\.\d+)?", text, re.I):
+        return "result"
+    if re.search(r"问题|异常|失败|冲突|不足|风险|空值", text, re.I):
+        return "problem"
+    if re.search(r"日志|测试集|指标|记录|仓库|证据", text, re.I):
+        return "evidence"
+    if re.search(r"选择|权衡|实验|阈值|方案", text, re.I):
+        return "decision"
+    return "action"
+
+
+def _completeness(text: str) -> str:
+    value = str(text or "").strip()
+    if re.search(r"(?:并|同时|以及|从而|因此|其中|包括|例如|通过|针对|基于|围绕)[，,:：;；-]?$", value):
+        return "fragment"
+    if re.search(r"^(?:针对该问题|在此基础上|预处理阶段|进一步|同时|因此)[，,:：]?", value):
+        return "dependent"
+    return "complete"
 
 
 def _fact_type(text: str) -> str:
@@ -112,8 +156,22 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
                 explicit=True,
                 resume_ready_text=_resume_ready(text),
                 source_span=(local, local + len(text)),
+                semantic_unit_id=f"{identity.experience_id}-S{index:03d}",
+                clause_role=_clause_role(text),
+                completeness=_completeness(text),
             ))
             cursor = local + len(text)
+    grouped: dict[str, list[ExperienceFact]] = {}
+    for fact in facts:
+        grouped.setdefault(fact.experience_id, []).append(fact)
+    for rows in grouped.values():
+        for index, fact in enumerate(rows):
+            related: list[str] = []
+            if fact.completeness != "complete" and index + 1 < len(rows):
+                related.append(rows[index + 1].fact_id)
+            if fact.clause_role in {"result", "action"} and index and rows[index - 1].clause_role == "problem":
+                related.append(rows[index - 1].fact_id)
+            fact.related_fact_ids = related
     return ExperienceFactLedger(facts=facts)
 
 

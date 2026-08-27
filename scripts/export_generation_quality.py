@@ -92,6 +92,7 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "typography": "resume_typography_quality.jsonl",
             "output_quality": "resume_output_quality.jsonl",
             "narrative": "resume_narrative_quality.jsonl",
+            "semantic": "resume_semantic_quality.jsonl",
             "firewall": "resume_output_firewall.jsonl",
             "type": "experience_type_resolution.jsonl",
             "integrity": "resume_text_integrity.jsonl",
@@ -163,6 +164,25 @@ def build_report(log_dir: Path, days: int | None) -> str:
     narrative_dimensions = Counter()
     for row in narrative:
         narrative_dimensions.update(row.get("narrative_dimension_distribution") or {})
+    semantic_quality = logs["semantic"]
+    semantic_fragments = _number(semantic_quality, "fragment_detected_count")
+    semantic_recovered = _number(semantic_quality, "fragment_recovered_count")
+    semantic_removed = _number(semantic_quality, "fragment_removed_count")
+    adjacent_merged = _number(semantic_quality, "adjacent_units_merged_count")
+    fact_clusters = _number(semantic_quality, "fact_cluster_count")
+    duplicate_clusters_semantic = _number(semantic_quality, "duplicate_cluster_count")
+    low_density_removed = _number(semantic_quality, "low_information_gain_removed_count")
+    independent_preserved = _number(semantic_quality, "independent_fact_preserved_count")
+    semantic_precision_warnings = _number(semantic_quality, "cluster_dedup_precision_warning_count")
+    avg_semantic_completeness = _mean([
+        float(row.get("semantic_completeness_score") or 0) for row in semantic_quality
+    ])
+    avg_information_density = _mean([
+        float(row.get("information_density_score") or 0) for row in semantic_quality
+    ])
+    avg_cluster_uniqueness = _mean([
+        float(row.get("fact_cluster_uniqueness_score") or 0) for row in semantic_quality
+    ])
     warning_codes = Counter(code for row in output_quality for code in (row.get("warning_codes") or []))
     low_score_counts = Counter()
     for row in output_quality:
@@ -171,6 +191,8 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "typography_score": 95, "internal_marker_score": 100, "delivery_readiness_score": 90,
             "information_gain_score": 85, "narrative_coherence_score": 80,
             "template_diversity_score": 80, "cross_field_repetition_score": 90,
+            "semantic_completeness_score": 90, "sentence_independence_score": 85,
+            "information_density_score": 85, "fact_cluster_uniqueness_score": 90,
         }.items():
             if key in row and float(row.get(key) or 0) < threshold:
                 low_score_counts[key] += 1
@@ -252,6 +274,20 @@ def build_report(log_dir: Path, days: int | None) -> str:
     if not narrative_dimensions:
         lines.append("暂无叙事维度日志。")
     lines.append("")
+    _section(lines, "语义单元与事实簇质量", [
+        ("语义片段发现数", str(int(semantic_fragments))),
+        ("语义片段恢复数", str(int(semantic_recovered))),
+        ("无法恢复片段删除数", str(int(semantic_removed))),
+        ("相邻语义单元合并数", str(int(adjacent_merged))),
+        ("事实簇数量", str(int(fact_clusters))),
+        ("重复事实簇数量", str(int(duplicate_clusters_semantic))),
+        ("低信息增量删除数", str(int(low_density_removed))),
+        ("独立事实保留数", str(int(independent_preserved))),
+        ("平均 Semantic Completeness Score", _display(avg_semantic_completeness) if semantic_quality else "暂无数据"),
+        ("平均 Information Density Score", _display(avg_information_density) if semantic_quality else "暂无数据"),
+        ("平均 Fact Cluster Uniqueness Score", _display(avg_cluster_uniqueness) if semantic_quality else "暂无数据"),
+        ("Cluster Dedup Precision 告警数", str(int(semantic_precision_warnings))),
+    ])
     _section(lines, "输出与投递质量", [
         ("输出防火墙拦截数量", str(int(firewall_removed))),
         ("实习/项目类型纠正数量", str(type_corrections)),

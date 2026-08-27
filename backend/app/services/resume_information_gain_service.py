@@ -7,6 +7,7 @@ from .resume_fact_dedup_service import information_score, same_fact_action, simi
 
 ACTION_PATTERN = re.compile(r"设计|实现|构建|搭建|接入|优化|建立|拆分|定位|解决|修复|联调|部署|评测|迭代|组织|协调|分析")
 RESULT_PATTERN = re.compile(r"提升|降低|上线|交付|获奖|用户|指标|结果|验证|反馈|\d+(?:\.\d+)?")
+OBJECT_PATTERN = re.compile(r"文档|接口|组件|检索|模型|测试集|日志|用户|数据|权限|Citation|Embedding|RAG|Agent", re.I)
 
 
 def information_terms(text: str) -> set[str]:
@@ -16,6 +17,18 @@ def information_terms(text: str) -> set[str]:
     terms.update(RESULT_PATTERN.findall(value))
     terms.update(re.findall(r"日志|健康检查|测试集|数据隔离|权限|接口|组件|检索|切块|部署|答辩|协作", value, re.I))
     return terms
+
+
+def information_gain_components(text: str) -> dict[str, set[str]]:
+    value = str(text or "")
+    return {
+        "tech_actions": set(ACTION_PATTERN.findall(value)),
+        "objects": set(OBJECT_PATTERN.findall(value)),
+        "metrics_results": set(RESULT_PATTERN.findall(value)),
+        "engineering_measures": set(re.findall(r"日志|健康检查|Smoke Test|部署|隔离|权限|监控|测试", value, re.I)),
+        "evidence": set(re.findall(r"测试集|指标|仓库|截图|记录|用户反馈|证书", value, re.I)),
+        "decisions": set(re.findall(r"选择|权衡|实验|阈值|Top-K|方案|排序", value, re.I)),
+    }
 
 
 def _covered_by_header(detail: str, intro: str, role: str, fact_ids: list[str]) -> bool:
