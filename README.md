@@ -626,3 +626,12 @@ v0.3 建议主题：输出质量优化。
 - `docs/launch-checklist.md`
 - `docs/version-history.md`
 - `docs/v0.2-retrospective.md`
+
+## v0.5.1 自适应经历叙事
+
+- 根据经历类型和已有事实选择叙事顺序，不强制套用统一模板。
+- 明确 intro、role、details 的职责边界，减少跨字段重复。
+- 使用 Information Gain 检查确保每条详情引入新的事实价值。
+- 增加 Narrative Coherence 与 Template Language Guard，改善逻辑连贯和专业表达。
+- 历史结果重新导出 DOCX 时同样执行叙事质量检查。
+- 质量日志：`backend/logs/resume_narrative_quality.jsonl`。

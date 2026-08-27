@@ -117,3 +117,13 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 - 去重只能删除重复，不得删除独立高价值事实。
 - 类型解析只能依据局部经历关系证据。
 - 用户可见正文不得出现内部字段和调试文本。
+
+## v0.5.1 自适应叙事层
+
+`Fact Coverage -> Adaptive Narrative -> Information Gain -> Fact Dedup -> Dedup Quality -> Template Language Guard -> Typography -> Output Quality Gate`
+
+- Adaptive Narrative 只重排已有事实，不补齐不存在的叙事阶段。
+- Information Gain 检查 intro、role、details 是否重复，并保留带来独立技术、动作、结果或证据的内容。
+- Narrative Coherence 根据经历类型检查自然顺序，但不要求每个项目采用相同结构。
+- Template Language Guard 清理口语和模板残留，不改变事实归属。
+- narrative dimension 只用于后端计算，不写入 API、数据库或 DOCX。

@@ -9,6 +9,7 @@ from .. import schemas
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 from .resume_fact_dedup_service import same_fact_action, similarity
 from .resume_typography_quality_service import count_typography_issues
+from .resume_narrative_coherence_service import evaluate_narrative_quality
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_output_quality.jsonl"
@@ -29,6 +30,10 @@ class OutputQualityScores:
     typography_score: int
     internal_marker_score: int
     delivery_readiness_score: int
+    information_gain_score: int
+    narrative_coherence_score: int
+    template_diversity_score: int
+    cross_field_repetition_score: int
     overall_quality_score: int
     warning_codes: list[str] = field(default_factory=list)
 
@@ -99,6 +104,9 @@ def evaluate_resume_output_quality(
         for project in payload.resume_sections.projects
         for key in ["name", "intro", "role"]
     )
+    narrative = evaluate_narrative_quality(
+        payload, stage=stage, generation_result_id=generation_result_id, write_log=False,
+    )
 
     scores = {
         "fact_coverage_score": _fact_coverage(payload, raw_input),
@@ -108,6 +116,10 @@ def evaluate_resume_output_quality(
         "typography_score": max(0, 100 - typography_issues * 10),
         "internal_marker_score": max(0, 100 - internal_count * 25),
         "delivery_readiness_score": max(0, 100 - coaching_count * 20 - empty_required * 15),
+        "information_gain_score": narrative.information_gain_score,
+        "narrative_coherence_score": narrative.narrative_coherence_score,
+        "template_diversity_score": narrative.template_diversity_score,
+        "cross_field_repetition_score": narrative.cross_field_repetition_score,
     }
     warning_codes = []
     thresholds = {
@@ -117,6 +129,10 @@ def evaluate_resume_output_quality(
         "typography_score": (95, "TYPOGRAPHY_ISSUES"),
         "internal_marker_score": (100, "INTERNAL_MARKER_LEAK"),
         "delivery_readiness_score": (90, "DELIVERY_NOT_READY"),
+        "information_gain_score": (85, "LOW_INFORMATION_GAIN"),
+        "narrative_coherence_score": (80, "NARRATIVE_COHERENCE_RISK"),
+        "template_diversity_score": (80, "TEMPLATE_LANGUAGE_RISK"),
+        "cross_field_repetition_score": (90, "CROSS_FIELD_REPETITION"),
     }
     for key, (threshold, code) in thresholds.items():
         if scores[key] < threshold:

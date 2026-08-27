@@ -91,6 +91,7 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "dedup_quality": "resume_dedup_quality.jsonl",
             "typography": "resume_typography_quality.jsonl",
             "output_quality": "resume_output_quality.jsonl",
+            "narrative": "resume_narrative_quality.jsonl",
             "firewall": "resume_output_firewall.jsonl",
             "type": "experience_type_resolution.jsonl",
             "integrity": "resume_text_integrity.jsonl",
@@ -150,14 +151,28 @@ def build_report(log_dir: Path, days: int | None) -> str:
     average_duplicate_score = _mean([float(row.get("duplicate_score") or 0) for row in output_quality])
     average_typography_score = _mean([float(row.get("typography_score") or 0) for row in output_quality])
     average_overall_score = _mean([float(row.get("overall_quality_score") or 0) for row in output_quality])
+    narrative = logs["narrative"]
+    average_information_gain = _mean([float(row.get("information_gain_score") or 0) for row in narrative])
+    average_coherence = _mean([float(row.get("narrative_coherence_score") or 0) for row in narrative])
+    average_template_diversity = _mean([float(row.get("template_diversity_score") or 0) for row in narrative])
+    average_cross_field = _mean([float(row.get("cross_field_repetition_score") or 0) for row in narrative])
+    low_information_gain = _number(narrative, "low_information_gain_count")
+    cross_field_repetitions = _number(narrative, "cross_field_repetition_count")
+    reordered_details = _number(narrative, "reordered_detail_count")
+    removed_template_details = _number(narrative, "removed_template_detail_count")
+    narrative_dimensions = Counter()
+    for row in narrative:
+        narrative_dimensions.update(row.get("narrative_dimension_distribution") or {})
     warning_codes = Counter(code for row in output_quality for code in (row.get("warning_codes") or []))
     low_score_counts = Counter()
     for row in output_quality:
         for key, threshold in {
             "fact_coverage_score": 80, "experience_boundary_score": 90, "duplicate_score": 85,
             "typography_score": 95, "internal_marker_score": 100, "delivery_readiness_score": 90,
+            "information_gain_score": 85, "narrative_coherence_score": 80,
+            "template_diversity_score": 80, "cross_field_repetition_score": 90,
         }.items():
-            if float(row.get(key) or 0) < threshold:
+            if key in row and float(row.get(key) or 0) < threshold:
                 low_score_counts[key] += 1
 
     firewall_removed = _number(logs["firewall"], "contamination_removed_count")
@@ -222,6 +237,21 @@ def build_report(log_dir: Path, days: int | None) -> str:
         ("混合标点修复数", str(int(typography_mixed))),
         ("空格修复数", str(int(typography_spacing))),
     ])
+    _section(lines, "自适应叙事质量", [
+        ("平均 Information Gain Score", _display(average_information_gain) if narrative else "暂无数据"),
+        ("平均 Narrative Coherence Score", _display(average_coherence) if narrative else "暂无数据"),
+        ("平均 Template Diversity Score", _display(average_template_diversity) if narrative else "暂无数据"),
+        ("平均 Cross-field Repetition Score", _display(average_cross_field) if narrative else "暂无数据"),
+        ("低信息增量详情数", str(int(low_information_gain))),
+        ("跨字段重复数", str(int(cross_field_repetitions))),
+        ("重新排序详情数", str(int(reordered_details))),
+        ("模板化详情清理数", str(int(removed_template_details))),
+    ])
+    lines.extend(["### Narrative Dimension 分布", ""])
+    lines.extend(f"- `{name}`：{count}" for name, count in narrative_dimensions.most_common())
+    if not narrative_dimensions:
+        lines.append("暂无叙事维度日志。")
+    lines.append("")
     _section(lines, "输出与投递质量", [
         ("输出防火墙拦截数量", str(int(firewall_removed))),
         ("实习/项目类型纠正数量", str(type_corrections)),

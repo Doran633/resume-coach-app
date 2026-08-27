@@ -39,6 +39,10 @@ from .generation_stage_quality_service import log_generation_stage
 from .resume_dedup_quality_service import ensure_dedup_quality
 from .resume_typography_quality_service import ensure_typography_quality
 from .resume_output_quality_gate_service import evaluate_resume_output_quality
+from .resume_adaptive_narrative_service import organize_adaptive_narrative
+from .resume_information_gain_service import ensure_information_gain
+from .resume_template_language_guard_service import guard_template_language
+from .resume_narrative_coherence_service import evaluate_narrative_quality
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -457,8 +461,13 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_fact_coverage(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "after_fact_coverage")
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
+    narrative_changes: dict[str, int] = {}
+    payload = organize_adaptive_narrative(payload, narrative_changes)
+    payload = ensure_information_gain(payload, narrative_changes)
     payload = deduplicate_resume_facts(payload, stage="generation")
     payload = ensure_dedup_quality(payload, stage="generation")
+    payload = guard_template_language(payload, narrative_changes)
+    evaluate_narrative_quality(payload, stage="generation", change_stats=narrative_changes)
     log_generation_stage(payload, "after_dedup")
     payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
     payload = guard_resume_output(payload, request.raw_input, stage="generation")

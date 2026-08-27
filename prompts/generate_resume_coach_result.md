@@ -232,3 +232,12 @@ resume_sections 必须包含：
 2. 禁止“、、”“，，”“。。。”“、,”“,、”等异常组合。
 3. Query Intent、AI Agent、Smoke Test、Visual Studio Code 等技术词内部空格必须保留。
 4. C++、C#、Node.js、Vue.js、BAAI/bge-m3、Top-K 等技术名词不得因标点清理被破坏。
+
+自适应专业叙事规则：
+1. 根据经历类型、事实密度、职责边界和目标岗位选择最自然的叙事结构，不要让所有经历采用相同模板。
+2. context、ownership、implementation、decision、engineering、outcome、iteration、collaboration 都是可选维度；缺少事实的维度直接跳过。
+3. intro 只说明定位、目标和价值；role 只说明个人负责范围；details 展开技术动作、问题解决、工程实践、结果和证据，三者不得重复同一事实。
+4. 每条 detail 必须增加新的功能、技术动作、问题、方案、工程措施、结果或证据，不得仅通过同义改写制造新的 bullet。
+5. 输入越充实，输出应越完整，但必须组织事实，不能随机堆砌，也不能用通用包装句补足数量。
+6. 相似技术项目必须选择各自专属事实作为叙事重点；技术名词相同不代表事实重复。
+7. 可以专业化改写语言，但不得改变 source_experience_id 对应的事实归属，不得编造缺失的叙事环节。

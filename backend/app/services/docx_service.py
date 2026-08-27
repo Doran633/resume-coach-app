@@ -36,6 +36,10 @@ from .resume_title_format_service import resolve_resume_titles
 from .resume_dedup_quality_service import ensure_dedup_quality
 from .resume_typography_quality_service import ensure_typography_quality
 from .resume_output_quality_gate_service import evaluate_resume_output_quality
+from .resume_adaptive_narrative_service import organize_adaptive_narrative
+from .resume_information_gain_service import ensure_information_gain
+from .resume_template_language_guard_service import guard_template_language
+from .resume_narrative_coherence_service import evaluate_narrative_quality
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -193,11 +197,19 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    narrative_changes: dict[str, int] = {}
+    payload = organize_adaptive_narrative(payload, narrative_changes)
+    payload = ensure_information_gain(payload, narrative_changes)
     payload = deduplicate_resume_facts(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
     )
     payload = ensure_dedup_quality(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
+    )
+    payload = guard_template_language(payload, narrative_changes)
+    evaluate_narrative_quality(
+        payload, stage="docx_export", generation_result_id=request.generation_result_id,
+        change_stats=narrative_changes,
     )
     payload = ensure_resume_summary_quality(
         payload,
