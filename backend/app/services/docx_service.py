@@ -43,6 +43,7 @@ from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_semantic_unit_service import ensure_semantic_units
 from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
 from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
+from .resume_skill_presentation_service import organize_resume_skills
 from .recruiter_language_service import ensure_recruiter_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
@@ -245,6 +246,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = guard_resume_skill_evidence(
         payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
     )
+    payload = organize_resume_skills(
+        payload, target_role, stage="docx_export", generation_result_id=request.generation_result_id,
+    )
     payload = ensure_recruiter_language(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
     )
@@ -324,7 +328,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
 
     _heading(doc, "技能与能力")
     for item in payload.resume_sections.skills:
-        _bullet(doc, item)
+        _bullet(doc, item, bold_label=True)
 
     projects = payload.resume_sections.projects[:5]
     detail_limit = _project_detail_limit(len(projects))

@@ -51,6 +51,9 @@ def test_historical_docx_is_delivery_ready():
                 anonymous_user_id="u", session_id="s", generation_result_id=953))
             text = "\n".join(p.text for p in Document(Path(tmpdir) / response.file_name).paragraphs)
             assert "Docker" not in text and "如掌握" not in text
+            assert "编程语言：" in text and "Python" in text and "TypeScript" in text
+            assert "工程化与部署：" in text and "Git" in text
+            assert "\nPython\n" not in f"\n{text}\n"
             assert "raw_text" not in text and "explicit_metrics" not in text
             assert "如何在“ ” “" not in text
             assert not ("找到边界" in text and "表达强度" not in text)

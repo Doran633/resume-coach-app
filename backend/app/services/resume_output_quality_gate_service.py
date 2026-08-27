@@ -12,6 +12,7 @@ from .resume_typography_quality_service import count_typography_issues
 from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_fact_cluster_dedup_service import evaluate_semantic_quality
 from .resume_skill_evidence_guard_service import evaluate_skill_evidence
+from .resume_skill_presentation_service import evaluate_skill_presentation
 from .paired_symbol_integrity_service import has_unbalanced_symbols
 from .recruiter_language_service import recruiter_language_score
 from .resume_recruiter_readability_service import recruiter_readability_score
@@ -45,6 +46,7 @@ class OutputQualityScores:
     information_density_score: int
     fact_cluster_uniqueness_score: int
     skill_evidence_score: int
+    skill_presentation_score: int
     paired_symbol_integrity_score: int
     recruiter_language_score: int
     recruiter_readability_score: int
@@ -123,6 +125,7 @@ def evaluate_resume_output_quality(
         payload, stage=stage, generation_result_id=generation_result_id, write_log=False,
     )
     semantic = evaluate_semantic_quality(payload)
+    skill_presentation_score, skill_presentation_warnings = evaluate_skill_presentation(payload)
 
     scores = {
         "fact_coverage_score": _fact_coverage(payload, raw_input),
@@ -138,6 +141,7 @@ def evaluate_resume_output_quality(
         "cross_field_repetition_score": narrative.cross_field_repetition_score,
         **semantic,
         "skill_evidence_score": evaluate_skill_evidence(payload, raw_input),
+        "skill_presentation_score": skill_presentation_score,
         "paired_symbol_integrity_score": 100 if not has_unbalanced_symbols(text) else 0,
         "recruiter_language_score": recruiter_language_score(payload),
         "recruiter_readability_score": recruiter_readability_score(payload),
@@ -160,6 +164,7 @@ def evaluate_resume_output_quality(
         "information_density_score": (85, "LOW_INFORMATION_DENSITY"),
         "fact_cluster_uniqueness_score": (90, "FACT_CLUSTER_DUPLICATION"),
         "skill_evidence_score": (95, "UNSUPPORTED_SKILL"),
+        "skill_presentation_score": (95, "SKILL_PRESENTATION_RISK"),
         "paired_symbol_integrity_score": (100, "PAIRED_SYMBOL_ISSUE"),
         "recruiter_language_score": (95, "INTERNAL_FIELD_LANGUAGE"),
         "recruiter_readability_score": (85, "RECRUITER_READABILITY_RISK"),
@@ -170,6 +175,7 @@ def evaluate_resume_output_quality(
             warning_codes.append(code)
     if count_broken_protected_phrases(text):
         warning_codes.append("PROTECTED_TECH_PHRASE_BROKEN")
+    warning_codes.extend(code for code in skill_presentation_warnings if code not in warning_codes)
     overall = round(sum(scores.values()) / len(scores))
     result = OutputQualityScores(
         created_at=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
