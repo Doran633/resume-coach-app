@@ -1,8 +1,9 @@
-import { Button, Card, Col, Collapse, Input, Progress, Row, Space, Tabs, Typography, message } from "antd";
+import { Alert, Button, Card, Col, Collapse, Input, Progress, Row, Space, Tabs, Typography, message } from "antd";
 import { useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import type { ClaimResult } from "../types/api";
+import { getGenerationErrorInfo } from "../utils/errorMessages";
 
 const riskMeta = {
   green: { label: "可用", longLabel: "可直接使用", className: "risk-green", color: "success" },
@@ -387,6 +388,7 @@ export default function ResultPage() {
   const { generation, identity, lastRequest, setGeneration, setLastRequest, setStep } = useAppStore();
   const [followup, setFollowup] = useState("");
   const [regenerating, setRegenerating] = useState(false);
+  const [followupError, setFollowupError] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
 
   if (!generation) return null;
@@ -399,6 +401,7 @@ export default function ResultPage() {
   };
 
   const regenerateWithFollowup = async () => {
+    if (regenerating) return;
     if (!lastRequest) {
       message.warning("请先返回输入页补充信息");
       return;
@@ -417,6 +420,7 @@ export default function ResultPage() {
       generation_result_id: generation.generation_result_id,
       followup_length: followup.trim().length
     });
+    setFollowupError("");
     setRegenerating(true);
     setLastRequest(nextRequest);
     try {
@@ -425,7 +429,9 @@ export default function ResultPage() {
       setFollowup("");
       message.success("已根据补充信息重新生成");
     } catch (error) {
-      message.error(`重新生成失败：${String(error).slice(0, 80)}`);
+      const errorInfo = getGenerationErrorInfo(error);
+      setFollowupError(errorInfo.message);
+      if (import.meta.env.DEV) console.error(error);
     } finally {
       setRegenerating(false);
     }
@@ -449,9 +455,13 @@ export default function ResultPage() {
       <Input.TextArea
         rows={4}
         value={followup}
-        onChange={(event) => setFollowup(event.target.value)}
+        onChange={(event) => {
+          setFollowup(event.target.value);
+          if (followupError) setFollowupError("");
+        }}
         placeholder="例如：500人是累计真实用户，不是同时在线；RAG 已实现 chunk、embedding、top-k 检索，但 rerank 还在规划。"
       />
+      {followupError && <Alert className="followup-error" type="error" showIcon message="重新生成没有成功" description={followupError} />}
       <Space className="footer-actions" wrap>
         <Button
           onClick={() => {
@@ -461,7 +471,7 @@ export default function ResultPage() {
         >
           返回修改原始输入
         </Button>
-        <Button type="primary" loading={regenerating} onClick={regenerateWithFollowup}>
+        <Button type="primary" loading={regenerating} disabled={regenerating} onClick={regenerateWithFollowup}>
           {regenerating ? "正在重新生成" : "补充后重新生成"}
         </Button>
       </Space>
@@ -601,6 +611,7 @@ export default function ResultPage() {
           </div>
           <Button
             type="primary"
+            className="result-export-button"
             onClick={() => {
               void trackEvent(identity, "open_export_from_result", {
                 generation_result_id: generation.generation_result_id,

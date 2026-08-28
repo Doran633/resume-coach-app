@@ -1,7 +1,8 @@
-import { Alert, Button, Card, Form, Input, Select, Space, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Input, Select, Space, Spin, Typography, message } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
+import { getGenerationErrorInfo, type GenerationErrorInfo } from "../utils/errorMessages";
 
 const packagingLevelMap: Record<string, string> = {
   基础增强: "稳妥",
@@ -58,14 +59,29 @@ const writingFormat = [
   "目前有【用户数 / 访问量 / 日志 / 仓库 / 文档 / 反馈】作为证据，希望重点放大【目标岗位相关能力】。"
 ];
 
+const generationStages = [
+  { delay: 0, key: "reading", text: "正在读取并拆分您的经历" },
+  { delay: 4000, key: "boundary", text: "正在识别岗位重点和事实边界" },
+  { delay: 9000, key: "writing", text: "正在生成不同强度的简历表达" },
+  { delay: 16000, key: "quality", text: "正在检查重复内容和表达风险" },
+  { delay: 24000, key: "resume", text: "正在整理正式简历与面试准备" },
+  { delay: 35000, key: "long_input", text: "内容较多，正在继续处理，请稍等" },
+  { delay: 60000, key: "slow_service", text: "本次生成耗时较长，可能与网络或模型服务有关，请继续保持页面打开" }
+];
+
 export default function InputPage() {
   const [form] = Form.useForm();
   const [generating, setGenerating] = useState(false);
+  const [generationStage, setGenerationStage] = useState(generationStages[0]);
+  const [generationError, setGenerationError] = useState<GenerationErrorInfo | null>(null);
   const [activeTemplate, setActiveTemplate] = useState("");
   const { identity, lastRequest, setGeneration, setLastRequest } = useAppStore();
   const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
   const textAreaRef = useRef<any>(null);
   const templateFeedbackTimerRef = useRef<number | null>(null);
+  const generationTimerRefs = useRef<number[]>([]);
+  const generationInFlightRef = useRef(false);
+  const retryingRef = useRef(false);
   const initialValues = useMemo(() => {
     const savedPackagingLevel = localStorage.getItem(draftKeys.packaging_level) || "重点放大";
     return {
@@ -77,11 +93,32 @@ export default function InputPage() {
     };
   }, [lastRequest]);
 
+  const clearGenerationTimers = () => {
+    generationTimerRefs.current.forEach((timer) => window.clearTimeout(timer));
+    generationTimerRefs.current = [];
+  };
+
   useEffect(() => () => {
     if (templateFeedbackTimerRef.current !== null) {
       window.clearTimeout(templateFeedbackTimerRef.current);
     }
+    clearGenerationTimers();
   }, []);
+
+  const startGenerationStages = (inputLength: number) => {
+    clearGenerationTimers();
+    setGenerationStage(generationStages[0]);
+    generationTimerRefs.current = generationStages.slice(1).map((stage) => window.setTimeout(() => {
+      setGenerationStage(stage);
+      if ([16000, 35000, 60000].includes(stage.delay)) {
+        void trackEvent(identity, "generation_wait_stage", {
+          stage: stage.key,
+          elapsed_ms: stage.delay,
+          input_length: inputLength
+        });
+      }
+    }, stage.delay));
+  };
 
   const toBackendValues = (values: any) => ({
     ...values,
@@ -121,8 +158,13 @@ export default function InputPage() {
   };
 
   const onFinish = async (values: any) => {
+    if (generating || generationInFlightRef.current) return;
+    generationInFlightRef.current = true;
     const backendValues = toBackendValues(values);
+    const startedAt = Date.now();
+    setGenerationError(null);
     setGenerating(true);
+    startGenerationStages(backendValues.raw_input.length);
     setLastRequest(backendValues);
     void trackEvent(identity, "submit_experience", {
       ...backendValues,
@@ -135,13 +177,34 @@ export default function InputPage() {
         completeness_score: result.result.completeness_score
       });
       setGeneration(result);
-      message.success("生成完成");
+      message.success("生成完成，正在为您展示结果。");
     } catch (error) {
-      void trackEvent(identity, "generate_failed", { message: String(error) });
-      message.error(`生成失败：${String(error).slice(0, 80)}`);
+      const errorInfo = getGenerationErrorInfo(error);
+      setGenerationError(errorInfo);
+      if (import.meta.env.DEV) console.error(error);
+      void trackEvent(identity, "generate_failed", {
+        error_type: errorInfo.type,
+        elapsed_ms: Date.now() - startedAt,
+        input_length: backendValues.raw_input.length,
+        has_multiple_experiences: /\n\s*\n|项目[一二三四五]|经历[一二三四五]|实习经历|科研经历|竞赛经历/.test(backendValues.raw_input)
+      });
     } finally {
+      clearGenerationTimers();
+      generationInFlightRef.current = false;
       setGenerating(false);
+      retryingRef.current = false;
     }
+  };
+
+  const retryGeneration = () => {
+    if (generating || retryingRef.current) return;
+    retryingRef.current = true;
+    const rawInput = String(form.getFieldValue("raw_input") || "");
+    void trackEvent(identity, "retry_generation", {
+      error_type: generationError?.type || "unknown",
+      input_length: rawInput.length
+    });
+    form.submit();
   };
 
   return (
@@ -152,6 +215,7 @@ export default function InputPage() {
         initialValues={initialValues}
         onFinish={onFinish}
         onValuesChange={(changedValues) => {
+          if (generationError) setGenerationError(null);
           const values = form.getFieldsValue();
           if (Object.prototype.hasOwnProperty.call(changedValues, "raw_input")) {
             localStorage.setItem(draftKeys.raw_input, values.raw_input || "");
@@ -243,8 +307,31 @@ export default function InputPage() {
           />
         </div>
 
-        <Button type="primary" htmlType="submit" size="large" loading={generating}>
-          {generating ? "正在生成，请稍等" : "生成包装与面试承接"}
+        {generating && (
+          <div className="generation-status" role="status" aria-live="polite">
+            <Spin size="small" />
+            <div>
+              <strong>{generationStage.text}</strong>
+              <p>{generationStage.delay >= 35000
+                ? "您可以保持当前页面打开，系统完成后会自动展示结果。"
+                : "长输入或多段经历可能需要更长时间，请不要关闭页面。"}</p>
+            </div>
+          </div>
+        )}
+
+        {generationError && (
+          <div className="generation-error" role="alert">
+            <div>
+              <strong>这次没有生成成功</strong>
+              <p>{generationError.message}</p>
+              <small>您可以检查或修改输入，也可以直接使用当前内容重新生成。</small>
+            </div>
+            <Button className="retry-generation-button" onClick={retryGeneration}>重新生成</Button>
+          </div>
+        )}
+
+        <Button type="primary" htmlType="submit" size="large" loading={generating} disabled={generating}>
+          {generating ? "正在生成简历内容" : "生成包装与面试承接"}
         </Button>
       </Form>
     </Card>

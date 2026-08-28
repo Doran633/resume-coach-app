@@ -184,6 +184,10 @@ body {
   margin-bottom: 14px;
 }
 
+.editor-head > div:first-child {
+  padding-left: 10px;
+}
+
 .template-actions {
   justify-content: flex-end;
 }
@@ -279,6 +283,82 @@ body {
 .result-workbench-toolbar span {
   color: #71809a;
   font-size: 13px;
+}
+
+.result-export-button,
+.result-export-button:hover,
+.result-export-button:active,
+.result-export-button:focus,
+.result-export-button:disabled,
+.result-export-button.ant-btn-loading {
+  border-color: #315eb8 !important;
+  background: #315eb8 !important;
+  color: #ffffff !important;
+}
+
+.result-export-button:hover {
+  border-color: #244b9b !important;
+  background: #244b9b !important;
+}
+
+.result-export-button:active {
+  border-color: #1e3f83 !important;
+  background: #1e3f83 !important;
+}
+
+.result-export-button:focus-visible {
+  outline: 3px solid rgba(49, 94, 184, 0.28);
+  outline-offset: 2px;
+}
+
+.generation-status,
+.generation-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #d9e4f7;
+  border-radius: 8px;
+  background: #f5f8ff;
+}
+
+.generation-status strong,
+.generation-error strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #17356f;
+}
+
+.generation-status p,
+.generation-error p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.65;
+}
+
+.generation-error {
+  justify-content: space-between;
+  border-color: #f3c9c9;
+  background: #fff7f7;
+}
+
+.generation-error strong {
+  color: #9f2d2d;
+}
+
+.generation-error small {
+  display: block;
+  margin-top: 5px;
+  color: #7a879d;
+}
+
+.retry-generation-button {
+  flex: 0 0 auto;
+}
+
+.followup-error {
+  margin-top: 14px;
 }
 
 .result-tabs-card .ant-tabs-nav {
@@ -1193,6 +1273,10 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .editor-head > div:first-child {
+    padding-left: 0;
+  }
+
   .template-actions {
     width: 100%;
     justify-content: flex-start;
@@ -1220,6 +1304,20 @@ body {
   .result-workbench-toolbar .ant-btn {
     width: 100%;
     min-height: 42px;
+  }
+
+  .generation-status,
+  .generation-error {
+    align-items: stretch;
+  }
+
+  .generation-error {
+    flex-direction: column;
+  }
+
+  .retry-generation-button {
+    width: 100%;
+    min-height: 40px;
   }
 
   .result-tabs-card .ant-tabs-nav {

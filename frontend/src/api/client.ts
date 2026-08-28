@@ -2,7 +2,18 @@ import type { GenerateResponse, Identity } from "../types/api";
 
 const jsonHeaders = { "Content-Type": "application/json" };
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
-const generationTimeoutMs = 45000;
+const generationTimeoutMs = 75000;
+
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly code?: "timeout" | "network"
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
 
 export function buildApiUrl(path: string) {
   return `${apiBaseUrl}${path}`;
@@ -28,22 +39,30 @@ export async function generateExperience(
 ): Promise<GenerateResponse> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), generationTimeoutMs);
-  const response = await fetch(buildApiUrl("/api/generate"), {
-    method: "POST",
-    headers: jsonHeaders,
-    body: JSON.stringify({ ...identity, ...payload }),
-    signal: controller.signal
-  }).catch((error) => {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("模型生成超时，请检查 API 配置或先切回 mock 模式测试。");
+  let response: Response;
+  try {
+    response = await fetch(buildApiUrl("/api/generate"), {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...identity, ...payload }),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiRequestError("generation timeout", undefined, "timeout");
     }
-    throw error;
-  });
-  window.clearTimeout(timeoutId);
-  if (!response.ok) {
-    throw new Error(await response.text());
+    throw new ApiRequestError("network request failed", undefined, "network");
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return response.json();
+  if (!response.ok) {
+    throw new ApiRequestError(await response.text(), response.status);
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new ApiRequestError("invalid response json");
+  }
 }
 
 export async function createDocx(identity: Identity, generation_result_id: number) {
