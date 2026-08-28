@@ -11,7 +11,7 @@ from .resume_fact_dedup_service import same_fact_action, similarity
 from .resume_typography_quality_service import count_typography_issues
 from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_fact_cluster_dedup_service import evaluate_semantic_quality
-from .resume_skill_evidence_guard_service import evaluate_skill_evidence
+from .resume_skill_evidence_guard_service import evaluate_skill_evidence, _skill_terms
 from .resume_skill_presentation_service import evaluate_skill_presentation
 from .paired_symbol_integrity_service import has_unbalanced_symbols
 from .recruiter_language_service import recruiter_language_score
@@ -58,6 +58,10 @@ class OutputQualityScores:
     duplicate_source_experience_id_count: int
     normalized_title_duplicate_count: int
     fact_fingerprint_duplicate_count: int
+    empty_skill_section_count: int
+    explicit_skill_not_present_count: int
+    thin_project_output_count: int
+    project_fact_coverage_rate: int
     overall_quality_score: int
     warning_codes: list[str] = field(default_factory=list)
 
@@ -134,6 +138,34 @@ def evaluate_resume_output_quality(
     semantic = evaluate_semantic_quality(payload)
     skill_presentation_score, skill_presentation_warnings = evaluate_skill_presentation(payload)
     entity_metrics = analyze_duplicate_experience_entities(payload)
+    explicit_skills = list(dict.fromkeys(_skill_terms(raw_input)))
+    visible_skills = {
+        term.lower()
+        for line in payload.resume_sections.skills
+        for term in _skill_terms(str(line))
+    }
+    explicit_skill_not_present_count = sum(
+        term.lower() not in visible_skills for term in explicit_skills
+    )
+    empty_skill_section_count = int(bool(explicit_skills) and not payload.resume_sections.skills)
+    ledger = build_experience_fact_ledger(raw_input)
+    facts_by_experience: dict[str, list] = {}
+    for fact in ledger.facts:
+        if fact.resume_ready_text:
+            facts_by_experience.setdefault(fact.experience_id, []).append(fact)
+    thin_project_output_count = 0
+    project_coverage: list[float] = []
+    for project in payload.resume_sections.projects:
+        source_id = str(project.get("source_experience_id") or "")
+        source_facts = facts_by_experience.get(source_id, [])
+        details = [str(item) for item in project.get("details", []) or [] if str(item).strip()]
+        if len(source_facts) >= 3 and len(details) < 3:
+            thin_project_output_count += 1
+        if source_facts:
+            visible = "\n".join([str(project.get("intro") or ""), str(project.get("role") or ""), *details])
+            covered = sum(fact_match_score(visible, fact) >= 0.48 for fact in source_facts)
+            project_coverage.append(covered / len(source_facts))
+    project_fact_coverage_rate = round(sum(project_coverage) / len(project_coverage) * 100) if project_coverage else 100
 
     scores = {
         "fact_coverage_score": _fact_coverage(payload, raw_input),
@@ -185,6 +217,10 @@ def evaluate_resume_output_quality(
         warning_codes.append("PROTECTED_TECH_PHRASE_BROKEN")
     if entity_metrics["duplicate_experience_entity_count"]:
         warning_codes.append("DUPLICATE_EXPERIENCE_ENTITY")
+    if empty_skill_section_count or explicit_skill_not_present_count:
+        warning_codes.append("EMPTY_SKILL_WITH_EVIDENCE")
+    if thin_project_output_count:
+        warning_codes.append("THIN_PROJECT_OUTPUT")
     warning_codes.extend(code for code in skill_presentation_warnings if code not in warning_codes)
     overall = round(sum(scores.values()) / len(scores))
     result = OutputQualityScores(
@@ -194,6 +230,10 @@ def evaluate_resume_output_quality(
         overall_quality_score=overall,
         warning_codes=warning_codes,
         **{key: value for key, value in entity_metrics.items() if key != "possible_duplicate_count"},
+        empty_skill_section_count=empty_skill_section_count,
+        explicit_skill_not_present_count=explicit_skill_not_present_count,
+        thin_project_output_count=thin_project_output_count,
+        project_fact_coverage_rate=project_fact_coverage_rate,
         **scores,
     )
     if write_log:

@@ -731,3 +731,10 @@ v0.3 建议主题：输出质量优化。
 - 保护 AI Agent、JSON Schema、Resume Section Fallback 等多词技术短语。
 - 空格治理位于 Text Integrity 与 Typography 之间，不改变 Experience ID、Fact ID 或事实边界。
 - 质量日志：`backend/logs/resume_whitespace_quality.jsonl`。
+
+### v0.6.1：技能恢复与薄履历增强
+
+- 模型返回空技能栏时，从 Experience Fact Ledger 恢复用户明确提供的技术证据，再执行规范化和分类。
+- 支持数据分析与建模、数据可视化、物联网与通信、地图与路线服务、安全机制、开发工具与环境等分类。
+- 项目正文偏薄时优先恢复对应 `experience_id` 的目标、功能、技术、职责与结果，不从目标岗位反推技能，也不用通用模板句凑内容。
+- `backend/logs/resume_skill_evidence.jsonl` 记录恢复和过滤情况；`backend/logs/resume_output_quality.jsonl` 记录技能证据遗漏、薄项目数量和项目事实覆盖率。

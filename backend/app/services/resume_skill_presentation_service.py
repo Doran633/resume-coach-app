@@ -19,6 +19,12 @@ CATEGORY_TERMS = OrderedDict([
     ("数据库与存储", ["SQLite", "MySQL", "PostgreSQL", "Redis", "FAISS", "Chroma", "Pinecone", "向量数据库", "向量索引"]),
     ("AI / 大模型应用", ["RAG", "Agent", "Embedding", "向量检索", "rerank", "LangChain", "LangGraph", "Prompt", "LLM"]),
     ("数据分析与机器学习", ["Pandas", "NumPy", "Matplotlib", "Scikit-learn", "PyTorch", "TensorFlow"]),
+    ("数据分析与建模", ["回归分析", "线性回归", "多项式回归", "模型效果对比"]),
+    ("数据可视化", ["数据可视化"]),
+    ("物联网与通信", ["LoRa", "地磁传感器"]),
+    ("地图与路线服务", ["地图 API", "路线规划"]),
+    ("安全机制", ["SSL", "Token"]),
+    ("开发工具与环境", ["CodeBuddy", "虚拟机"]),
     ("工程化与部署", ["Git", "Linux", "Docker", "Nginx", "systemd", "VPS", "CI", "CORS"]),
     ("测试与质量保障", ["pytest", "Smoke Test", "JMeter", "Groundedness", "Citation", "Retrieval", "Debug Trace"]),
 ])

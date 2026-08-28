@@ -11,7 +11,9 @@ HIGH_VALUE_TERMS = [
 ]
 TECH_PATTERN = re.compile(
     r"React|TypeScript|JavaScript|Python|FastAPI|SQLite|Nginx|systemd|VPS|RAG|Agent|Embedding|"
-    r"BAAI/?bge-m3|Top-K|Citation|Retrieval|Groundedness|Smoke Test|CORS|JSON Schema|DOCX|token",
+    r"BAAI/?bge-m3|Top-K|Citation|Retrieval|Groundedness|Smoke Test|CORS|JSON Schema|DOCX|token|"
+    r"CodeBuddy|虚拟机|LoRa|地磁传感器|地图\s*API|SSL|回归分析|线性回归|多项式回归|"
+    r"模型效果对比|数据可视化|智能制图|路线规划",
     re.IGNORECASE,
 )
 METRIC_PATTERN = re.compile(r"\d+(?:\.\d+)?\s*(?:%|ms|s|秒|次|人|用户|star|stars|token)?", re.IGNORECASE)

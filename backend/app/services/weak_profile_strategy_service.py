@@ -4,6 +4,8 @@ from copy import deepcopy
 from .. import schemas
 from .resume_summary_quality_service import build_grounded_summary_candidates
 from .long_input_service import EVIDENCE_TERMS, TECH_TERMS, analyze_long_input
+from .experience_fact_ledger_service import build_experience_fact_ledger
+from .experience_identity_service import build_experience_identities
 
 
 WEAK_EXPERIENCE_TERMS = [
@@ -248,6 +250,51 @@ def _detail_candidates(project: dict, raw_input: str, use_raw_hints: bool = Fals
     return candidates
 
 
+def _project_experience_id(project: dict, raw_input: str) -> str:
+    source_id = str(project.get("source_experience_id") or "").strip()
+    if source_id:
+        return source_id
+    project_text = _project_text(project).lower()
+    ranked: list[tuple[int, str]] = []
+    for identity in build_experience_identities(raw_input):
+        signals = [identity.title, *identity.explicit_tech_terms, *identity.explicit_metrics]
+        score = sum(bool(signal and str(signal).lower() in project_text) for signal in signals)
+        if identity.title and identity.title.lower() in project_text:
+            score += 3
+        ranked.append((score, identity.experience_id))
+    ranked.sort(reverse=True)
+    return ranked[0][1] if ranked and ranked[0][0] > 0 else ""
+
+
+def _professional_fact_detail(text: str) -> str:
+    value = str(text or "").strip(" ，,。；;")
+    replacements = [
+        (r"^我做过一个\s*", "设计并实现"),
+        (r"^我独立完成(?:此|该)?项目[，,]?", "独立完成项目设计与功能实现，"),
+        (r"^我主要负责\s*", "负责"),
+        (r"^项目实现了\s*", "实现"),
+    ]
+    for pattern, replacement in replacements:
+        value = re.sub(pattern, replacement, value, flags=re.I)
+    return value.strip(" ，,。；;")
+
+
+def _fact_backed_detail_candidates(project: dict, raw_input: str) -> list[str]:
+    experience_id = _project_experience_id(project, raw_input)
+    if not experience_id:
+        return []
+    candidates: list[str] = []
+    for fact in build_experience_fact_ledger(raw_input).for_experience(experience_id):
+        if not fact.resume_ready_text or fact.importance == "low" and fact.fact_type not in {"功能", "技术"}:
+            continue
+        detail = _professional_fact_detail(fact.resume_ready_text)
+        if any(marker in detail for marker in ["希望包装", "目标岗位", "完全无法解释"]):
+            continue
+        if detail and detail not in candidates:
+            candidates.append(detail)
+    return candidates[:6]
+
+
 def _strengthen_project(project: dict, raw_input: str, use_raw_hints: bool = False) -> dict:
     strengthened = dict(project)
     strengthened["name"] = _sanitize_strong_phrases(strengthened.get("name") or "项目实践", raw_input)
@@ -261,7 +308,9 @@ def _strengthen_project(project: dict, raw_input: str, use_raw_hints: bool = Fal
 
     details = [str(item).strip() for item in strengthened.get("details", []) or [] if str(item).strip()]
     details = [_sanitize_strong_phrases(item, raw_input) for item in details if _sanitize_strong_phrases(item, raw_input)]
-    _unique_append(details, _detail_candidates(strengthened, raw_input, use_raw_hints), 6)
+    _unique_append(details, _fact_backed_detail_candidates(strengthened, raw_input), 6)
+    if len(details) < 3:
+        _unique_append(details, _detail_candidates(strengthened, raw_input, use_raw_hints), 4)
     strengthened["details"] = details[:8]
     return strengthened
 
@@ -271,11 +320,26 @@ def strengthen_weak_profile_payload(
     raw_input: str,
     target_role: str = "",
 ) -> schemas.GenerationPayload:
-    if not detect_weak_profile(raw_input, payload):
-        return payload if isinstance(payload, schemas.GenerationPayload) else schemas.GenerationPayload.model_validate(payload)
-
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
+    projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
+    weak_profile = detect_weak_profile(raw_input, payload)
+    ledger = build_experience_fact_ledger(raw_input)
+    thin_with_evidence = any(
+        len(project.get("details", []) or []) < 3
+        and len(ledger.for_experience(_project_experience_id(project, raw_input))) >= 3
+        for project in projects
+        if isinstance(project, dict)
+    )
+    if not weak_profile and not thin_with_evidence:
+        return payload if isinstance(payload, schemas.GenerationPayload) else schemas.GenerationPayload.model_validate(payload)
+
+    # A fact-rich profile can still have a thin generated project. Repair only the
+    # affected project bodies without applying weak-profile coaching content.
+    if not weak_profile:
+        sections["projects"] = [_strengthen_project(project, raw_input) for project in projects]
+        data["resume_sections"] = sections
+        return schemas.GenerationPayload.model_validate(data)
 
     summary = [str(item).strip() for item in sections.get("summary", []) if str(item).strip()] if isinstance(sections.get("summary"), list) else []
     summary = [_sanitize_strong_phrases(item, raw_input) for item in summary]
@@ -283,7 +347,6 @@ def strengthen_weak_profile_payload(
     _unique_append(summary, grounded_seeds, 2)
     sections["summary"] = summary[:2]
 
-    projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
     if not projects:
         projects = [
             {

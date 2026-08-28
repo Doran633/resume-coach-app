@@ -30,6 +30,9 @@ class SkillEvidenceStats:
     skill_count_before: int = 0
     skill_count_after: int = 0
     verified_skill_count: int = 0
+    explicit_skill_count: int = 0
+    recovered_skill_count: int = 0
+    normalized_skill_count: int = 0
     uncertain_skill_removed_count: int = 0
     uncertainty_marker_removed_count: int = 0
     unsupported_skills: list[str] = field(default_factory=list)
@@ -38,11 +41,22 @@ class SkillEvidenceStats:
 
 
 def _contains(text: str, term: str) -> bool:
-    return bool(re.search(rf"(?<![A-Za-z0-9.+#-]){re.escape(term)}(?![A-Za-z0-9.+#-])", text, re.I))
+    # `+` is also a common separator in user input (LoRa+sensor, SSL+Token),
+    # so it must not block evidence recognition. Terms such as C++ remain safe
+    # because the plus signs are part of the escaped term itself.
+    return bool(re.search(rf"(?<![A-Za-z0-9.#-]){re.escape(term)}(?![A-Za-z0-9.#-])", text, re.I))
 
 
 def _skill_terms(text: str) -> list[str]:
     return [term for term in SKILL_TERMS if _contains(text, term)]
+
+
+def _canonical_term(term: str) -> str:
+    aliases = {
+        "codebuddy": "CodeBuddy", "lora": "LoRa", "地图api": "地图 API",
+        "token": "Token", "ssl": "SSL", "智能制图": "数据可视化",
+    }
+    return aliases.get(re.sub(r"\s+", "", term).lower(), term)
 
 
 def _has_grounded_term(text: str, term: str) -> bool:
@@ -111,7 +125,10 @@ def guard_resume_skill_evidence(
     for fact in ledger.facts:
         for term in _skill_terms(fact.fact_text):
             if _has_grounded_term(fact.fact_text, term):
-                supported_by_term.setdefault(term.lower(), []).append(fact)
+                canonical = _canonical_term(term)
+                stats.normalized_skill_count += canonical != term
+                supported_by_term.setdefault(canonical.lower(), []).append(fact)
+                stats.explicit_skill_count += 1
 
     cleaned_lines: list[str] = []
     for raw_line in updated.resume_sections.skills:
@@ -124,6 +141,7 @@ def guard_resume_skill_evidence(
         stats.uncertainty_marker_removed_count += marker_count
         supported: list[str] = []
         for term in terms:
+            term = _canonical_term(term)
             facts = supported_by_term.get(term.lower(), [])
             explicit = _has_grounded_term(evidence, term)
             # Remove the current skill line from evidence: a generated skill cannot prove itself.
@@ -144,6 +162,23 @@ def guard_resume_skill_evidence(
         rebuilt = _rebuild_skill_line(cleaned, supported)
         if rebuilt and rebuilt not in cleaned_lines:
             cleaned_lines.append(rebuilt)
+
+    # A structurally valid LLM response may still leave skills empty. Recover only
+    # terms explicitly grounded in the experience ledger; target-role terms never
+    # participate in this path.
+    represented = {term.lower() for line in cleaned_lines for term in _skill_terms(line)}
+    recovered = [
+        _canonical_term(next(
+            term for term in SKILL_TERMS
+            if _canonical_term(term).lower() == key
+        ))
+        for key, facts in supported_by_term.items()
+        if key not in represented
+    ]
+    recovered = list(dict.fromkeys(recovered))
+    if recovered:
+        cleaned_lines.append("技能证据：" + "、".join(recovered))
+        stats.recovered_skill_count = len(recovered)
 
     updated.resume_sections.skills = cleaned_lines
     stats.skill_count_after = len(cleaned_lines)

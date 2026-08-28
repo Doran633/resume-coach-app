@@ -78,7 +78,7 @@ def build_grounded_summary_candidates(raw_input: str) -> list[SummaryCandidate]:
     tech_terms = list(dict.fromkeys(term for fact in technical for term in TECH_PATTERN.findall(fact.fact_text)))[:5]
     if technical:
         tech_label = "、".join(tech_terms)
-        wording = f"具备技术方案落地能力，能够运用{tech_label}完成具体功能开发与实现验证。" if tech_label else "具备技术方案落地能力，能够完成具体功能开发与实现验证。"
+        wording = f"具备技术方案落地能力，能够运用{tech_label}完成具体功能开发与结果验证。" if tech_label else "具备技术方案落地能力，能够完成具体功能开发与结果验证。"
         candidates.append(_candidate(wording, "technical_delivery", technical[:4]))
 
     problem = _facts_with_terms(facts, PROBLEM_TERMS)

@@ -17,6 +17,12 @@ CATEGORIES = OrderedDict([
     ("测试与评测", ["pytest", "Smoke Test", "JMeter", "Groundedness", "Citation", "Retrieval", "Debug Trace"]),
     ("工程化与部署", ["Git", "Docker", "Nginx", "systemd", "Linux", "VPS", "CI", "CORS"]),
     ("数据分析与机器学习", ["Pandas", "NumPy", "Scikit-learn", "Matplotlib", "PyTorch", "TensorFlow"]),
+    ("数据分析与建模", ["回归分析", "线性回归", "多项式回归", "模型效果对比"]),
+    ("数据可视化", ["数据可视化"]),
+    ("物联网与通信", ["LoRa", "地磁传感器"]),
+    ("地图与路线服务", ["地图 API", "路线规划"]),
+    ("安全机制", ["SSL", "Token"]),
+    ("开发工具与环境", ["CodeBuddy", "虚拟机"]),
     ("其他工具", []),
 ])
 LEVEL_PREFIX = re.compile(r"^(?:掌握|精通|熟悉|了解|具备)\s*")
