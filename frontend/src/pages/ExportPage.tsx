@@ -1,5 +1,5 @@
 import { Button, Card, Form, Input, Radio, Space, Typography, message } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { buildApiUrl, createDocx, submitFeedback, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import { buildInterviewPreparation, formatInterviewItems, type InterviewGroupKey, type InterviewPreparationItem } from "../utils/interviewPreparation";
@@ -14,7 +14,13 @@ const groupConfig: Array<{ key: InterviewGroupKey; title: string; description: s
 export default function ExportPage() {
   const { generation, identity, setStep } = useAppStore();
   const [docxLoading, setDocxLoading] = useState(false);
+  const [docxGenerated, setDocxGenerated] = useState(false);
+  const [downloadStarted, setDownloadStarted] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<InterviewGroupKey>>(new Set());
+  const feedbackSectionRef = useRef<HTMLDivElement | null>(null);
+  const feedbackViewedRef = useRef(false);
+  const feedbackStartedRef = useRef(false);
   const groups = useMemo(() => buildInterviewPreparation(generation?.result), [generation?.result]);
   const visibleGroups = groupConfig.filter((group) => groups[group.key].length > 0);
   const totalItems = visibleGroups.reduce((total, group) => total + groups[group.key].length, 0);
@@ -23,6 +29,21 @@ export default function ExportPage() {
     if (!generation || totalItems === 0) return;
     void trackEvent(identity, "view_export_interview_plan", { generation_result_id: generation.generation_result_id, item_count: totalItems });
   }, [generation, identity, totalItems]);
+
+  useEffect(() => {
+    const element = feedbackSectionRef.current;
+    if (!generation || !element) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting || feedbackViewedRef.current) return;
+      feedbackViewedRef.current = true;
+      void trackEvent(identity, "view_feedback_section", {
+        generation_result_id: generation.generation_result_id
+      });
+      observer.disconnect();
+    }, { threshold: 0.25 });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [generation, identity]);
 
   if (!generation) return null;
 
@@ -55,6 +76,7 @@ export default function ExportPage() {
     try {
       await trackEvent(identity, "download_docx_started", { generation_result_id: generation.generation_result_id });
       const file = await createDocx(identity, generation.generation_result_id);
+      setDocxGenerated(true);
       await trackEvent(identity, "generate_docx", { file_id: file.file_id });
       const link = document.createElement("a");
       link.href = buildApiUrl(file.download_url);
@@ -62,6 +84,7 @@ export default function ExportPage() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setDownloadStarted(true);
       await trackEvent(identity, "download_docx", { file_id: file.file_id });
       message.success("DOCX 已开始下载");
     } catch (error) {
@@ -73,9 +96,31 @@ export default function ExportPage() {
   };
 
   const onFinish = async (values: { model_comparison: "明显更好" | "略好一些" | "差不多" | "不如直接用大模型"; value_choice: "0元" | "2.99元" | "9.99元"; comment?: string }) => {
-    await submitFeedback(identity, { generation_result_id: generation.generation_result_id, ...values });
-    await trackEvent(identity, "submit_feedback", values);
-    message.success("感谢反馈，你的意见已记录");
+    setFeedbackSubmitting(true);
+    try {
+      await submitFeedback(identity, { generation_result_id: generation.generation_result_id, ...values });
+      await trackEvent(identity, "submit_feedback", {
+        ...values,
+        has_comment: Boolean(values.comment?.trim()),
+        docx_generated: docxGenerated,
+        docx_download_started: downloadStarted
+      });
+      message.success("感谢您的真实反馈，我们会认真看。");
+    } catch (error) {
+      message.error(`评价提交失败：${String(error).slice(0, 60)}`);
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const markFeedbackStarted = () => {
+    if (feedbackStartedRef.current) return;
+    feedbackStartedRef.current = true;
+    void trackEvent(identity, "start_feedback", {
+      generation_result_id: generation.generation_result_id,
+      docx_generated: docxGenerated,
+      docx_download_started: downloadStarted
+    });
   };
 
   return (
@@ -114,14 +159,31 @@ export default function ExportPage() {
         ) : <p className="empty-hint">当前还没有生成面试准备内容，可以返回结果页补充经历细节后重新生成。</p>}
       </Card>
 
-      <Card className="panel" title="服务反馈">
-        <Form layout="vertical" onFinish={onFinish}>
-          <Form.Item label="你认为这个服务相比当前市场大模型效果如何？" name="model_comparison" rules={[{ required: true }]}><Radio.Group options={["明显更好", "略好一些", "差不多", "不如直接用大模型"].map((value) => ({ label: value, value }))} /></Form.Item>
-          <Form.Item label="你认为这样的服务价值多少？" name="value_choice" rules={[{ required: true }]}><Radio.Group options={["0元", "2.99元", "9.99元"].map((value) => ({ label: value, value }))} /></Form.Item>
-          <Form.Item label="可选补充反馈" name="comment"><Input.TextArea rows={4} placeholder="哪里最有用？哪里最需要改？" /></Form.Item>
-          <Button type="primary" htmlType="submit">提交反馈</Button>
-        </Form>
+      <Card className="panel export-result-status" title="这份结果是否帮到您">
+        <div className="delivery-status-row">
+          <span className={downloadStarted ? "delivery-status-dot is-ready" : "delivery-status-dot"} />
+          <div>
+            <strong>{downloadStarted ? "可以查看文件后再评价" : docxGenerated ? "简历已生成" : "先生成并查看简历"}</strong>
+            <p>简历正文和面试准备内容已经整理完成。您可以先下载查看，再告诉我们实际体验。</p>
+          </div>
+        </div>
       </Card>
+
+      <div ref={feedbackSectionRef} className="feedback-section-anchor">
+        <Card className="panel service-feedback-panel">
+          <div className="feedback-invitation">
+            <Typography.Title level={3}>愿意和我们说说使用感受吗？</Typography.Title>
+            <p>您是否愿意为我们的服务留下简单的评价？您的建议是我们继续改进的动力。</p>
+            <small>只需要选择两个选项，也可以补充一两句真实感受。</small>
+          </div>
+          <Form layout="vertical" onFinish={onFinish} onValuesChange={markFeedbackStarted}>
+            <Form.Item label="你认为这个服务相比当前市场大模型效果如何？" name="model_comparison" rules={[{ required: true }]}><Radio.Group options={["明显更好", "略好一些", "差不多", "不如直接用大模型"].map((value) => ({ label: value, value }))} /></Form.Item>
+            <Form.Item label="你认为这样的服务价值多少？" name="value_choice" rules={[{ required: true }]}><Radio.Group options={["0元", "2.99元", "9.99元"].map((value) => ({ label: value, value }))} /></Form.Item>
+            <Form.Item label="还有什么想告诉我们？" name="comment"><Input.TextArea rows={4} placeholder="可以写下觉得好用的地方、遇到的问题，或者希望我们增加的能力。" /></Form.Item>
+            <Button type="primary" htmlType="submit" loading={feedbackSubmitting}>提交评价</Button>
+          </Form>
+        </Card>
+      </div>
     </Space>
   );
 }

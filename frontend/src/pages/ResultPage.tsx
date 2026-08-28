@@ -387,6 +387,7 @@ export default function ResultPage() {
   const { generation, identity, lastRequest, setGeneration, setLastRequest, setStep } = useAppStore();
   const [followup, setFollowup] = useState("");
   const [regenerating, setRegenerating] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
 
   if (!generation) return null;
   const result = generation.result;
@@ -437,6 +438,39 @@ export default function ResultPage() {
   const summary = result.resume_sections.summary.slice(0, 3);
   const skills = result.resume_sections.skills.slice(0, 8);
 
+  const followupPanel = (
+    <Card className="panel followup-panel overview-followup-panel">
+      <div className="section-title">
+        <div>
+          <Typography.Title level={4}>补充信息，继续强化</Typography.Title>
+          <p>把真实证据、技术细节或边界条件补进来，我会重新生成一版。</p>
+        </div>
+      </div>
+      <Input.TextArea
+        rows={4}
+        value={followup}
+        onChange={(event) => setFollowup(event.target.value)}
+        placeholder="例如：500人是累计真实用户，不是同时在线；RAG 已实现 chunk、embedding、top-k 检索，但 rerank 还在规划。"
+      />
+      <Space className="footer-actions" wrap>
+        <Button
+          onClick={() => {
+            void trackEvent(identity, "return_to_edit", { generation_result_id: generation.generation_result_id });
+            setStep(0);
+          }}
+        >
+          返回修改原始输入
+        </Button>
+        <Button type="primary" loading={regenerating} onClick={regenerateWithFollowup}>
+          {regenerating ? "正在重新生成" : "补充后重新生成"}
+        </Button>
+        <Button size="large" onClick={() => setStep(2)}>
+          导出简历与查看准备清单
+        </Button>
+      </Space>
+    </Card>
+  );
+
   const tabItems = [
     {
       key: "overview",
@@ -467,6 +501,8 @@ export default function ResultPage() {
               <ReadableTextBlock text={result.recommended_version} title="查看完整推荐版本" />
             </div>
           </Card>
+
+          {followupPanel}
         </Space>
       )
     },
@@ -562,45 +598,14 @@ export default function ResultPage() {
     <Space direction="vertical" size="large" className="wide result-view">
       <Card className="panel result-tabs-card">
         <Tabs
+          activeKey={activeTab}
           items={tabItems}
-          onChange={(key) => trackEvent(identity, "view_result_tab", { generation_result_id: generation.generation_result_id, tab_key: key })}
+          onChange={(key) => {
+            setActiveTab(key);
+            void trackEvent(identity, "view_result_tab", { generation_result_id: generation.generation_result_id, tab_key: key });
+          }}
         />
       </Card>
-
-      <Row gutter={[16, 16]} align="stretch" className="followup-grid">
-        <Col xs={24}>
-          <Card className="panel followup-panel equal-panel">
-            <div className="section-title">
-              <div>
-                <Typography.Title level={4}>补充信息，继续强化</Typography.Title>
-                <p>把真实证据、技术细节或边界条件补进来，我会重新生成一版。</p>
-              </div>
-            </div>
-            <Input.TextArea
-              rows={4}
-              value={followup}
-              onChange={(event) => setFollowup(event.target.value)}
-              placeholder="例如：500人是累计真实用户，不是同时在线；RAG 已实现 chunk、embedding、top-k 检索，但 rerank 还在规划。"
-            />
-            <Space className="footer-actions">
-              <Button
-                onClick={() => {
-                  void trackEvent(identity, "return_to_edit", { generation_result_id: generation.generation_result_id });
-                  setStep(0);
-                }}
-              >
-                返回修改原始输入
-              </Button>
-              <Button type="primary" loading={regenerating} onClick={regenerateWithFollowup}>
-                {regenerating ? "正在重新生成" : "补充后重新生成"}
-              </Button>
-              <Button size="large" onClick={() => setStep(2)}>
-                进入导出与反馈
-              </Button>
-            </Space>
-          </Card>
-        </Col>
-      </Row>
     </Space>
   );
 }
