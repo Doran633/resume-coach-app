@@ -20,7 +20,6 @@ export default function App() {
       <Header className="topbar">
         <div>
           <strong>简历教练</strong>
-          <span>经历定位 · 简历强化 · 面试承接</span>
         </div>
       </Header>
       <Content className="content">
