@@ -2,7 +2,7 @@ import type { GenerateResponse, Identity } from "../types/api";
 
 const jsonHeaders = { "Content-Type": "application/json" };
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
-const generationTimeoutMs = 75000;
+const generationTimeoutMs = 110000;
 
 export class ApiRequestError extends Error {
   constructor(
@@ -66,13 +66,18 @@ export async function generateExperience(
 }
 
 export async function createDocx(identity: Identity, generation_result_id: number) {
-  const response = await fetch(buildApiUrl("/api/resume/docx"), {
-    method: "POST",
-    headers: jsonHeaders,
-    body: JSON.stringify({ ...identity, generation_result_id, version_type: "recommended" })
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<{ file_id: number; file_name: string; download_url: string }>;
+  try {
+    const response = await fetch(buildApiUrl("/api/resume/docx"), {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...identity, generation_result_id, version_type: "recommended" })
+    });
+    if (!response.ok) throw new ApiRequestError(await response.text(), response.status);
+    return response.json() as Promise<{ file_id: number; file_name: string; download_url: string }>;
+  } catch (error) {
+    if (error instanceof ApiRequestError) throw error;
+    throw new ApiRequestError("network request failed", undefined, "network");
+  }
 }
 
 export async function submitFeedback(
@@ -84,11 +89,16 @@ export async function submitFeedback(
     comment?: string;
   }
 ) {
-  const response = await fetch(buildApiUrl("/api/feedback"), {
-    method: "POST",
-    headers: jsonHeaders,
-    body: JSON.stringify({ ...identity, ...payload })
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  try {
+    const response = await fetch(buildApiUrl("/api/feedback"), {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...identity, ...payload })
+    });
+    if (!response.ok) throw new ApiRequestError(await response.text(), response.status);
+    return response.json();
+  } catch (error) {
+    if (error instanceof ApiRequestError) throw error;
+    throw new ApiRequestError("network request failed", undefined, "network");
+  }
 }

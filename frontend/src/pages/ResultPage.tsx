@@ -1,9 +1,10 @@
 import { Alert, Button, Card, Col, Collapse, Input, Progress, Row, Space, Tabs, Typography, message } from "antd";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import type { ClaimResult } from "../types/api";
 import { getGenerationErrorInfo } from "../utils/errorMessages";
+import { createAttemptId } from "../utils/generationAttempt";
 
 const riskMeta = {
   green: { label: "可用", longLabel: "可直接使用", className: "risk-green", color: "success" },
@@ -385,11 +386,32 @@ function KnowledgeList({ items }: { items: string[] }) {
 }
 
 export default function ResultPage() {
-  const { generation, identity, lastRequest, setGeneration, setLastRequest, setStep } = useAppStore();
+  const { currentAttemptId, generation, identity, lastRequest, setCurrentAttemptId, setGeneration, setLastRequest, setStep } = useAppStore();
   const [followup, setFollowup] = useState("");
   const [regenerating, setRegenerating] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
+  const viewedResultIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!generation) return;
+    if (viewedResultIdRef.current === generation.generation_result_id) return;
+    viewedResultIdRef.current = generation.generation_result_id;
+    void trackEvent(identity, "view_generation_result", {
+      generation_result_id: generation.generation_result_id,
+      attempt_id: currentAttemptId
+    });
+  }, [currentAttemptId, generation, identity]);
+
+  useEffect(() => {
+    if (!regenerating) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [regenerating]);
 
   if (!generation) return null;
   const result = generation.result;
@@ -415,16 +437,29 @@ export default function ResultPage() {
       ...lastRequest,
       raw_input: `${lastRequest.raw_input}\n\n补充信息：${followup.trim()}`
     };
+    const attemptId = createAttemptId();
+    const startedAt = Date.now();
+    setCurrentAttemptId(attemptId);
 
     await trackEvent(identity, "submit_followup", {
       generation_result_id: generation.generation_result_id,
-      followup_length: followup.trim().length
+      followup_length: followup.trim().length,
+      input_length: nextRequest.raw_input.length,
+      attempt_id: attemptId
     });
     setFollowupError("");
     setRegenerating(true);
     setLastRequest(nextRequest);
     try {
       const next = await generateExperience(identity, nextRequest);
+      void trackEvent(identity, "generate_success", {
+        generation_result_id: next.generation_result_id,
+        completeness_score: next.result.completeness_score,
+        elapsed_ms: Date.now() - startedAt,
+        input_length: nextRequest.raw_input.length,
+        attempt_id: attemptId,
+        source: "followup"
+      });
       setGeneration(next);
       setFollowup("");
       message.success("已根据补充信息重新生成");
@@ -432,6 +467,14 @@ export default function ResultPage() {
       const errorInfo = getGenerationErrorInfo(error);
       setFollowupError(errorInfo.message);
       if (import.meta.env.DEV) console.error(error);
+      void trackEvent(identity, "generate_failed", {
+        error_type: errorInfo.type,
+        elapsed_ms: Date.now() - startedAt,
+        input_length: nextRequest.raw_input.length,
+        has_multiple_experiences: true,
+        attempt_id: attemptId,
+        source: "followup"
+      });
     } finally {
       setRegenerating(false);
     }
@@ -615,7 +658,8 @@ export default function ResultPage() {
             onClick={() => {
               void trackEvent(identity, "open_export_from_result", {
                 generation_result_id: generation.generation_result_id,
-                active_tab: activeTab
+                active_tab: activeTab,
+                attempt_id: currentAttemptId
               });
               setStep(2);
             }}

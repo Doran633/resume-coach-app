@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import { getGenerationErrorInfo, type GenerationErrorInfo } from "../utils/errorMessages";
+import { createAttemptId, estimateExperienceCount, hasTechnicalTerms } from "../utils/generationAttempt";
 
 const packagingLevelMap: Record<string, string> = {
   基础增强: "稳妥",
@@ -75,13 +76,14 @@ export default function InputPage() {
   const [generationStage, setGenerationStage] = useState(generationStages[0]);
   const [generationError, setGenerationError] = useState<GenerationErrorInfo | null>(null);
   const [activeTemplate, setActiveTemplate] = useState("");
-  const { identity, lastRequest, setGeneration, setLastRequest } = useAppStore();
+  const { identity, lastRequest, setCurrentAttemptId, setGeneration, setLastRequest } = useAppStore();
   const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
   const textAreaRef = useRef<any>(null);
   const templateFeedbackTimerRef = useRef<number | null>(null);
   const generationTimerRefs = useRef<number[]>([]);
   const generationInFlightRef = useRef(false);
   const retryingRef = useRef(false);
+  const pendingAttemptIdRef = useRef<string | null>(null);
   const initialValues = useMemo(() => {
     const savedPackagingLevel = localStorage.getItem(draftKeys.packaging_level) || "重点放大";
     return {
@@ -105,7 +107,17 @@ export default function InputPage() {
     clearGenerationTimers();
   }, []);
 
-  const startGenerationStages = (inputLength: number) => {
+  useEffect(() => {
+    if (!generating) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [generating]);
+
+  const startGenerationStages = (inputLength: number, attemptId: string) => {
     clearGenerationTimers();
     setGenerationStage(generationStages[0]);
     generationTimerRefs.current = generationStages.slice(1).map((stage) => window.setTimeout(() => {
@@ -114,7 +126,8 @@ export default function InputPage() {
         void trackEvent(identity, "generation_wait_stage", {
           stage: stage.key,
           elapsed_ms: stage.delay,
-          input_length: inputLength
+          input_length: inputLength,
+          attempt_id: attemptId
         });
       }
     }, stage.delay));
@@ -161,20 +174,34 @@ export default function InputPage() {
     if (generating || generationInFlightRef.current) return;
     generationInFlightRef.current = true;
     const backendValues = toBackendValues(values);
+    const attemptId = pendingAttemptIdRef.current || createAttemptId();
+    pendingAttemptIdRef.current = null;
+    setCurrentAttemptId(attemptId);
     const startedAt = Date.now();
     setGenerationError(null);
     setGenerating(true);
-    startGenerationStages(backendValues.raw_input.length);
+    startGenerationStages(backendValues.raw_input.length, attemptId);
     setLastRequest(backendValues);
     void trackEvent(identity, "submit_experience", {
-      ...backendValues,
-      display_packaging_level: values.packaging_level
+      target_role: backendValues.target_role,
+      mode: backendValues.mode,
+      packaging_level: backendValues.packaging_level,
+      display_packaging_level: values.packaging_level,
+      experience_type: backendValues.experience_type,
+      input_length: backendValues.raw_input.length,
+      estimated_experience_count: estimateExperienceCount(backendValues.raw_input),
+      has_metrics: /\d/.test(backendValues.raw_input),
+      has_technical_terms: hasTechnicalTerms(backendValues.raw_input),
+      attempt_id: attemptId
     });
     try {
       const result = await generateExperience(identity, backendValues);
       void trackEvent(identity, "generate_success", {
         generation_result_id: result.generation_result_id,
-        completeness_score: result.result.completeness_score
+        completeness_score: result.result.completeness_score,
+        elapsed_ms: Date.now() - startedAt,
+        input_length: backendValues.raw_input.length,
+        attempt_id: attemptId
       });
       setGeneration(result);
       message.success("生成完成，正在为您展示结果。");
@@ -186,7 +213,8 @@ export default function InputPage() {
         error_type: errorInfo.type,
         elapsed_ms: Date.now() - startedAt,
         input_length: backendValues.raw_input.length,
-        has_multiple_experiences: /\n\s*\n|项目[一二三四五]|经历[一二三四五]|实习经历|科研经历|竞赛经历/.test(backendValues.raw_input)
+        has_multiple_experiences: /\n\s*\n|项目[一二三四五]|经历[一二三四五]|实习经历|科研经历|竞赛经历/.test(backendValues.raw_input),
+        attempt_id: attemptId
       });
     } finally {
       clearGenerationTimers();
@@ -200,9 +228,12 @@ export default function InputPage() {
     if (generating || retryingRef.current) return;
     retryingRef.current = true;
     const rawInput = String(form.getFieldValue("raw_input") || "");
+    const attemptId = createAttemptId();
+    pendingAttemptIdRef.current = attemptId;
     void trackEvent(identity, "retry_generation", {
       error_type: generationError?.type || "unknown",
-      input_length: rawInput.length
+      input_length: rawInput.length,
+      attempt_id: attemptId
     });
     form.submit();
   };

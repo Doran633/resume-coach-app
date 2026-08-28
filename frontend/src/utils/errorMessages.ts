@@ -35,3 +35,14 @@ export function getGenerationErrorInfo(error: unknown): GenerationErrorInfo {
   }
   return { type: "unknown", message: "本次生成没有成功，请稍后重试。您的输入内容仍然保留。" };
 }
+
+export function getOperationErrorMessage(error: unknown, operation: "docx" | "feedback") {
+  const info = getGenerationErrorInfo(error);
+  if (operation === "docx") {
+    if (info.type === "network") return "暂时无法连接文件服务，请检查网络后重试。当前简历结果仍然保留。";
+    if (info.type === "configuration") return "文件服务配置异常，请联系网站维护者。";
+    return "暂时无法生成 DOCX，请稍后重试。当前简历结果仍然保留。";
+  }
+  if (info.type === "network") return "暂时无法提交评价，请检查网络后重试。您填写的内容仍然保留。";
+  return "评价暂时没有提交成功，请稍后重试。您填写的内容仍然保留。";
+}

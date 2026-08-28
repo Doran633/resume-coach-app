@@ -55,6 +55,9 @@ systemctl reload nginx
 - `OPENAI_API_KEY` 已配置。
 - `OPENAI_BASE_URL` 与使用的模型服务匹配。
 - `OPENAI_MODEL` 已配置。
+- `LLM_TIMEOUT_SECONDS=75`，或使用经过验证的等价配置。
+- Nginx `proxy_read_timeout` / `proxy_send_timeout` 高于模型调用超时，建议 100 秒。
+- 浏览器等待上限高于 Nginx，当前为 110 秒。
 - 后端代码、prompt 或环境变量变更后已 restart。
 
 健康检查：
@@ -106,6 +109,8 @@ sqlite3 /www/wwwroot/resume-coach-app/backend/data/resume_coach.db "select id, g
 - 访问首页后 `events` 有 `visit_home`。
 - 提交经历后 `events` 有 `submit_experience`。
 - 生成成功后 `events` 有 `generate_success`。
+- 新生成事件的 `payload_json` 含 `attempt_id`，且不含 `raw_input`。
+- 进入结果页后 `events` 有 `view_generation_result`。
 - 查看结果 Tab 后 `events` 有 `view_result_tab`。
 - 展开 Claim 后 `events` 有 `expand_claim`。
 - 生成 DOCX 后 `events` 有 `generate_docx`。
@@ -140,6 +145,7 @@ sqlite3 /www/wwwroot/resume-coach-app/backend/data/resume_coach.db "select id, m
 ```bash
 cd /www/wwwroot/resume-coach-app
 .venv/bin/python scripts/export_analytics.py
+.venv/bin/python scripts/export_generation_funnel.py --days 7
 ```
 
 输出位置：
@@ -148,6 +154,7 @@ cd /www/wwwroot/resume-coach-app
 backend/reports/analytics-summary-YYYY-MM-DD.md
 backend/reports/analytics-events-YYYY-MM-DD.csv
 backend/reports/analytics-inputs-YYYY-MM-DD.csv
+backend/reports/generation-funnel-YYYY-MM-DD.md
 ```
 
 ## 8. 日志检查

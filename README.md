@@ -415,12 +415,20 @@ LLM_MODE=openai
 OPENAI_API_KEY=你的 API Key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
-LLM_TIMEOUT_SECONDS=60
+LLM_TIMEOUT_SECONDS=75
 LLM_MAX_TOKENS=8192
 LLM_THINKING=disabled
 ```
 
 `OPENAI_BASE_URL` 支持 OpenAI 兼容接口，例如 DeepSeek、OpenRouter 或自建兼容网关。
+
+生成超时建议采用分层配置：模型调用 75 秒、Nginx 读取与发送超时 100 秒、浏览器等待 110 秒。外层超时应高于内层超时，避免前端仍在等待而代理或模型调用已经提前终止。Nginx `/api/` 可增加：
+
+```nginx
+proxy_connect_timeout 10s;
+proxy_send_timeout 100s;
+proxy_read_timeout 100s;
+```
 
 ### 3. 启动后端
 
@@ -498,6 +506,17 @@ systemctl reload nginx
 - v0.3.0 起，DOCX 允许承载最多两页内容；当用户输入多段经历时，会优先保留关键项目，而不是为了压缩版面删除主要经历。
 
 ## 数据埋点与导出
+
+v0.6.6 起，每次生成使用匿名 `attempt_id` 关联提交、等待、成功/失败、结果查看和 DOCX 下载。事件只记录输入长度、经历数量估计、技术/指标信号等统计特征，不再把完整 `raw_input` 写入埋点。
+
+生成可靠性漏斗：
+
+```bash
+python scripts/export_generation_funnel.py
+python scripts/export_generation_funnel.py --days 7
+```
+
+报告输出到 `backend/reports/generation-funnel-YYYY-MM-DD.md`。旧事件没有 `attempt_id` 时会标记为历史不可关联数据，不会被强行统计为失败。详细口径见 [数据指标定义](docs/analytics-metrics-definition.md)。
 
 当前埋点包括：
 

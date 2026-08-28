@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildApiUrl, createDocx, submitFeedback, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import { buildInterviewPreparation, formatInterviewItems, type InterviewGroupKey, type InterviewPreparationItem } from "../utils/interviewPreparation";
+import { getGenerationErrorInfo, getOperationErrorMessage } from "../utils/errorMessages";
 
 const groupConfig: Array<{ key: InterviewGroupKey; title: string; description: string }> = [
   { key: "questions", title: "面试问题", description: "提前梳理面试官可能追问的细节和回答重点。" },
@@ -12,7 +13,8 @@ const groupConfig: Array<{ key: InterviewGroupKey; title: string; description: s
 ];
 
 export default function ExportPage() {
-  const { generation, identity, setStep } = useAppStore();
+  const [feedbackForm] = Form.useForm();
+  const { currentAttemptId, generation, identity, setStep } = useAppStore();
   const [docxLoading, setDocxLoading] = useState(false);
   const [docxGenerated, setDocxGenerated] = useState(false);
   const [downloadStarted, setDownloadStarted] = useState(false);
@@ -21,14 +23,16 @@ export default function ExportPage() {
   const feedbackSectionRef = useRef<HTMLDivElement | null>(null);
   const feedbackViewedRef = useRef(false);
   const feedbackStartedRef = useRef(false);
+  const docxInFlightRef = useRef(false);
+  const feedbackInFlightRef = useRef(false);
   const groups = useMemo(() => buildInterviewPreparation(generation?.result), [generation?.result]);
   const visibleGroups = groupConfig.filter((group) => groups[group.key].length > 0);
   const totalItems = visibleGroups.reduce((total, group) => total + groups[group.key].length, 0);
 
   useEffect(() => {
     if (!generation || totalItems === 0) return;
-    void trackEvent(identity, "view_export_interview_plan", { generation_result_id: generation.generation_result_id, item_count: totalItems });
-  }, [generation, identity, totalItems]);
+    void trackEvent(identity, "view_export_interview_plan", { generation_result_id: generation.generation_result_id, item_count: totalItems, attempt_id: currentAttemptId });
+  }, [currentAttemptId, generation, identity, totalItems]);
 
   useEffect(() => {
     const element = feedbackSectionRef.current;
@@ -37,13 +41,14 @@ export default function ExportPage() {
       if (!entry.isIntersecting || feedbackViewedRef.current) return;
       feedbackViewedRef.current = true;
       void trackEvent(identity, "view_feedback_section", {
-        generation_result_id: generation.generation_result_id
+        generation_result_id: generation.generation_result_id,
+        attempt_id: currentAttemptId
       });
       observer.disconnect();
     }, { threshold: 0.25 });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [generation, identity]);
+  }, [currentAttemptId, generation, identity]);
 
   if (!generation) return null;
 
@@ -72,12 +77,14 @@ export default function ExportPage() {
   };
 
   const generateDocx = async () => {
+    if (docxInFlightRef.current) return;
+    docxInFlightRef.current = true;
     setDocxLoading(true);
     try {
-      await trackEvent(identity, "download_docx_started", { generation_result_id: generation.generation_result_id });
+      await trackEvent(identity, "download_docx_started", { generation_result_id: generation.generation_result_id, attempt_id: currentAttemptId });
       const file = await createDocx(identity, generation.generation_result_id);
       setDocxGenerated(true);
-      await trackEvent(identity, "generate_docx", { file_id: file.file_id });
+      await trackEvent(identity, "generate_docx", { file_id: file.file_id, generation_result_id: generation.generation_result_id, attempt_id: currentAttemptId });
       const link = document.createElement("a");
       link.href = buildApiUrl(file.download_url);
       link.download = file.file_name;
@@ -85,30 +92,44 @@ export default function ExportPage() {
       link.click();
       document.body.removeChild(link);
       setDownloadStarted(true);
-      await trackEvent(identity, "download_docx", { file_id: file.file_id });
+      await trackEvent(identity, "download_docx", { file_id: file.file_id, generation_result_id: generation.generation_result_id, attempt_id: currentAttemptId });
       message.success("DOCX 已开始下载");
     } catch (error) {
-      await trackEvent(identity, "download_docx_failed", { generation_result_id: generation.generation_result_id, message: String(error) });
-      message.error("下载失败，请稍后重试");
+      const errorInfo = getGenerationErrorInfo(error);
+      await trackEvent(identity, "download_docx_failed", {
+        generation_result_id: generation.generation_result_id,
+        attempt_id: currentAttemptId,
+        error_type: errorInfo.type
+      });
+      if (import.meta.env.DEV) console.error(error);
+      message.error(getOperationErrorMessage(error, "docx"));
     } finally {
+      docxInFlightRef.current = false;
       setDocxLoading(false);
     }
   };
 
   const onFinish = async (values: { model_comparison: "明显更好" | "略好一些" | "差不多" | "不如直接用大模型"; value_choice: "0元" | "2.99元" | "9.99元"; comment?: string }) => {
+    if (feedbackInFlightRef.current) return;
+    feedbackInFlightRef.current = true;
     setFeedbackSubmitting(true);
     try {
       await submitFeedback(identity, { generation_result_id: generation.generation_result_id, ...values });
       await trackEvent(identity, "submit_feedback", {
-        ...values,
+        model_comparison: values.model_comparison,
+        value_choice: values.value_choice,
         has_comment: Boolean(values.comment?.trim()),
         docx_generated: docxGenerated,
-        docx_download_started: downloadStarted
+        docx_download_started: downloadStarted,
+        generation_result_id: generation.generation_result_id,
+        attempt_id: currentAttemptId
       });
       message.success("感谢您的真实反馈，我们会认真看。");
     } catch (error) {
-      message.error(`评价提交失败：${String(error).slice(0, 60)}`);
+      if (import.meta.env.DEV) console.error(error);
+      message.error(getOperationErrorMessage(error, "feedback"));
     } finally {
+      feedbackInFlightRef.current = false;
       setFeedbackSubmitting(false);
     }
   };
@@ -119,7 +140,8 @@ export default function ExportPage() {
     void trackEvent(identity, "start_feedback", {
       generation_result_id: generation.generation_result_id,
       docx_generated: docxGenerated,
-      docx_download_started: downloadStarted
+      docx_download_started: downloadStarted,
+      attempt_id: currentAttemptId
     });
   };
 
@@ -173,11 +195,11 @@ export default function ExportPage() {
             <p>您是否愿意为我们的服务留下简单的评价？您的建议是我们继续改进的动力。</p>
             <small>只需要选择两个选项，也可以补充一两句真实感受。</small>
           </div>
-          <Form layout="vertical" onFinish={onFinish} onValuesChange={markFeedbackStarted}>
+          <Form form={feedbackForm} layout="vertical" onFinish={onFinish} onValuesChange={markFeedbackStarted}>
             <Form.Item label="你认为这个服务相比当前市场大模型效果如何？" name="model_comparison" rules={[{ required: true }]}><Radio.Group options={["明显更好", "略好一些", "差不多", "不如直接用大模型"].map((value) => ({ label: value, value }))} /></Form.Item>
             <Form.Item label="你认为这样的服务价值多少？" name="value_choice" rules={[{ required: true }]}><Radio.Group options={["0元", "2.99元", "9.99元"].map((value) => ({ label: value, value }))} /></Form.Item>
             <Form.Item label="还有什么想告诉我们？" name="comment"><Input.TextArea rows={4} placeholder="可以写下觉得好用的地方、遇到的问题，或者希望我们增加的能力。" /></Form.Item>
-            <Button type="primary" htmlType="submit" loading={feedbackSubmitting}>提交评价</Button>
+            <Button type="primary" htmlType="submit" loading={feedbackSubmitting} disabled={feedbackSubmitting}>提交评价</Button>
           </Form>
         </Card>
       </div>

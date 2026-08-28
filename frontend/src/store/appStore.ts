@@ -14,8 +14,10 @@ interface AppState {
   identity: Identity;
   generation?: GenerateResponse;
   lastRequest?: GenerateRequestDraft;
+  currentAttemptId?: string;
   setStep: (step: number) => void;
   setLastRequest: (request: GenerateRequestDraft) => void;
+  setCurrentAttemptId: (attemptId: string) => void;
   setGeneration: (generation: GenerateResponse) => void;
 }
 
@@ -42,5 +44,6 @@ export const useAppStore = create<AppState>((set) => ({
   },
   setStep: (step) => set({ step }),
   setLastRequest: (lastRequest) => set({ lastRequest }),
+  setCurrentAttemptId: (currentAttemptId) => set({ currentAttemptId }),
   setGeneration: (generation) => set({ generation, step: 1 })
 }));
