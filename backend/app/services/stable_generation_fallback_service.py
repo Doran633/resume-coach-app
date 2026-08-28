@@ -4,6 +4,7 @@ from .. import schemas
 from .experience_identity_service import build_segmentation_questions
 from .long_input_service import EVIDENCE_TERMS, RISK_TERMS, TECH_TERMS, LongInputContext, compact_text, extract_terms
 from .resume_role_resolution_service import resolve_role_for_experience
+from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 
 
 NEGATIVE_INTERNSHIP_PATTERNS = ["没有实习", "无实习", "没实习", "没有实习经历", "没有实习经验"]
@@ -143,7 +144,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     recommended = f"{normal}\n{bold}"
 
     segmentation_questions = build_segmentation_questions(request.raw_input)
-    return schemas.GenerationPayload(
+    payload = schemas.GenerationPayload(
         completeness_score=72 if context.long_input_mode else 64,
         confirmed_facts=["系统基于用户原文识别出主要经历", f"识别到 {context.segment_count} 段经历"],
         missing_questions=(segmentation_questions + ["每段经历的时间、个人贡献边界和证据材料可以继续补充。"])[:8],
@@ -167,4 +168,9 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
             education={"学校": "[待填写]", "专业": "[待填写]", "学历": "[待填写]", "时间": "[待填写]"},
             interview_preparation=["逐段准备职责边界、技术细节、证据材料和降级表达。"],
         ),
+    )
+    return deduplicate_resume_experience_entities(
+        payload,
+        request.raw_input,
+        stage="stable_fallback",
     )

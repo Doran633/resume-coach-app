@@ -1,5 +1,16 @@
 # Resume Coach App
 
+## v0.6.0 Experience Entity Dedup
+
+- 新增经历实体级去重：同一 `source_experience_id` 最终只保留一个正式经历对象。
+- 项目标题会清理“我做过一个、我独立完成了、项目一”等口语或模板前缀，并谨慎归一化“系统 / 平台 / 工具 / 项目”等尾缀。
+- 重复项目合并时回收双方独立高价值事实，再执行详情去重；不会简单删除整个副本。
+- 两个项目仅共享 React、Python、RAG、FastAPI 等技术时不会被判为同一实体；低置信相似项只记日志，不自动合并。
+- Fallback、Reconciliation、生成保存前和 DOCX 渲染前均执行实体唯一性检查，历史结果重新导出也能修复。
+- 质量日志：`backend/logs/resume_experience_entity_dedup.jsonl`；生成质量报告新增实体重复、合并和事实回收统计。
+
+句子去重解决“同一个项目里重复说”，Experience Entity Dedup 解决“同一个项目被生成两次”，两者不能互相替代。
+
 ## v0.5.9 输出质量阶段收口
 
 v0.5.x 已完成从事实边界到专业叙事的阶段建设，后续默认冻结 Experience ID、Fact Ledger、Fact Coverage、Dedup、个人优势、技能证据和 DOCX 正文规则。质量由黄金回归和结构化日志持续守护，不再通过无限叠加 Guard 提升。
@@ -9,7 +20,7 @@ v0.5.x 已完成从事实边界到专业叙事的阶段建设，后续默认冻�
 - [v0.5 阶段复盘](docs/v0.5-retrospective.md)
 - [生成质量管线](docs/generation-quality-pipeline.md)
 
-v0.6.0 将优先处理生成等待、错误重试、导出路径、移动端导航、首次用户引导和前端性能，除非黄金回归发现明确退化，否则不修改稳定生成主链路。
+v0.6.x 在保持 v0.5 质量基线的前提下处理真实回归；v0.6.0 首先补齐经历实体唯一性，后续再推进等待、错误重试和前端体验。
 
 ## v0.5.8 黄金样例回归
 

@@ -54,6 +54,7 @@ from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
+from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -505,6 +506,9 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = resolve_project_types(payload, request.raw_input, stage="before_save")
     payload = resolve_resume_titles(payload, request.raw_input)
+    payload = deduplicate_resume_experience_entities(
+        payload, request.raw_input, stage="before_save",
+    )
     evaluate_resume_output_quality(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "before_save")
 

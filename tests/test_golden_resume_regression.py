@@ -17,6 +17,10 @@ from scripts.evaluate_golden_resume import (  # noqa: E402
     visible_text,
 )
 from app.services.resume_fact_dedup_service import similarity  # noqa: E402
+from app.services.resume_experience_entity_dedup_service import (  # noqa: E402
+    analyze_duplicate_experience_entities,
+    normalize_project_title,
+)
 
 
 CASE_ID = "v057_ai_agent_full_resume"
@@ -46,6 +50,11 @@ def test_golden_structure_boundaries_and_summary_quality():
     assert case["summary_min_count"] <= len(sections.summary) <= case["summary_max_count"]
     assert len(sections.projects) >= case["expected_experience_count"]
     assert all(project.get("source_experience_id") for project in sections.projects)
+    source_ids = [str(project.get("source_experience_id")) for project in sections.projects]
+    normalized_titles = [normalize_project_title(project.get("name")) for project in sections.projects]
+    assert len(source_ids) == len(set(source_ids))
+    assert len(normalized_titles) == len(set(normalized_titles))
+    assert analyze_duplicate_experience_entities(payload)["duplicate_experience_entity_count"] == 0
     assert [project.get("meta") for project in sections.projects].count("实习经历") == 1
     assert all(term not in text for term in case["forbidden_phrases"])
     assert all(term not in text for term in case["forbidden_internal_fields"])
@@ -61,6 +70,7 @@ def test_golden_facts_details_and_skill_taxonomy_do_not_regress():
     metrics = evaluate_payload(case, payload)
     assert metrics["fact_coverage_rate"] >= 90
     assert metrics["duplicate_detail_count"] == 0
+    assert metrics["duplicate_experience_entity_count"] == 0
     assert metrics["internal_field_leak_count"] == 0
     assert metrics["experience_boundary_accuracy"] == 100
     assert metrics["experience_type_accuracy"] == 100
@@ -105,3 +115,25 @@ def test_golden_case_schema_contains_required_quality_contract():
     }
     assert required <= set(case)
     json.dumps(case, ensure_ascii=False)
+
+
+def test_duplicate_entity_golden_case_keeps_two_real_projects():
+    case = load_case("v060_duplicate_regression_project")
+    payload = process_fixed_payload(case)
+    projects = payload.resume_sections.projects
+    assert len(projects) == 2
+    assert len({project.get("source_experience_id") for project in projects}) == 2
+    assert len({normalize_project_title(project.get("name")) for project in projects}) == 2
+    regression = next(project for project in projects if project.get("source_experience_id") == "EXP-001")
+    parking = next(project for project in projects if project.get("source_experience_id") == "EXP-002")
+    regression_text = " ".join([regression["name"], *regression["details"]])
+    parking_text = " ".join([parking["name"], *parking["details"]])
+    assert regression["name"] == "回归分析计算器"
+    assert all(project["name"] != "我做过一个回归分析计算器" for project in projects)
+    assert "数据导入" in regression_text and "模型推荐" in regression_text
+    assert "地图路线" in parking_text and "一等奖" in parking_text
+    assert "一等奖" not in regression_text
+    assert "回归分析" not in parking_text
+    docx_text = render_fixed_docx(case, payload)
+    assert docx_text.count("回归分析计算器｜") == 1
+    assert "我做过一个回归分析计算器｜" not in docx_text

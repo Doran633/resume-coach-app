@@ -28,6 +28,10 @@ from app.services.resume_output_firewall_service import guard_resume_output  # n
 from app.services.fact_guard_service import guard_hard_facts  # noqa: E402
 from app.services.experience_type_resolution_service import resolve_project_types  # noqa: E402
 from app.services.resume_title_format_service import resolve_resume_titles  # noqa: E402
+from app.services.resume_experience_entity_dedup_service import (  # noqa: E402
+    analyze_duplicate_experience_entities,
+    deduplicate_resume_experience_entities,
+)
 
 
 DEFAULT_CASES = ROOT / "tests" / "fixtures" / "golden_resume_cases.json"
@@ -49,6 +53,7 @@ def process_fixed_payload(case: dict) -> schemas.GenerationPayload:
     raw = case["raw_input"]
     payload = schemas.GenerationPayload.model_validate(case["fixed_payload"])
     payload = guard_hard_facts(payload, raw)
+    payload = deduplicate_resume_experience_entities(payload, raw, stage="golden_test_pre_coverage", write_log=False)
     payload = guard_fact_coverage(payload, raw, stage="golden_test", write_log=False)
     payload = guard_experience_boundaries(payload, raw, stage="golden_test", write_log=False)
     payload = layer_resume_sections(payload, stage="golden_test", write_log=False)
@@ -62,7 +67,8 @@ def process_fixed_payload(case: dict) -> schemas.GenerationPayload:
     payload = guard_resume_output(payload, raw, stage="golden_test", write_log=False)
     payload = guard_hard_facts(payload, raw)
     payload = resolve_project_types(payload, raw, stage="golden_test", write_log=False)
-    return resolve_resume_titles(payload, raw)
+    payload = resolve_resume_titles(payload, raw)
+    return deduplicate_resume_experience_entities(payload, raw, stage="golden_test", write_log=False)
 
 
 def visible_text(payload: schemas.GenerationPayload) -> str:
@@ -123,6 +129,7 @@ def evaluate_payload(case: dict, payload: schemas.GenerationPayload, docx_text: 
     )
 
     ledger_high = [fact for fact in ledger.facts if fact.importance == "high"]
+    entity_metrics = analyze_duplicate_experience_entities(payload)
     return {
         "case_id": case["case_id"],
         "experience_count": len(payload.resume_sections.projects),
@@ -133,6 +140,10 @@ def evaluate_payload(case: dict, payload: schemas.GenerationPayload, docx_text: 
         "missing_fact_ids": [label for label, covered in required_results if not covered],
         "fact_coverage_rate": round(required_covered / max(1, len(required_results)) * 100, 1),
         "duplicate_detail_count": duplicate_count,
+        "duplicate_experience_entity_count": entity_metrics["duplicate_experience_entity_count"],
+        "duplicate_source_experience_id_count": entity_metrics["duplicate_source_experience_id_count"],
+        "normalized_title_duplicate_count": entity_metrics["normalized_title_duplicate_count"],
+        "fact_fingerprint_duplicate_count": entity_metrics["fact_fingerprint_duplicate_count"],
         "internal_field_leak_count": internal_leaks,
         "skill_category_accuracy": round(sum(category_checks) / max(1, len(category_checks)) * 100, 1),
         "experience_boundary_accuracy": round(sum(boundaries) / max(1, len(boundaries)) * 100, 1),
@@ -151,6 +162,8 @@ def _quality_regressions(case: dict, metrics: dict) -> list[str]:
         regressions.append("高价值事实覆盖率低于 90%")
     if metrics["duplicate_detail_count"]:
         regressions.append("出现重复详情")
+    if metrics["duplicate_experience_entity_count"]:
+        regressions.append("出现重复经历实体")
     if metrics["internal_field_leak_count"]:
         regressions.append("出现内部字段泄露")
     if metrics["skill_category_accuracy"] < 100:
@@ -253,6 +266,10 @@ def write_report(case: dict, metrics: dict, mode: str, output_dir: Path) -> Path
         f"- 经历保留率：{metrics['experience_retention_rate']}%",
         f"- 高价值事实覆盖率：{metrics['fact_coverage_rate']}%",
         f"- 重复详情数量：{metrics['duplicate_detail_count']}",
+        f"- 重复经历实体数量：{metrics['duplicate_experience_entity_count']}",
+        f"- 相同 source ID 重复数量：{metrics['duplicate_source_experience_id_count']}",
+        f"- 归一化标题重复数量：{metrics['normalized_title_duplicate_count']}",
+        f"- 局部事实指纹重复数量：{metrics['fact_fingerprint_duplicate_count']}",
         f"- 内部字段泄露数量：{metrics['internal_field_leak_count']}",
         f"- 经历边界准确率：{metrics['experience_boundary_accuracy']}%",
         f"- 经历类型准确率：{metrics['experience_type_accuracy']}%",

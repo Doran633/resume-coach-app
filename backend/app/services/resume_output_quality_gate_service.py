@@ -17,6 +17,7 @@ from .paired_symbol_integrity_service import has_unbalanced_symbols
 from .recruiter_language_service import recruiter_language_score
 from .resume_recruiter_readability_service import recruiter_readability_score
 from .resume_whitespace_quality_service import count_broken_protected_phrases, count_whitespace_issues
+from .resume_experience_entity_dedup_service import analyze_duplicate_experience_entities
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_output_quality.jsonl"
@@ -51,6 +52,12 @@ class OutputQualityScores:
     recruiter_language_score: int
     recruiter_readability_score: int
     whitespace_quality_score: int
+    experience_entity_count: int
+    unique_source_experience_id_count: int
+    duplicate_experience_entity_count: int
+    duplicate_source_experience_id_count: int
+    normalized_title_duplicate_count: int
+    fact_fingerprint_duplicate_count: int
     overall_quality_score: int
     warning_codes: list[str] = field(default_factory=list)
 
@@ -126,6 +133,7 @@ def evaluate_resume_output_quality(
     )
     semantic = evaluate_semantic_quality(payload)
     skill_presentation_score, skill_presentation_warnings = evaluate_skill_presentation(payload)
+    entity_metrics = analyze_duplicate_experience_entities(payload)
 
     scores = {
         "fact_coverage_score": _fact_coverage(payload, raw_input),
@@ -175,6 +183,8 @@ def evaluate_resume_output_quality(
             warning_codes.append(code)
     if count_broken_protected_phrases(text):
         warning_codes.append("PROTECTED_TECH_PHRASE_BROKEN")
+    if entity_metrics["duplicate_experience_entity_count"]:
+        warning_codes.append("DUPLICATE_EXPERIENCE_ENTITY")
     warning_codes.extend(code for code in skill_presentation_warnings if code not in warning_codes)
     overall = round(sum(scores.values()) / len(scores))
     result = OutputQualityScores(
@@ -183,6 +193,7 @@ def evaluate_resume_output_quality(
         stage=stage,
         overall_quality_score=overall,
         warning_codes=warning_codes,
+        **{key: value for key, value in entity_metrics.items() if key != "possible_duplicate_count"},
         **scores,
     )
     if write_log:

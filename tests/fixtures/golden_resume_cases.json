@@ -108,5 +108,90 @@
         "interview_preparation": ["准备说明评测指标和优化过程。"]
       }
     }
+  },
+  {
+    "case_id": "v060_duplicate_regression_project",
+    "description": "匿名化的经历实体去重案例：回归分析计算器被口语化重复提及，同时包含独立的智能停车系统。",
+    "raw_input": "项目一｜回归分析计算器\n独立完成回归分析计算器，使用 Python、Pandas、Scikit-learn 和 Matplotlib，实现数据导入与预处理、线性回归和多项式回归、结果可视化及最优模型推荐。\n\n项目二｜智能停车系统\n作为团队核心成员设计智能停车系统，根据地图路线、天气和车流信息提供停车指引，在创新创业路演中获得一等奖。\n\n我做过一个回归分析计算器，可以比较多种回归分析效果并生成图像。",
+    "target_role": "数据分析",
+    "packaging_level": "大胆",
+    "experience_type": "项目经历",
+    "expected_experience_count": 2,
+    "expected_experience_types": ["项目经历", "项目经历"],
+    "required_facts": [
+      {"label": "回归数据处理", "experience_id": "EXP-001", "all_terms": ["数据导入", "预处理"]},
+      {"label": "回归算法与推荐", "experience_id": "EXP-001", "all_terms": ["多项式回归", "模型推荐"]},
+      {"label": "停车信息融合", "experience_id": "EXP-002", "all_terms": ["地图路线", "天气", "车流"]},
+      {"label": "路演奖项", "experience_id": "EXP-002", "all_terms": ["一等奖"]}
+    ],
+    "required_technical_terms": ["Python", "Pandas", "Scikit-learn", "Matplotlib"],
+    "expected_skill_categories": {
+      "编程语言": ["Python"],
+      "数据分析与机器学习": ["Pandas", "Scikit-learn", "Matplotlib"]
+    },
+    "forbidden_phrases": ["综合经历项目", "技术动作", "我做过", "希望包装", "原文截断"],
+    "forbidden_internal_fields": ["raw_text", "source_fact_ids", "detail_fact_ids", "source_experience_id", "fact_id"],
+    "summary_min_count": 1,
+    "summary_max_count": 2,
+    "project_detail_limits": {"min": 2, "max": 8},
+    "expected_section_order": ["项目经历"],
+    "experience_boundaries": {
+      "EXP-001": {"required": ["回归分析", "模型推荐"], "forbidden": ["一等奖", "停车"]},
+      "EXP-002": {"required": ["停车", "一等奖"], "forbidden": ["回归分析", "Scikit-learn"]}
+    },
+    "fixed_payload": {
+      "completeness_score": 88,
+      "confirmed_facts": [],
+      "missing_questions": [],
+      "normal_version": "",
+      "bold_version": "",
+      "boundary_version": "",
+      "recommended_version": "",
+      "claims": [],
+      "interview_plan": [],
+      "knowledge_checklist": [],
+      "resume_sections": {
+        "personal_info": {"姓名": "[待填写]"},
+        "education": {"学校": "[待填写]", "专业": "[待填写]"},
+        "summary": ["具备数据分析工具独立开发与跨场景项目协作能力，能够完成数据处理、模型分析和方案落地。"],
+        "skills": ["编程语言：Python", "数据分析与机器学习：Pandas、Scikit-learn、Matplotlib"],
+        "projects": [
+          {
+            "name": "回归分析计算器",
+            "meta": "项目经历",
+            "time": "[待填写]",
+            "intro": "面向数据分析场景开发回归分析计算器，完成数据处理与分析结果展示。",
+            "role": "独立完成项目设计、开发与测试。",
+            "details": ["实现数据导入与预处理，支持线性回归和多项式回归。", "基于 Matplotlib 生成分析图表，并结合模型效果完成最优模型推荐。"],
+            "detail_fact_ids": [["EXP-001-F001"], ["EXP-001-F002"]],
+            "source_experience_id": "EXP-001",
+            "source_fact_ids": ["EXP-001-F001", "EXP-001-F002"]
+          },
+          {
+            "name": "智能停车系统",
+            "meta": "项目经历",
+            "time": "[待填写]",
+            "intro": "融合地图路线、天气和车流信息设计智能停车指引系统。",
+            "role": "作为团队核心成员参与产品设计与方案落地。",
+            "details": ["根据地图路线、天气和车流信息生成停车指引。", "项目在创新创业路演中获得一等奖。"],
+            "detail_fact_ids": [["EXP-002-F001"], ["EXP-002-F002"]],
+            "source_experience_id": "EXP-002",
+            "source_fact_ids": ["EXP-002-F001", "EXP-002-F002"]
+          },
+          {
+            "name": "我做过一个回归分析计算器",
+            "meta": "个人项目",
+            "time": "[待填写]",
+            "intro": "开发回归分析计算器并比较多种模型效果。",
+            "role": "独立开发。",
+            "details": ["支持多种回归分析效果对比。", "完成数据制图与模型推荐。"],
+            "detail_fact_ids": [["EXP-001-F002"], ["EXP-001-F003"]],
+            "source_experience_id": "EXP-001",
+            "source_fact_ids": ["EXP-001-F001", "EXP-001-F002"]
+          }
+        ],
+        "interview_preparation": []
+      }
+    }
   }
 ]

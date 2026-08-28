@@ -9,6 +9,7 @@ from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .experience_fact_ledger_service import build_experience_fact_ledger
 from .resume_role_resolution_service import is_internal_or_generic_role, resolve_role_for_experience
+from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -624,6 +625,15 @@ def fill_resume_sections(
     }
     stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in covered_ids]
     filled = schemas.GenerationPayload.model_validate(data)
+    filled = deduplicate_resume_experience_entities(
+        filled,
+        raw_source,
+        stage=f"{stage}_fallback",
+        generation_result_id=generation_result_id,
+        write_log=write_log,
+    )
+    stats.projects_after = len(filled.resume_sections.projects)
+    stats.projects_removed = max(0, stats.projects_before - stats.projects_after)
     if write_log:
         _write_fallback_log(stats)
     return filled

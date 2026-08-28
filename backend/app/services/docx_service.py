@@ -51,6 +51,7 @@ from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
+from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -301,6 +302,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         generation_result_id=request.generation_result_id,
     )
     payload = resolve_resume_titles(payload, raw_input)
+    payload = deduplicate_resume_experience_entities(
+        payload,
+        raw_input,
+        stage="before_docx_render",
+        generation_result_id=request.generation_result_id,
+    )
     payload = prepare_docx_delivery(
         payload,
         generation_result_id=request.generation_result_id,

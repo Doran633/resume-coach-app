@@ -31,6 +31,41 @@ def _infer_title(content: str, fallback: str) -> str:
     return fallback
 
 
+def _title_subject(text: str) -> str:
+    value = re.sub(
+        r"^(?:我(?:曾经)?做过(?:一个)?|我做了(?:一个)?|我独立(?:完成|开发|设计)了?|"
+        r"独立(?:完成|开发|设计)|设计并开发|项目[一二三四五六七八九十\d]+)\s*",
+        "", _clean_line(text), flags=re.IGNORECASE,
+    )
+    value = re.sub(r"(?:个人项目|课程项目|项目经历|项目)\s*$", "", value).strip()
+    return re.sub(r"[\s，,。；;：:、/\\|｜（）()\[\]【】《》“”\"'`~\-—–_]+", "", value).lower()
+
+
+def _redistribute_explicit_title_mentions(segments: list[ExperienceSegment]) -> list[ExperienceSegment]:
+    """Move a detached supplement only when it names another full project title."""
+    if len(segments) < 2:
+        return segments
+    subjects = [_title_subject(segment.title) for segment in segments]
+    additions: dict[int, list[str]] = {}
+    for current_index, segment in enumerate(segments):
+        paragraphs = [item.strip() for item in re.split(r"\n\s*\n+", segment.content) if item.strip()]
+        kept: list[str] = []
+        for paragraph_index, paragraph in enumerate(paragraphs):
+            normalized = _title_subject(paragraph)
+            matches = [
+                index for index, subject in enumerate(subjects)
+                if index != current_index and len(subject) >= 5 and subject in normalized
+            ]
+            if paragraph_index > 0 and len(matches) == 1 and subjects[current_index] not in normalized:
+                additions.setdefault(matches[0], []).append(paragraph)
+            else:
+                kept.append(paragraph)
+        segment.content = "\n\n".join(kept)
+    for index, rows in additions.items():
+        segments[index].content = "\n\n".join([segments[index].content, *rows]).strip()
+    return segments
+
+
 def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[ExperienceSegment]:
     text = raw_input.strip()
     if not text:
@@ -54,7 +89,7 @@ def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[Exp
             continue
         title = _infer_title(content, label)
         segments.append(ExperienceSegment(label=label, title=title, content=content))
-    return segments
+    return _redistribute_explicit_title_mentions(segments)
 
 
 def build_experience_context(raw_input: str) -> str:

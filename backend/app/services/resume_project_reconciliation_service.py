@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score, is_generic_detail
+from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -278,6 +279,14 @@ def reconcile_resume_projects(
     stats.projects_after = len(concrete)
     stats.project_names = [str(item.get("name") or "") for item in concrete]
     updated.resume_sections.projects = concrete
+    updated = deduplicate_resume_experience_entities(
+        updated,
+        raw_input,
+        stage=f"{stage}_reconciliation",
+        generation_result_id=generation_result_id,
+        write_log=write_log,
+    )
+    stats.projects_after = len(updated.resume_sections.projects)
     if write_log:
         _write_log(stats)
     return updated

@@ -55,6 +55,7 @@ Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance �
 | 弱履历策略 | `weak_profile_strategy_service` | 是 | 正向组织课程项目、竞赛和校园经历 |
 | 正文净化 | `resume_body_sanitizer_service` | 是 | 清理“没有实习、只是作业”等负面正文 |
 | 项目对账 | `resume_project_reconciliation_service` | 是 | 移除综合经历并把遗漏内容归还正确项目 |
+| 经历实体去重 | `resume_experience_entity_dedup_service` | 是 | 合并同一经历的重复 project，回收独立事实并规范标题 |
 | 去重检查点 A | `resume_fact_dedup_service` | 是 | 在覆盖恢复前清理高置信重复，减少模板内容 |
 | 类型解析 | `experience_type_resolution_service` | 修改 meta | 使用局部关系证据锁定项目、实习等类型 |
 | Section Routing | `resume_section_routing_service` | 否 | 根据最终类型决定 DOCX 分组，不重新判断类型 |
@@ -71,6 +72,21 @@ Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance �
 | 最终事实复检 | Fact Guard + Output Firewall | 是 | 对后续改写产生的内容做最终安全检查 |
 | 最终类型与标题 | Type Resolver + `resume_title_format_service` | 修改类型/标题 | 固化类型；生成公司、岗位、项目类型和时间标题 |
 | 输出质量评分 | `resume_output_quality_gate_service` | 否 | 记录七项质量分数和告警，不修改正文或阻断交付 |
+
+## v0.6.0 经历实体唯一性检查点
+
+```text
+Fallback -> Reconciliation -> Experience Entity Dedup
+-> Fact Coverage -> Boundary / Fact Dedup -> Text Guards
+-> Experience Entity Dedup Final Check -> Save / DOCX Render
+```
+
+- 第一次实体去重合并 LLM、Fallback 和 Reconciliation 产生的重复项目，再由 Fact Coverage 恢复独立高价值事实。
+- 最终实体去重只合并后续阶段意外重新产生的高置信重复，不扩写新内容。
+- 相同非空 `source_experience_id` 必须唯一；缺失 ID 时需要规范标题和局部事实同时提供强信号。
+- “综合经历项目”是 Reconciliation 使用的临时事实容器，不能在 Fallback 阶段提前并入具体项目，否则会造成跨经历污染。
+- 低置信 `possible_duplicate` 只记录日志，不能为了追求零重复而误删两个真实项目。
+- DOCX Renderer 不展示 `source_experience_id`、`source_fact_ids` 或判重信息。
 
 ## 为什么存在复检
 

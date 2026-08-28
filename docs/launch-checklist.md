@@ -271,3 +271,14 @@ cd /www/wwwroot/resume-coach-app
 - 前端 TypeScript 检查与生产构建通过。
 - 真实模型评测只在需要抽查时运行；未运行时明确记录，避免无意消耗 API Token。
 - 进入 v0.6.0 后，前端改动不得绕过或复制后端生成质量逻辑。
+
+## 14. v0.6.0 经历实体唯一性
+
+- `python -m pytest tests/test_resume_experience_entity_dedup.py -q` 已通过。
+- 黄金回归中的回归分析计算器只出现一次，智能停车系统保持独立。
+- 每个非空 `source_experience_id` 最多对应一个 project。
+- 规范化项目标题不存在高置信重复。
+- 合并后数据导入、回归算法、智能制图和模型推荐等独立事实仍被保留。
+- DOCX 不出现“我做过一个……”等口语项目标题，也不展示 Experience ID / Fact ID。
+- 检查 `backend/logs/resume_experience_entity_dedup.jsonl` 中的合并和低置信判定。
+- 运行 `python scripts/export_generation_quality.py --days 7`，检查“经历实体去重”统计。

@@ -88,6 +88,7 @@ def build_report(log_dir: Path, days: int | None) -> str:
             "boundary": "experience_boundary.jsonl",
             "coverage": "fact_coverage.jsonl",
             "dedup": "resume_fact_dedup.jsonl",
+            "entity_dedup": "resume_experience_entity_dedup.jsonl",
             "dedup_quality": "resume_dedup_quality.jsonl",
             "typography": "resume_typography_quality.jsonl",
             "output_quality": "resume_output_quality.jsonl",
@@ -149,6 +150,16 @@ def build_report(log_dir: Path, days: int | None) -> str:
     retained = _number(dedup, "retained_unique_fact_count")
     dedup_base = removed + retained
     dedup_removal_rate = removed / dedup_base if dedup_base else 0.0
+
+    entity_dedup = logs["entity_dedup"]
+    entity_checks = len(entity_dedup)
+    duplicate_entities = _number(entity_dedup, "duplicate_entity_count")
+    duplicate_source_ids = _number(entity_dedup, "duplicate_source_id_count")
+    normalized_title_duplicates = _number(entity_dedup, "normalized_title_duplicate_count")
+    fingerprint_duplicates = _number(entity_dedup, "fact_fingerprint_duplicate_count")
+    possible_duplicates = _number(entity_dedup, "possible_duplicate_count")
+    merged_entities = _number(entity_dedup, "merged_project_count")
+    recovered_entity_facts = _number(entity_dedup, "recovered_unique_fact_count")
 
     dedup_quality = logs["dedup_quality"]
     duplicate_candidates = _number(dedup_quality, "duplicate_candidate_count")
@@ -304,6 +315,16 @@ def build_report(log_dir: Path, days: int | None) -> str:
         ("最终质量门合并数", str(int(quality_merged))),
         ("Dedup Precision 警告数", str(int(precision_warnings))),
     ])
+    _section(lines, "经历实体去重", [
+        ("实体唯一性检查次数", str(entity_checks)),
+        ("重复经历实体数量", str(int(duplicate_entities))),
+        ("相同 source ID 重复数", str(int(duplicate_source_ids))),
+        ("归一化标题重复数", str(int(normalized_title_duplicates))),
+        ("局部事实指纹重复数", str(int(fingerprint_duplicates))),
+        ("低置信可能重复数", str(int(possible_duplicates))),
+        ("已合并项目实体数", str(int(merged_entities))),
+        ("合并时回收独立事实数", str(int(recovered_entity_facts))),
+    ])
     _section(lines, "标点与最终质量评分", [
         ("平均 Duplicate Score", _display(average_duplicate_score)),
         ("平均 Typography Score", _display(average_typography_score)),
@@ -387,6 +408,8 @@ def build_report(log_dir: Path, days: int | None) -> str:
         alerts.append("DOCX 投递修复率超过 10%，建议检查生成结果完整性。")
     if dedup_base and dedup_removal_rate > 0.35:
         alerts.append("去重删除率超过 35%，建议抽样检查 Dedup Precision。")
+    if possible_duplicates:
+        alerts.append("存在低置信可能重复经历，请抽样检查标题和局部事实指纹；系统未自动合并。")
     if skills_before and unsupported_skills_removed / skills_before > 0.05:
         alerts.append("无事实技能出现率超过 5%，建议检查 Prompt 和技能抽取链路。")
     if checked_symbol_text and paired_symbol_fixes / checked_symbol_text > 0.03:
