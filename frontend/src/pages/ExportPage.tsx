@@ -125,6 +125,13 @@ export default function ExportPage() {
 
   return (
     <Space direction="vertical" size="large" className="wide export-page">
+      <Card className="panel export-result-status" title="先导出并查看简历">
+        <div className="delivery-status-row">
+          <span className={downloadStarted ? "delivery-status-dot is-ready" : "delivery-status-dot"} />
+          <p>简历正文和面试准备内容已经整理完成。您可以先下载查看，再下拉分享您的使用体验。</p>
+        </div>
+      </Card>
+
       <Card className="panel export-hero" title="下载正式简历">
         <Typography.Paragraph>生成的 DOCX 只包含正式简历正文。姓名、联系方式、照片和未提供的教育信息会保留为待填写占位，不包含面试准备或系统建议。</Typography.Paragraph>
         <Typography.Paragraph className="export-note">下载后补充个人信息，并检查时间、学校和联系方式，即可作为初步投递版本使用。</Typography.Paragraph>
@@ -157,16 +164,6 @@ export default function ExportPage() {
             })}
           </div>
         ) : <p className="empty-hint">当前还没有生成面试准备内容，可以返回结果页补充经历细节后重新生成。</p>}
-      </Card>
-
-      <Card className="panel export-result-status" title="这份结果是否帮到您">
-        <div className="delivery-status-row">
-          <span className={downloadStarted ? "delivery-status-dot is-ready" : "delivery-status-dot"} />
-          <div>
-            <strong>{downloadStarted ? "可以查看文件后再评价" : docxGenerated ? "简历已生成" : "先生成并查看简历"}</strong>
-            <p>简历正文和面试准备内容已经整理完成。您可以先下载查看，再告诉我们实际体验。</p>
-          </div>
-        </div>
       </Card>
 
       <div ref={feedbackSectionRef} className="feedback-section-anchor">

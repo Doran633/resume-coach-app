@@ -464,9 +464,6 @@ export default function ResultPage() {
         <Button type="primary" loading={regenerating} onClick={regenerateWithFollowup}>
           {regenerating ? "正在重新生成" : "补充后重新生成"}
         </Button>
-        <Button size="large" onClick={() => setStep(2)}>
-          导出简历与查看准备清单
-        </Button>
       </Space>
     </Card>
   );
@@ -597,6 +594,24 @@ export default function ResultPage() {
   return (
     <Space direction="vertical" size="large" className="wide result-view">
       <Card className="panel result-tabs-card">
+        <div className="result-workbench-toolbar">
+          <div>
+            <strong>查看包装结果</strong>
+            <span>切换下方栏目，检查定位、表达与承接准备。</span>
+          </div>
+          <Button
+            type="primary"
+            onClick={() => {
+              void trackEvent(identity, "open_export_from_result", {
+                generation_result_id: generation.generation_result_id,
+                active_tab: activeTab
+              });
+              setStep(2);
+            }}
+          >
+            导出简历与查看准备清单
+          </Button>
+        </div>
         <Tabs
           activeKey={activeTab}
           items={tabItems}

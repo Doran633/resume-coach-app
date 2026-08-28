@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Form, Input, Radio, Select, Space, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Input, Select, Space, Typography, message } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
@@ -19,7 +19,6 @@ const draftKeys = {
   raw_input: "resume_coach_draft_input",
   target_role: "resume_coach_draft_target_role",
   packaging_level: "resume_coach_draft_packaging_level",
-  experience_type: "resume_coach_draft_experience_type"
 };
 
 const packagingLevels = [
@@ -59,66 +58,24 @@ const writingFormat = [
   "目前有【用户数 / 访问量 / 日志 / 仓库 / 文档 / 反馈】作为证据，希望重点放大【目标岗位相关能力】。"
 ];
 
-type QualityHint = {
-  type: string;
-  text: string;
-};
-
-function getQualityHints(rawInput = ""): QualityHint[] {
-  const value = rawInput.trim();
-  if (!value) return [];
-
-  const hints: QualityHint[] = [];
-  const technicalPattern = /React|Vue|TypeScript|JavaScript|FastAPI|Python|Java|Spring|Node|RAG|Agent|LangChain|LangGraph|SQL|SQLite|MySQL|Redis|Docker|API|接口|前端|后端|数据库|大模型|向量|模型|检索/i;
-  const resultPattern = /上线|部署|日志|反馈|用户|访问|star|stars|排名|获奖|性能|指标|并发|仓库|GitHub|PR|数据|证明|成果|完成|实现|支持|提升|优化/i;
-
-  if (value.length < 80) {
-    hints.push({ type: "too_short", text: "建议补充技术栈、负责模块和结果证据。" });
-  }
-  if (!/\d/.test(value)) {
-    hints.push({ type: "no_numbers", text: "如果有用户数、访问量、star、性能指标、比赛名次，可以补充。" });
-  }
-  if (!technicalPattern.test(value)) {
-    hints.push({ type: "no_tech", text: "建议补充技术栈、工具或平台。" });
-  }
-  if (!resultPattern.test(value)) {
-    hints.push({ type: "no_evidence", text: "建议补充上线、部署、日志、反馈、排名、仓库等证明材料。" });
-  }
-  return hints;
-}
-
 export default function InputPage() {
   const [form] = Form.useForm();
   const [generating, setGenerating] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState("");
   const { identity, lastRequest, setGeneration, setLastRequest } = useAppStore();
-  const rawInput = Form.useWatch("raw_input", form) ?? "";
   const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
-  const trackedHintKeyRef = useRef("");
   const textAreaRef = useRef<any>(null);
   const templateFeedbackTimerRef = useRef<number | null>(null);
-  const qualityHints = useMemo(() => getQualityHints(rawInput), [rawInput]);
   const initialValues = useMemo(() => {
     const savedPackagingLevel = localStorage.getItem(draftKeys.packaging_level) || "重点放大";
     return {
       target_role: lastRequest?.target_role || localStorage.getItem(draftKeys.target_role) || "AI / 大模型 / Agent",
-      mode: lastRequest?.mode || "single_experience",
       packaging_level: lastRequest?.packaging_level
         ? packagingLevelDisplayMap[lastRequest.packaging_level] ?? lastRequest.packaging_level
         : packagingLevelDisplayMap[savedPackagingLevel] ?? savedPackagingLevel,
-      experience_type: lastRequest?.experience_type || localStorage.getItem(draftKeys.experience_type) || "项目",
       raw_input: lastRequest?.raw_input || localStorage.getItem(draftKeys.raw_input) || ""
     };
   }, [lastRequest]);
-
-  useEffect(() => {
-    if (!qualityHints.length) return;
-    const hintTypes = qualityHints.map((item) => item.type);
-    const nextKey = hintTypes.join("|");
-    if (nextKey === trackedHintKeyRef.current) return;
-    trackedHintKeyRef.current = nextKey;
-    void trackEvent(identity, "input_quality_hint_shown", { hint_types: hintTypes });
-  }, [identity, qualityHints]);
 
   useEffect(() => () => {
     if (templateFeedbackTimerRef.current !== null) {
@@ -128,6 +85,8 @@ export default function InputPage() {
 
   const toBackendValues = (values: any) => ({
     ...values,
+    mode: "full_resume",
+    experience_type: "综合经历",
     packaging_level: packagingLevelMap[values.packaging_level] ?? values.packaging_level
   });
 
@@ -203,9 +162,6 @@ export default function InputPage() {
           if (Object.prototype.hasOwnProperty.call(changedValues, "packaging_level")) {
             localStorage.setItem(draftKeys.packaging_level, values.packaging_level || "");
           }
-          if (Object.prototype.hasOwnProperty.call(changedValues, "experience_type")) {
-            localStorage.setItem(draftKeys.experience_type, values.experience_type || "");
-          }
           if (changedValues.packaging_level) {
             void trackEvent(identity, "change_packaging_level", {
               display_level: changedValues.packaging_level,
@@ -219,14 +175,6 @@ export default function InputPage() {
       >
         <Form.Item label="目标岗位" name="target_role" rules={[{ required: true }]}>
           <Select options={targetRoles.map((value) => ({ value }))} />
-        </Form.Item>
-        <Form.Item label="使用模式" name="mode">
-          <Radio.Group
-            options={[
-              { label: "包装一段经历", value: "single_experience" },
-              { label: "生成完整简历", value: "full_resume" }
-            ]}
-          />
         </Form.Item>
         <Form.Item name="packaging_level" hidden>
           <Input />
@@ -247,10 +195,6 @@ export default function InputPage() {
             ))}
           </div>
         </Form.Item>
-        <Form.Item label="经历类型" name="experience_type">
-          <Select options={["项目", "实习", "开源", "比赛", "校园", "其他"].map((value) => ({ value }))} />
-        </Form.Item>
-
         <div className="writing-guide">
           <div>
             <Typography.Title level={4}>建议这样写</Typography.Title>
@@ -269,7 +213,6 @@ export default function InputPage() {
               <Typography.Title level={4}>原始经历描述</Typography.Title>
             </div>
             <div className="template-stack">
-              <span className="template-label">点击模板快速填入</span>
               <Space wrap className="template-actions">
                 {exampleTemplates.map((item) => (
                   <Button
@@ -282,6 +225,7 @@ export default function InputPage() {
                   </Button>
                 ))}
               </Space>
+              <span className="template-label">点击模板快速填入</span>
             </div>
           </div>
           <Form.Item name="raw_input" rules={[{ required: true, min: 10 }]}>
@@ -298,15 +242,6 @@ export default function InputPage() {
             message="隐私提醒：请勿输入身份证号、家庭住址、银行卡号、账号密码等敏感信息。手机号、邮箱等联系方式建议在最终简历下载后自行补充。"
           />
         </div>
-
-        {qualityHints.length > 0 && (
-          <div className="quality-hints">
-            <strong>可以再补一点</strong>
-            <div>
-              {qualityHints.map((item) => <span key={item.type}>{item.text}</span>)}
-            </div>
-          </div>
-        )}
 
         <Button type="primary" htmlType="submit" size="large" loading={generating}>
           {generating ? "正在生成，请稍等" : "生成包装与面试承接"}

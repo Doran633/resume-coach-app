@@ -120,8 +120,7 @@ body {
 }
 
 .writing-guide,
-.experience-editor,
-.quality-hints {
+.experience-editor {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #f8fafc;
@@ -181,7 +180,7 @@ body {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto;
   gap: 16px;
-  align-items: start;
+  align-items: center;
   margin-bottom: 14px;
 }
 
@@ -250,38 +249,36 @@ body {
   resize: none;
 }
 
-.quality-hints {
-  background: #fffaf0;
-  border-color: #fdecc8;
-}
-
-.quality-hints strong {
-  display: block;
-  margin-bottom: 10px;
-  color: #92400e;
-}
-
-.quality-hints div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.quality-hints span {
-  border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid #fde68a;
-  color: #78350f;
-  padding: 5px 10px;
-  font-size: 13px;
-}
-
 .result-view .ant-card-body {
   padding: 24px;
 }
 
 .result-tabs-card > .ant-card-body {
   padding-top: 14px;
+}
+
+.result-workbench-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid #e5eaf2;
+}
+
+.result-workbench-toolbar > div {
+  display: grid;
+  gap: 3px;
+}
+
+.result-workbench-toolbar strong {
+  color: #15254b;
+  font-size: 18px;
+}
+
+.result-workbench-toolbar span {
+  color: #71809a;
+  font-size: 13px;
 }
 
 .result-tabs-card .ant-tabs-nav {
@@ -1210,17 +1207,19 @@ body {
     min-width: 132px;
   }
 
-  .quality-hints {
-    padding: 12px 14px;
-  }
-
-  .quality-hints div {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
   .result-tabs-card > .ant-card-body {
     padding-top: 10px;
+  }
+
+  .result-workbench-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .result-workbench-toolbar .ant-btn {
+    width: 100%;
+    min-height: 42px;
   }
 
   .result-tabs-card .ant-tabs-nav {
@@ -1448,7 +1447,6 @@ body {
     font-size: 20px;
   }
 
-  .input-panel .ant-radio-button-wrapper,
   .template-actions .ant-btn {
     flex-basis: 100%;
   }
