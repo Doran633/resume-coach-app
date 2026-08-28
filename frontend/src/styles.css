@@ -280,7 +280,7 @@ body {
   font-size: 18px;
 }
 
-.result-workbench-toolbar span {
+.result-workbench-toolbar > div > span {
   color: #71809a;
   font-size: 13px;
 }
@@ -309,6 +309,11 @@ body {
 .result-export-button:focus-visible {
   outline: 3px solid rgba(49, 94, 184, 0.28);
   outline-offset: 2px;
+}
+
+.result-workbench-toolbar .result-export-button > span,
+.result-workbench-toolbar .result-export-button .ant-btn-loading-icon {
+  color: #ffffff !important;
 }
 
 .generation-status,
@@ -1150,7 +1155,7 @@ body {
   .topbar div {
     min-height: 56px;
     gap: 8px;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     flex-direction: column;
   }
@@ -1160,7 +1165,7 @@ body {
   }
 
   .topbar span {
-    font-size: 12px;
+    display: none;
   }
 
   .content {
