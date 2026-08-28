@@ -195,17 +195,50 @@ body {
   justify-items: end;
 }
 
-.template-hint {
-  color: #94a3b8;
+.template-label {
+  color: #526581;
   font-size: 13px;
   line-height: 1.4;
+  font-weight: 600;
   user-select: none;
 }
 
 .template-actions .ant-btn {
+  min-height: 40px;
+  padding-inline: 18px;
   border-color: #cbd5e1;
+  background: #ffffff;
   color: #1f3763;
   font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(31, 55, 99, 0.06);
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.template-actions .ant-btn:hover {
+  border-color: #4b73d1 !important;
+  background: #f3f7ff !important;
+  color: #234fa9 !important;
+  box-shadow: 0 4px 10px rgba(47, 86, 166, 0.14);
+  transform: translateY(-1px);
+}
+
+.template-actions .ant-btn:active {
+  transform: translateY(0);
+  box-shadow: inset 0 1px 3px rgba(31, 55, 99, 0.14);
+}
+
+.template-actions .ant-btn:focus-visible {
+  border-color: #315eb8;
+  outline: 3px solid rgba(49, 94, 184, 0.22);
+  outline-offset: 2px;
+}
+
+.template-actions .ant-btn.is-filled {
+  border-color: #315eb8;
+  background: #315eb8;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(49, 94, 184, 0.2);
 }
 
 .experience-editor .ant-form-item {

@@ -90,10 +90,13 @@ function getQualityHints(rawInput = ""): QualityHint[] {
 export default function InputPage() {
   const [form] = Form.useForm();
   const [generating, setGenerating] = useState(false);
+  const [activeTemplate, setActiveTemplate] = useState("");
   const { identity, lastRequest, setGeneration, setLastRequest } = useAppStore();
   const rawInput = Form.useWatch("raw_input", form) ?? "";
   const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
   const trackedHintKeyRef = useRef("");
+  const textAreaRef = useRef<any>(null);
+  const templateFeedbackTimerRef = useRef<number | null>(null);
   const qualityHints = useMemo(() => getQualityHints(rawInput), [rawInput]);
   const initialValues = useMemo(() => {
     const savedPackagingLevel = localStorage.getItem(draftKeys.packaging_level) || "重点放大";
@@ -117,6 +120,12 @@ export default function InputPage() {
     void trackEvent(identity, "input_quality_hint_shown", { hint_types: hintTypes });
   }, [identity, qualityHints]);
 
+  useEffect(() => () => {
+    if (templateFeedbackTimerRef.current !== null) {
+      window.clearTimeout(templateFeedbackTimerRef.current);
+    }
+  }, []);
+
   const toBackendValues = (values: any) => ({
     ...values,
     packaging_level: packagingLevelMap[values.packaging_level] ?? values.packaging_level
@@ -136,8 +145,20 @@ export default function InputPage() {
     const nextValue = current ? `${current}\n\n${text}` : text;
     form.setFieldValue("raw_input", nextValue);
     localStorage.setItem(draftKeys.raw_input, nextValue);
-    void trackEvent(identity, "fill_example_template", { template_type: type });
-    message.success(`已加入${type}模板`);
+    void trackEvent(identity, "fill_example_template", {
+      template_type: type,
+      action: "fill",
+      had_existing_input: Boolean(current)
+    });
+    setActiveTemplate(type);
+    if (templateFeedbackTimerRef.current !== null) {
+      window.clearTimeout(templateFeedbackTimerRef.current);
+    }
+    templateFeedbackTimerRef.current = window.setTimeout(() => setActiveTemplate(""), 1200);
+    message.success(`已填入${type}模板`);
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.focus({ cursor: "end" });
+    });
   };
 
   const onFinish = async (values: any) => {
@@ -246,21 +267,29 @@ export default function InputPage() {
           <div className="editor-head">
             <div>
               <Typography.Title level={4}>原始经历描述</Typography.Title>
-              <p>可以直接写，也可以先选择一个模板再修改。</p>
             </div>
             <div className="template-stack">
+              <span className="template-label">点击模板快速填入</span>
               <Space wrap className="template-actions">
                 {exampleTemplates.map((item) => (
-                  <Button key={item.type} onClick={() => fillTemplate(item.type, item.text)}>
-                    {item.type}
+                  <Button
+                    key={item.type}
+                    className={activeTemplate === item.type ? "template-button is-filled" : "template-button"}
+                    aria-label={`填入${item.type}模板`}
+                    onClick={() => fillTemplate(item.type, item.text)}
+                  >
+                    {activeTemplate === item.type ? "已填入" : item.type}
                   </Button>
                 ))}
               </Space>
-              <span className="template-hint">选择一个模板吧~</span>
             </div>
           </div>
           <Form.Item name="raw_input" rules={[{ required: true, min: 10 }]}>
-            <Input.TextArea autoSize={{ minRows: 5, maxRows: 14 }} placeholder="直接写你的项目、实习、比赛、开源经历即可。" />
+            <Input.TextArea
+              ref={textAreaRef}
+              autoSize={{ minRows: 5, maxRows: 14 }}
+              placeholder="选择一个模板，或直接输入您的项目 / 实习 / 科研 / 开源经历。"
+            />
           </Form.Item>
           <Alert
             className="privacy-reminder"
