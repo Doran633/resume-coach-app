@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 
-from .semantic_experience_segmentation_service import segment_semantic_experiences
+from .semantic_experience_segmentation_service import is_heading_only_text, segment_semantic_experiences
 
 
 SEGMENT_PATTERN = re.compile(
@@ -66,6 +66,10 @@ def _redistribute_explicit_title_mentions(segments: list[ExperienceSegment]) -> 
     return segments
 
 
+def _remove_heading_only_segments(segments: list[ExperienceSegment]) -> list[ExperienceSegment]:
+    return [segment for segment in segments if not is_heading_only_text(segment.content)]
+
+
 def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[ExperienceSegment]:
     text = raw_input.strip()
     if not text:
@@ -89,7 +93,7 @@ def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[Exp
             continue
         title = _infer_title(content, label)
         segments.append(ExperienceSegment(label=label, title=title, content=content))
-    return _redistribute_explicit_title_mentions(segments)
+    return _remove_heading_only_segments(_redistribute_explicit_title_mentions(segments))
 
 
 def build_experience_context(raw_input: str) -> str:

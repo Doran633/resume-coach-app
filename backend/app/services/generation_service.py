@@ -56,6 +56,7 @@ from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from .resume_experience_validity_service import ensure_resume_experience_validity
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 
 
@@ -459,6 +460,9 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     log_generation_stage(payload, "after_normalize")
     payload = guard_hard_facts(payload, request.raw_input)
     payload = fill_resume_sections(payload, stage="generation", raw_input=request.raw_input)
+    payload = ensure_resume_experience_validity(
+        payload, request.raw_input, stage="generation_after_fallback",
+    )
     log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
     payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
@@ -513,6 +517,9 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = resolve_project_types(payload, request.raw_input, stage="before_save")
     payload = resolve_resume_titles(payload, request.raw_input)
     payload = deduplicate_resume_experience_entities(
+        payload, request.raw_input, stage="before_save",
+    )
+    payload = ensure_resume_experience_validity(
         payload, request.raw_input, stage="before_save",
     )
     evaluate_resume_output_quality(payload, request.raw_input, stage="generation")

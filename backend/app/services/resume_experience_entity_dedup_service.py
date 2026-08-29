@@ -9,8 +9,9 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
-from .project_hierarchy_service import merge_parent_child_projects
+from .project_hierarchy_service import is_heading_detail, merge_parent_child_projects
 from .resume_fact_dedup_service import information_score, similarity
+from .resume_experience_validity_service import classify_experience_project, is_forbidden_experience_name
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_experience_entity_dedup.jsonl"
@@ -138,7 +139,27 @@ def _is_comprehensive_project(project: dict) -> bool:
     return "综合经历" in str(project.get("name") or "") or title in {"综合经历", "综合经历项目"} or meta == "综合经历"
 
 
+def _heading_shell_points_to(shell: dict, target: dict) -> bool:
+    kind = classify_experience_project(shell)
+    if kind not in {"heading_residue_shell", "generic_name_shell", "empty_fact_shell"}:
+        return False
+    target_title = normalize_project_title(target.get("name"))
+    if len(target_title) < 4:
+        return False
+    heading_rows = [
+        str(value or "") for value in [
+            shell.get("intro"), shell.get("role"), *(shell.get("details", []) or []),
+        ] if str(value or "").strip() and is_heading_detail(str(value))
+    ]
+    return any(target_title in normalize_project_title(row) for row in heading_rows)
+
+
 def _duplicate_decision(left: dict, right: dict) -> DuplicateDecision:
+    # A title residue may receive a different source id during segmentation.
+    # Resolve this narrow shell relation before the normal source-id boundary;
+    # ordinary projects still keep the strict distinct-id rule below.
+    if _heading_shell_points_to(left, right) or _heading_shell_points_to(right, left):
+        return DuplicateDecision(True, "heading_residue_alias", 1.0)
     # A comprehensive fallback row is a temporary fact container. Reconciliation
     # must distribute its details before entity-level deduplication can be safe.
     if _is_comprehensive_project(left) != _is_comprehensive_project(right):
@@ -236,7 +257,9 @@ def _merge_projects(left: dict, right: dict, stats: EntityDedupStats) -> dict:
     left_title, right_title = clean_project_title(left.get("name")), clean_project_title(right.get("name"))
     left_was_spoken = bool(TITLE_PREFIX.match(str(left.get("name") or "")))
     right_was_spoken = bool(TITLE_PREFIX.match(str(right.get("name") or "")))
-    if left_was_spoken != right_was_spoken:
+    if is_forbidden_experience_name(left.get("name")) != is_forbidden_experience_name(right.get("name")):
+        merged["name"] = right_title if is_forbidden_experience_name(left.get("name")) else left_title
+    elif left_was_spoken != right_was_spoken:
         merged["name"] = right_title if left_was_spoken else left_title
     else:
         merged["name"] = left_title if len(left_title) <= len(right_title) else right_title

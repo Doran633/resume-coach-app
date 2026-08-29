@@ -10,6 +10,7 @@ from .experience_identity_service import ExperienceIdentity, build_experience_id
 from .experience_fact_ledger_service import build_experience_fact_ledger
 from .resume_role_resolution_service import is_internal_or_generic_role, resolve_role_for_experience
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from .resume_experience_validity_service import ensure_resume_experience_validity, is_valid_fallback_candidate
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -102,10 +103,16 @@ class FallbackStats:
         self.internal_fallback_text_removed_count = 0
         self.role_source_experience_ids: list[str] = []
         self.role_source_fact_ids: list[str] = []
+        self.fallback_candidate_rejected_count = 0
 
     @property
     def changed(self) -> bool:
-        return bool(self.fallback_sections or self.role_fallback_triggered or self.internal_fallback_text_removed_count)
+        return bool(
+            self.fallback_sections
+            or self.role_fallback_triggered
+            or self.internal_fallback_text_removed_count
+            or self.fallback_candidate_rejected_count
+        )
 
     @property
     def fallback_reason(self) -> str:
@@ -149,6 +156,7 @@ def _write_fallback_log(stats: FallbackStats):
             "internal_fallback_text_removed_count": stats.internal_fallback_text_removed_count,
             "role_source_experience_ids": sorted(set(stats.role_source_experience_ids)),
             "role_source_fact_ids": sorted(set(stats.role_source_fact_ids)),
+            "fallback_candidate_rejected_count": stats.fallback_candidate_rejected_count,
             "generation_result_id": stats.generation_result_id,
             "stage": stats.stage,
         }
@@ -453,7 +461,6 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
         details = _details_from_text(identity.raw_text, limit=6)
         if not details:
             continue
-        stats.used_experience_id = True
         role, role_fact_ids = resolve_role_for_experience(
             raw_input, identity.experience_id, details=details, intro=details[0], ledger=ledger,
         )
@@ -464,8 +471,7 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
             stats.role_source_fact_ids.extend(role_fact_ids)
         else:
             stats.role_left_empty_count += 1
-        projects.append(
-            {
+        candidate = {
                 "name": identity.title or identity.experience_type,
                 "meta": identity.experience_type,
                 "time": "[待填写]",
@@ -475,11 +481,21 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
                 "source_experience_id": identity.experience_id,
                 "role_source_fact_ids": role_fact_ids,
             }
-        )
+        if not is_valid_fallback_candidate(candidate, raw_input):
+            stats.fallback_candidate_rejected_count += 1
+            continue
+        stats.used_experience_id = True
+        projects.append(candidate)
     return projects
 
 
-def _merge_missing_projects(existing: list, candidates: list[dict], stats: FallbackStats, source: str) -> list:
+def _merge_missing_projects(
+    existing: list,
+    candidates: list[dict],
+    stats: FallbackStats,
+    source: str,
+    raw_input: str = "",
+) -> list:
     merged = list(existing) if isinstance(existing, list) else []
     signatures = {_project_signature(project) for project in merged if isinstance(project, dict)}
     covered_ids = {
@@ -488,6 +504,9 @@ def _merge_missing_projects(existing: list, candidates: list[dict], stats: Fallb
         if isinstance(project, dict) and _text(project.get("source_experience_id"))
     }
     for candidate in candidates:
+        if not is_valid_fallback_candidate(candidate, raw_input):
+            stats.fallback_candidate_rejected_count += 1
+            continue
         signature = _project_signature(candidate)
         source_id = _text(candidate.get("source_experience_id"))
         if signature in signatures:
@@ -502,6 +521,16 @@ def _merge_missing_projects(existing: list, candidates: list[dict], stats: Fallb
         if len(merged) >= 5:
             break
     return merged
+
+
+def _valid_fallback_projects(candidates: list, raw_input: str, stats: FallbackStats) -> list[dict]:
+    valid: list[dict] = []
+    for candidate in candidates if isinstance(candidates, list) else []:
+        if isinstance(candidate, dict) and is_valid_fallback_candidate(candidate, raw_input):
+            valid.append(candidate)
+        else:
+            stats.fallback_candidate_rejected_count += 1
+    return valid
 
 
 def _build_interview_preparation(data: dict, stats: FallbackStats) -> list[str]:
@@ -580,12 +609,15 @@ def fill_resume_sections(
             raw_projects = _parse_projects(raw_source, "raw_input", stats)
         elif raw_projects:
             stats.fill("projects", "experience_id/raw_input")
-        sections["projects"] = raw_projects or _parse_projects(source, source_field, stats)
+        candidates = raw_projects or _parse_projects(source, source_field, stats)
+        sections["projects"] = _valid_fallback_projects(candidates, raw_source, stats)
         sections["projects"] = _assign_source_experience_ids(sections["projects"], raw_source, stats)
     elif raw_source:
         sections["projects"] = _assign_source_experience_ids(sections.get("projects"), raw_source, stats)
         identity_projects = _projects_from_identities(raw_source, stats) if identities else []
-        sections["projects"] = _merge_missing_projects(sections.get("projects"), identity_projects, stats, "uncovered_experience_id")
+        sections["projects"] = _merge_missing_projects(
+            sections.get("projects"), identity_projects, stats, "uncovered_experience_id", raw_source,
+        )
         sections["projects"] = _assign_source_experience_ids(sections.get("projects"), raw_source, stats)
 
     if "interview_preparation" in empty_sections:
@@ -632,6 +664,15 @@ def fill_resume_sections(
         generation_result_id=generation_result_id,
         write_log=write_log,
     )
+    if stats.fallback_sections or stats.fallback_candidate_rejected_count:
+        filled = ensure_resume_experience_validity(
+            filled,
+            raw_source,
+            stage=f"{stage}_fallback",
+            generation_result_id=generation_result_id,
+            fallback_candidate_rejected_count=stats.fallback_candidate_rejected_count,
+            write_log=write_log,
+        )
     stats.projects_after = len(filled.resume_sections.projects)
     stats.projects_removed = max(0, stats.projects_before - stats.projects_after)
     if write_log:

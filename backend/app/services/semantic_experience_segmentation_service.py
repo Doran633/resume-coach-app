@@ -194,7 +194,11 @@ def _infer_type(text: str) -> str:
             continue
         if any(keyword.lower() in text.lower() for keyword in keywords):
             return experience_type
-    return "其他经历"
+    # Unknown is an internal routing state, not a user-facing experience type.
+    # A heading-only fragment is filtered before identities are created; a
+    # substantive unlabelled fragment remains a project until stronger local
+    # evidence classifies it.
+    return "项目经历"
 
 
 def _infer_title(text: str, experience_type: str) -> str:
@@ -333,6 +337,45 @@ def _merge_parent_phase_heading_segments(segments: list[dict]) -> tuple[list[dic
     return result, merged
 
 
+def _merge_or_discard_heading_residues(segments: list[dict]) -> tuple[list[dict], int]:
+    """Attach a leading heading to its body and discard detached title residue."""
+    if not segments:
+        return segments, 0
+    result: list[dict] = []
+    removed = 0
+    index = 0
+    while index < len(segments):
+        current = segments[index]
+        if not is_heading_only_text(current["raw_text"]):
+            result.append(current)
+            index += 1
+            continue
+
+        if index + 1 < len(segments):
+            following = segments[index + 1]
+            adjacent = following["start_offset"] - current["end_offset"] <= 4
+            if adjacent and not is_heading_only_text(following["raw_text"]):
+                combined = dict(following)
+                combined["raw_text"] = f"{current['raw_text']}\n{following['raw_text']}"
+                combined["start_offset"] = current["start_offset"]
+                combined["segmentation_reasons"] = [
+                    *current["segmentation_reasons"],
+                    *following["segmentation_reasons"],
+                    "标题行并回相邻正文",
+                ]
+                result.append(combined)
+                removed += 1
+                index += 2
+                continue
+
+        # A standalone name/role/time line carries no action fact and must not
+        # receive its own experience_id. Matching metadata can be recovered by
+        # project reconciliation from the neighbouring valid project.
+        removed += 1
+        index += 1
+    return result, removed
+
+
 def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage: str = "unknown") -> SemanticSegmentationResult:
     source = raw_input or ""
     cleaned, discarded = _strip_context(source)
@@ -382,8 +425,9 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 questions.append(f"“{_infer_title(clause, _infer_type(clause))}”是否需要作为单独经历展示？")
 
     grouped, hierarchy_merged_count = _merge_parent_phase_heading_segments(grouped)
+    grouped, heading_residue_count = _merge_or_discard_heading_residues(grouped)
     grouped, campus_merged_count = _merge_related_campus_segments(grouped)
-    merged_count = hierarchy_merged_count + campus_merged_count
+    merged_count = hierarchy_merged_count + heading_residue_count + campus_merged_count
     segments: list[SemanticExperienceSegment] = []
     for index, item in enumerate(grouped, start=1):
         experience_type = _infer_type(item["raw_text"])

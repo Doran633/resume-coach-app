@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .resume_experience_validity_service import classify_experience_project
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "docx_delivery_readiness.jsonl"
@@ -93,6 +94,10 @@ def prepare_docx_delivery(
     projects: list[dict] = []
     for project_index, raw_project in enumerate(sections.get("projects", [])):
         if not isinstance(raw_project, dict):
+            continue
+        if classify_experience_project(raw_project) != "valid":
+            stats["invalid_incomplete_text_count"] += 1
+            stats["affected_fields"].append(f"projects.{project_index}")
             continue
         project = dict(raw_project)
         for key in ("name", "meta", "time", "intro", "role"):

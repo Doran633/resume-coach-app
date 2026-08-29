@@ -12,6 +12,7 @@ from .experience_identity_service import ExperienceIdentity, build_experience_id
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score, is_generic_detail
 from .project_hierarchy_service import merge_parent_child_projects
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from .resume_experience_validity_service import ensure_resume_experience_validity
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -294,6 +295,13 @@ def reconcile_resume_projects(
         generation_result_id=generation_result_id,
         write_log=write_log,
         apply_hierarchy=False,
+    )
+    updated = ensure_resume_experience_validity(
+        updated,
+        raw_input,
+        stage=f"{stage}_reconciliation",
+        generation_result_id=generation_result_id,
+        write_log=write_log,
     )
     stats.projects_after = len(updated.resume_sections.projects)
     if write_log:

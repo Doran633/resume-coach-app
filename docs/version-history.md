@@ -655,3 +655,15 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - Fact Coverage 与 Experience Boundary 支持合并来源 ID，防止后续质量服务误删父子项目的本地事实。
 - 历史结果重新导出 DOCX 时同步执行空壳检测和父子合并，内部层级字段在输出前清理。
 - 新增 `backend/logs/project_hierarchy.jsonl`，记录空壳、父子关系、合并、标题残片和低置信关系统计，不记录完整经历正文。
+
+## v0.6.9：正式经历有效性硬门槛
+
+- 将“其他经历｜个人项目｜[待填写]”定位为标题残片经过分段、Experience Identity、Fallback 和 DOCX 投递链路逐层放大的数据污染。
+- 语义分段和显式标题分段增加标题型片段过滤；纯名称、身份和时间行不再获得独立 `experience_id`，也不进入 Fact Ledger。
+- Fallback 项目新增独立事实准入条件，不再为了覆盖每个内部 ID 创建无动作、无功能、无技术或无结果的项目。
+- Project Hierarchy 新增 `heading_residue_shell`、`generic_name_shell` 和 `empty_fact_shell` 识别，覆盖 intro、role、details 重复同一标题行的失败形态。
+- 新增 `resume_experience_validity_service.py`，在 Fallback 后、保存前和 DOCX 渲染前执行经历有效性硬门槛。
+- 标题空壳优先按 canonical name 或 alias 吸收到真实项目；无法恢复时删除并进入 `missing_questions`，不使用通用模板补齐。
+- Entity Dedup 仅对“无独立事实且明确指向另一项目”的标题残片绕过不同 source ID 隔离，普通项目相似度阈值不变。
+- 历史结果重新导出 DOCX 时也会移除“其他经历”和标题残片，同时保留原项目的 RAG、隔离、日志、部署等高价值事实。
+- 新增脱敏日志 `backend/logs/resume_experience_validity.jsonl`，记录通用名称、标题残片、吸收、删除和 Fallback 拒绝数量。

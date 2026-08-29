@@ -53,6 +53,7 @@ from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from .resume_experience_validity_service import ensure_resume_experience_validity
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 
 
@@ -180,6 +181,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = sanitize_resume_body(payload, raw_input)
     payload = guard_hard_facts(payload, raw_input)
     payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
+    payload = ensure_resume_experience_validity(
+        payload,
+        raw_input,
+        stage="docx_after_fallback",
+        generation_result_id=request.generation_result_id,
+    )
     payload = ensure_packaging_gain(payload, raw_input, target_role)
     payload = guard_experience_boundaries(payload, raw_input, generation_result_id=request.generation_result_id, stage="docx_export")
     payload = cleanup_uncertain_expressions(payload, raw_input)
@@ -314,6 +321,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     )
     payload = resolve_resume_titles(payload, raw_input)
     payload = deduplicate_resume_experience_entities(
+        payload,
+        raw_input,
+        stage="before_docx_render",
+        generation_result_id=request.generation_result_id,
+    )
+    payload = ensure_resume_experience_validity(
         payload,
         raw_input,
         stage="before_docx_render",

@@ -38,6 +38,7 @@ ACTION_OR_EVIDENCE_PATTERN = re.compile(
     r"React|FastAPI|SQLite|RAG|Embedding|Citation|Nginx|systemd|\d+(?:\.\d+)?",
     re.IGNORECASE,
 )
+GENERIC_EXPERIENCE_NAMES = {"其他经历", "其他项目", "综合经历", "综合经历项目", "未命名经历"}
 
 
 @dataclass
@@ -134,14 +135,46 @@ def _meaningful_details(project: dict) -> list[str]:
 def is_shell_project(project: dict) -> bool:
     details = [_compact(item) for item in project.get("details", []) or [] if _compact(item)]
     heading_only = not details or all(is_heading_detail(item) for item in details)
+    intro = _compact(project.get("intro"))
+    role = _compact(project.get("role"))
+    title_fields_are_headings = all(
+        not value or is_heading_detail(value) for value in (intro, role)
+    )
+    visible_rows = [value for value in [intro, role, *details] if value]
+    repeated_heading = bool(
+        visible_rows
+        and all(is_heading_detail(value) for value in visible_rows)
+        and len({_normalized(value) for value in visible_rows}) <= 1
+    )
+    generic_name = _compact(project.get("name")) in GENERIC_EXPERIENCE_NAMES
     return bool(
         len(details) <= 1
         and heading_only
         and not _meaningful_details(project)
-        and _generic_text(project.get("intro"), GENERIC_INTRO_PATTERNS)
-        and _generic_text(project.get("role"), GENERIC_ROLE_PATTERNS)
+        and (
+            repeated_heading
+            or title_fields_are_headings
+            or generic_name
+            or (
+                _generic_text(project.get("intro"), GENERIC_INTRO_PATTERNS)
+                and _generic_text(project.get("role"), GENERIC_ROLE_PATTERNS)
+            )
+        )
         and len(_fact_ids(project)) <= 1
     )
+
+
+def classify_shell_project(project: dict) -> str:
+    if not is_shell_project(project):
+        return ""
+    if _compact(project.get("name")) in GENERIC_EXPERIENCE_NAMES:
+        return "generic_name_shell"
+    rows = [_compact(project.get("intro")), _compact(project.get("role")), *[
+        _compact(item) for item in project.get("details", []) or []
+    ]]
+    if any(is_heading_detail(row) for row in rows if row):
+        return "heading_residue_shell"
+    return "empty_fact_shell"
 
 
 def _same_owner_and_time(left: dict, right: dict) -> bool:

@@ -5,6 +5,7 @@ from .experience_identity_service import build_segmentation_questions
 from .long_input_service import EVIDENCE_TERMS, RISK_TERMS, TECH_TERMS, LongInputContext, compact_text, extract_terms
 from .resume_role_resolution_service import resolve_role_for_experience
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from .resume_experience_validity_service import ensure_resume_experience_validity, is_valid_fallback_candidate
 
 
 NEGATIVE_INTERNSHIP_PATTERNS = ["没有实习", "无实习", "没实习", "没有实习经历", "没有实习经验"]
@@ -89,6 +90,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     all_interview_terms: list[str] = []
     projects: list[dict] = []
     used_supported_wordings: set[str] = set()
+    rejected_candidates = 0
 
     for segment in context.segments[:5]:
         tech_terms = segment.tech_terms
@@ -111,8 +113,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
         role, role_fact_ids = resolve_role_for_experience(
             request.raw_input, segment.experience_id, details=details, intro=_intro_from_content(segment.content),
         )
-        projects.append(
-            {
+        candidate = {
                 "name": segment.title,
                 "meta": meta,
                 "time": "[待填写]",
@@ -122,23 +123,16 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "source_experience_id": segment.experience_id,
                 "role_source_fact_ids": role_fact_ids,
             }
-        )
-
-    if not projects:
-        projects.append(
-            {
-                "name": "综合经历",
-                "meta": "综合经历",
-                "time": "[待填写]",
-                "intro": compact_text(request.raw_input, 180),
-                "role": "",
-                "details": _split_details(request.raw_input, limit=5),
-                "source_experience_id": "EXP-001",
-            }
-        )
+        if is_valid_fallback_candidate(candidate, request.raw_input):
+            projects.append(candidate)
+        else:
+            rejected_candidates += 1
 
     project_names = "、".join(project["name"] for project in projects[:3])
-    normal = f"稳定模式已识别并保留主要经历：{project_names}。建议围绕目标岗位整理项目定位、个人职责、技术动作和结果证据。"
+    normal = (
+        f"稳定模式已识别并保留主要经历：{project_names}。建议围绕目标岗位整理项目定位、个人职责、技术动作和结果证据。"
+        if project_names else "当前输入尚未形成可安全写入正式简历的完整经历，请补充职责、技术动作或结果证据。"
+    )
     bold = f"可将这些经历包装为面向{request.target_role}的连续实践：突出多段经历中的技术链路、问题排查、交付结果和可面试承接的证据材料。"
     boundary = "边界参考：未提供的学校、专业、用户数、并发、奖项、模型训练等硬事实不能补写；缺少证据的强表达应降级。"
     recommended = f"{normal}\n{bold}"
@@ -147,7 +141,10 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     payload = schemas.GenerationPayload(
         completeness_score=72 if context.long_input_mode else 64,
         confirmed_facts=["系统基于用户原文识别出主要经历", f"识别到 {context.segment_count} 段经历"],
-        missing_questions=(segmentation_questions + ["每段经历的时间、个人贡献边界和证据材料可以继续补充。"])[:8],
+        missing_questions=(segmentation_questions + [
+            "每段经历的时间、个人贡献边界和证据材料可以继续补充。",
+            *(["检测到仅含标题或元数据的片段，请补充该经历的职责、技术动作或结果证据。"] if rejected_candidates else []),
+        ])[:8],
         normal_version=normal,
         bold_version=bold,
         boundary_version=boundary,
@@ -169,8 +166,14 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
             interview_preparation=["逐段准备职责边界、技术细节、证据材料和降级表达。"],
         ),
     )
-    return deduplicate_resume_experience_entities(
+    payload = deduplicate_resume_experience_entities(
         payload,
         request.raw_input,
         stage="stable_fallback",
+    )
+    return ensure_resume_experience_validity(
+        payload,
+        request.raw_input,
+        stage="stable_fallback",
+        fallback_candidate_rejected_count=rejected_candidates,
     )
