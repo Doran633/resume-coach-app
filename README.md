@@ -757,3 +757,11 @@ v0.3 建议主题：输出质量优化。
 - 支持数据分析与建模、数据可视化、物联网与通信、地图与路线服务、安全机制、开发工具与环境等分类。
 - 项目正文偏薄时优先恢复对应 `experience_id` 的目标、功能、技术、职责与结果，不从目标岗位反推技能，也不用通用模板句凑内容。
 - `backend/logs/resume_skill_evidence.jsonl` 记录恢复和过滤情况；`backend/logs/resume_output_quality.jsonl` 记录技能证据遗漏、薄项目数量和项目事实覆盖率。
+
+### v0.6.7：技术术语消歧与输出相关性
+
+- 技能恢复不再依据孤立关键词分类，而是结合对应 `experience_id` / `fact_id` 的局部事实语境解析术语含义。
+- 区分 Token 调用成本、Prompt 上下文和接口鉴权：只有 JWT、Bearer、鉴权、登录态或权限证据才进入“安全机制”。
+- 模型、训练、部署、用户和测试等歧义词同步建立语境判定；低置信术语不进入正式简历，而进入信息缺口提示。
+- 输出相关性检查会移动或删除错误技能分类，但不会删除项目正文中已经确认的指标和工程事实。
+- 消歧日志：`backend/logs/technical_term_disambiguation.jsonl`；输出相关性日志：`backend/logs/resume_output_relevance.jsonl`。两类日志只记录术语含义、分类、置信度和来源 ID，不记录完整经历。

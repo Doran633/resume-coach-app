@@ -8,6 +8,11 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_fact_ledger_service import build_experience_fact_ledger
 from .long_input_service import TECH_TERMS
+from .technical_term_disambiguation_service import (
+    best_resolution,
+    resolve_technical_terms,
+    write_disambiguation_log,
+)
 from .uncertain_expression_cleanup_service import INFERENCE_TERMS
 
 
@@ -121,11 +126,22 @@ def guard_resume_skill_evidence(
     stats.skill_count_before = len(updated.resume_sections.skills)
     evidence = _visible_evidence(updated, raw_input)
     ledger = build_experience_fact_ledger(raw_input)
+    resolutions = resolve_technical_terms(raw_input)
+    if write_log:
+        write_disambiguation_log(
+            resolutions, stage=stage, generation_result_id=generation_result_id,
+        )
     supported_by_term: dict[str, list] = {}
     for fact in ledger.facts:
         for term in _skill_terms(fact.fact_text):
             if _has_grounded_term(fact.fact_text, term):
                 canonical = _canonical_term(term)
+                if canonical.lower() == "token":
+                    resolution = best_resolution(
+                        [item for item in resolutions if item.fact_id == fact.fact_id], "Token",
+                    )
+                    if not resolution or not resolution.category or resolution.confidence < 0.65:
+                        continue
                 stats.normalized_skill_count += canonical != term
                 supported_by_term.setdefault(canonical.lower(), []).append(fact)
                 stats.explicit_skill_count += 1

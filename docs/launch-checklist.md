@@ -252,6 +252,9 @@ tail -n 20 backend/logs/docx_delivery_readiness.jsonl
 - 重复详情和内部字段泄露均为 0。
 - 固定 Payload 可以生成非空 DOCX，且不包含面试准备清单和内部 ID。
 - 修改 Prompt、Guard、Fallback、技能分类或 DOCX 服务后，必须重新运行黄金回归。
+- 使用“平均 Token 消耗从 1400 降低到 600”回归，确认指标保留且技能栏不出现“安全机制：Token”。
+- 使用“JWT Token 完成接口鉴权”回归，确认真实安全机制不会被误删。
+- `technical_term_disambiguation.jsonl` 与 `resume_output_relevance.jsonl` 不包含完整用户经历。
 
 固定基线评测：
 

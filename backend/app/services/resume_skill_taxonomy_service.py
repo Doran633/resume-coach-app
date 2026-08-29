@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .technical_term_disambiguation_service import best_resolution, resolve_technical_terms
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_skill_taxonomy.jsonl"
 CATEGORIES = OrderedDict([
     ("编程语言", ["Python", "Java", "JavaScript", "TypeScript", "SQL", "C++", "Go"]),
@@ -21,7 +22,9 @@ CATEGORIES = OrderedDict([
     ("数据可视化", ["数据可视化"]),
     ("物联网与通信", ["LoRa", "地磁传感器"]),
     ("地图与路线服务", ["地图 API", "路线规划"]),
-    ("安全机制", ["SSL", "Token"]),
+    ("安全机制", ["SSL"]),
+    ("大模型工程与成本优化", ["Token"]),
+    ("Prompt 工程与上下文管理", []),
     ("开发工具与环境", ["CodeBuddy", "虚拟机"]),
     ("其他工具", []),
 ])
@@ -69,6 +72,7 @@ def _write_log(stats: SkillTaxonomyStats) -> None:
 def calibrate_resume_skill_taxonomy(
     payload: schemas.GenerationPayload,
     target_role: str = "",
+    raw_input: str = "",
     *,
     stage: str = "unknown",
     generation_result_id: int | None = None,
@@ -78,6 +82,7 @@ def calibrate_resume_skill_taxonomy(
     updated = payload.model_copy(deep=True)
     stats = SkillTaxonomyStats(stage=stage, generation_result_id=generation_result_id)
     stats.skills_before_count = len(updated.resume_sections.skills)
+    resolutions = resolve_technical_terms(raw_input) if raw_input else []
     grouped: dict[str, list[str]] = {name: [] for name in CATEGORIES}
     seen: set[str] = set()
     for raw_line in updated.resume_sections.skills:
@@ -90,6 +95,14 @@ def calibrate_resume_skill_taxonomy(
                 continue
             seen.add(key)
             category = _category(term)
+            if term.lower() == "token" and raw_input:
+                resolution = best_resolution(resolutions, "Token")
+                if not resolution or not resolution.category or resolution.confidence < 0.65:
+                    stats.unsupported_skills_removed += 1
+                    continue
+                category = resolution.category
+            elif term.lower() == "token" and old_label and old_label.group(1).strip() in CATEGORIES:
+                category = old_label.group(1).strip()
             if old_label and old_label.group(1).strip() != category:
                 stats.category_corrections += 1
             grouped[category].append(term)

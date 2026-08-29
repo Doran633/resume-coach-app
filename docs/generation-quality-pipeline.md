@@ -66,6 +66,9 @@ Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance �
 | 个人优势 | `resume_summary_quality_service` | 是 | 生成事实支撑的候选人能力，隔离教练话术 |
 | 输出防火墙 | `resume_output_firewall_service` | 是 | 清理写作指令、模板残片和调试文本 |
 | 语言专业化 | `resume_language_professionalization_service` | 是 | 将口语和内部标签转换为行动表达 |
+| 技术术语消歧 | `technical_term_disambiguation_service` | 否 | 基于局部事实语境解析 Token、模型、训练、部署、用户和测试等歧义词 |
+| 技能证据与分类 | Skill Evidence + `resume_skill_taxonomy_service` | 修改 skills | 先验证事实证据，再消费消歧结果分类，不按孤立关键词推导能力 |
+| 输出相关性 | `resume_output_relevance_service` | 修改 skills / missing_questions | 移动错误类别、删除低置信歧义技能，并保留项目正文事实 |
 | Section 完整性 | `resume_section_integrity_service` | 是 | 保证正式 Section 具备业务可用内容 |
 | 文本完整性 | `resume_text_integrity_service` | 是 | 修复截断句和内部摘要污染 |
 | 标点净化 | `resume_typography_quality_service` | 是 | 修复连续/混合标点和异常空格，不改变技术词与事实 |
@@ -196,10 +199,12 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 
 在事实覆盖、语义单元恢复和事实簇去重完成后，依次执行：
 
-1. `resume_skill_evidence_guard_service`：只决定技能是否有资格进入正式简历，不负责知识推荐。
-2. `resume_skill_presentation_service`：仅组织已经通过证据校验的技能，负责分类、去重和目标岗位排序，不得新增技术事实。
+1. `technical_term_disambiguation_service`：先结合对应事实句确认歧义术语含义，不修改简历正文。
+2. `resume_skill_evidence_guard_service`：只决定技能是否有资格进入正式简历，不负责知识推荐。
+3. `resume_skill_taxonomy_service` / `resume_skill_presentation_service`：仅组织已经通过证据校验的技能，并消费消歧结果，不得新增技术事实。
+4. `resume_output_relevance_service`：检查类别与事实语境是否一致；低置信项进入信息缺口，不以“如有”形式写入简历。
 
-技能处理顺序固定为：Skill Evidence Guard -> Resume Skill Presentation -> Recruiter Language -> Whitespace Quality。后置文本清洗不得删除技能分类标题。
+技能处理顺序固定为：Technical Term Disambiguation -> Skill Evidence Guard -> Skill Taxonomy -> Output Relevance -> Recruiter Language -> Whitespace Quality。后置文本清洗不得删除技能分类标题。
 
 职责处理遵循：Experience Boundary Guard -> Resume Role Resolution -> Template Language Guard -> Resume Output Firewall。Role Resolution 只能使用当前 `experience_id` 的职责/动作事实；无法恢复时允许留空，任何后置服务不得重新写入系统占位说明。
 2. `recruiter_language_service`：把内部字段枚举转换为招聘者可理解的工程价值，不改变事实归属。

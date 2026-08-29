@@ -49,6 +49,7 @@ from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
 from .resume_section_layering_service import layer_resume_sections
 from .resume_fact_increment_service import ensure_resume_fact_increment
 from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
+from .resume_output_relevance_service import guard_resume_output_relevance
 from .recruiter_facing_technical_language_service import ensure_recruiter_facing_technical_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
@@ -494,7 +495,10 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = guard_resume_output(payload, request.raw_input, stage="before_save")
     payload = professionalize_resume_language(payload, stage="generation")
     payload = guard_resume_skill_evidence(payload, request.raw_input, stage="generation")
-    payload = calibrate_resume_skill_taxonomy(payload, request.target_role, stage="generation")
+    payload = calibrate_resume_skill_taxonomy(
+        payload, request.target_role, request.raw_input, stage="generation",
+    )
+    payload = guard_resume_output_relevance(payload, request.raw_input, stage="generation")
     payload = ensure_recruiter_facing_technical_language(payload, stage="generation")
     payload = ensure_recruiter_readability(payload, stage="generation")
     payload = ensure_paired_symbol_integrity(payload, stage="generation")
@@ -504,6 +508,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = ensure_typography_quality(payload, stage="generation")
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
+    payload = guard_resume_output_relevance(payload, request.raw_input, stage="before_save")
     payload = resolve_project_types(payload, request.raw_input, stage="before_save")
     payload = resolve_resume_titles(payload, request.raw_input)
     payload = deduplicate_resume_experience_entities(

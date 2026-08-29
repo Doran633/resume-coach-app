@@ -62,7 +62,7 @@ def _payload() -> schemas.GenerationPayload:
 
 def test_empty_skills_are_recovered_from_explicit_evidence_and_categorized():
     payload = guard_resume_skill_evidence(_payload(), RAW_INPUT, write_log=False)
-    payload = calibrate_resume_skill_taxonomy(payload, write_log=False)
+    payload = calibrate_resume_skill_taxonomy(payload, raw_input=RAW_INPUT, write_log=False)
     text = "\n".join(payload.resume_sections.skills)
 
     for expected in ["CodeBuddy", "虚拟机", "LoRa", "地磁传感器", "地图 API", "SSL", "Token", "回归分析", "数据可视化", "路线规划"]:

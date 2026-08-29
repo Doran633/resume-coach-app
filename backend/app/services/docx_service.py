@@ -46,6 +46,7 @@ from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
 from .resume_section_layering_service import layer_resume_sections
 from .resume_fact_increment_service import ensure_resume_fact_increment
 from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
+from .resume_output_relevance_service import guard_resume_output_relevance
 from .recruiter_facing_technical_language_service import ensure_recruiter_facing_technical_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
@@ -264,7 +265,10 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
     )
     payload = calibrate_resume_skill_taxonomy(
-        payload, target_role, stage="docx_export", generation_result_id=request.generation_result_id,
+        payload, target_role, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
+    )
+    payload = guard_resume_output_relevance(
+        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
     )
     payload = ensure_recruiter_facing_technical_language(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
@@ -293,6 +297,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         payload,
         raw_input,
         stage="docx_export",
+        generation_result_id=request.generation_result_id,
+    )
+    payload = guard_resume_output_relevance(
+        payload,
+        raw_input,
+        stage="before_docx_render",
         generation_result_id=request.generation_result_id,
     )
     payload = resolve_project_types(

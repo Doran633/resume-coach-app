@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .resume_skill_evidence_guard_service import _skill_terms
+from .technical_term_disambiguation_service import best_resolution, resolve_technical_terms
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_skill_presentation.jsonl"
@@ -23,7 +24,9 @@ CATEGORY_TERMS = OrderedDict([
     ("数据可视化", ["数据可视化"]),
     ("物联网与通信", ["LoRa", "地磁传感器"]),
     ("地图与路线服务", ["地图 API", "路线规划"]),
-    ("安全机制", ["SSL", "Token"]),
+    ("安全机制", ["SSL"]),
+    ("大模型工程与成本优化", ["Token"]),
+    ("Prompt 工程与上下文管理", []),
     ("开发工具与环境", ["CodeBuddy", "虚拟机"]),
     ("工程化与部署", ["Git", "Linux", "Docker", "Nginx", "systemd", "VPS", "CI", "CORS"]),
     ("测试与质量保障", ["pytest", "Smoke Test", "JMeter", "Groundedness", "Citation", "Retrieval", "Debug Trace"]),
@@ -101,6 +104,7 @@ def _write_log(stats: SkillPresentationStats) -> None:
 def organize_resume_skills(
     payload: schemas.GenerationPayload,
     target_role: str = "",
+    raw_input: str = "",
     *,
     stage: str = "unknown",
     generation_result_id: int | None = None,
@@ -112,6 +116,7 @@ def organize_resume_skills(
     stats.skill_lines_before = len(updated.resume_sections.skills)
     grouped: dict[str, list[str]] = {category: [] for category in DEFAULT_ORDER}
     seen: set[str] = set()
+    resolutions = resolve_technical_terms(raw_input) if raw_input else []
 
     for raw_line in updated.resume_sections.skills:
         line = str(raw_line or "").strip()
@@ -127,6 +132,12 @@ def organize_resume_skills(
                 continue
             seen.add(key)
             category = _category_for(term, preferred)
+            if term.lower() == "token" and raw_input:
+                resolution = best_resolution(resolutions, "Token")
+                if not resolution or not resolution.category or resolution.confidence < 0.65:
+                    stats.unsupported_skill_removed_count += 1
+                    continue
+                category = resolution.category
             grouped[category].append(term)
             stats.categorized_skill_count += category != "其他技术"
             stats.uncategorized_skill_count += category == "其他技术"
