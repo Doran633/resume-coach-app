@@ -40,6 +40,18 @@ def _project_text(project: dict) -> str:
     return "\n".join([str(project.get("intro", "")), str(project.get("role", "")), *map(str, details)])
 
 
+def _project_source_ids(project: dict) -> list[str]:
+    values: list[str] = []
+    for key in ["source_experience_id", "merged_source_experience_ids", "source_experience_ids"]:
+        raw = project.get(key)
+        rows = raw if isinstance(raw, list) else [raw]
+        for item in rows:
+            value = str(item or "").strip()
+            if value and value not in values:
+                values.append(value)
+    return values
+
+
 def _fact_covered(fact: ExperienceFact, project: dict) -> bool:
     project_text = _project_text(project).lower()
     signature = fact_signature_terms(fact)
@@ -94,14 +106,15 @@ def guard_fact_coverage(
     stats.high_value_fact_count = sum(fact.importance == "high" for fact in ledger.facts)
 
     projects = updated.resume_sections.projects
-    project_by_source = {
-        str(project.get("source_experience_id")): project
-        for project in projects if project.get("source_experience_id")
-    }
+    project_by_source: dict[str, dict] = {}
+    for project in projects:
+        for source_id in _project_source_ids(project):
+            project_by_source[source_id] = project
 
     moves: list[tuple[str, str, str]] = []
     for project in projects:
         source_id = str(project.get("source_experience_id") or "")
+        source_ids = set(_project_source_ids(project))
         kept: list[str] = []
         detail_fact_ids: list[list[str]] = []
         for raw_detail in project.get("details", []) or []:
@@ -112,9 +125,11 @@ def guard_fact_coverage(
                 stats.removed_generic_detail_count += 1
                 continue
             best, best_score = _best_fact(detail, ledger.facts)
-            current_facts = ledger.for_experience(source_id)
+            current_facts = [
+                fact for fact in ledger.facts if fact.experience_id in source_ids
+            ]
             current_best, current_score = _best_fact(detail, current_facts)
-            if best and best.experience_id != source_id and best_score >= 0.62 and current_score < 0.45:
+            if best and best.experience_id not in source_ids and best_score >= 0.62 and current_score < 0.45:
                 stats.cross_experience_fact_count += 1
                 moves.append((best.experience_id, detail, best.fact_id))
                 continue

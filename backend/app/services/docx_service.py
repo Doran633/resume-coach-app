@@ -53,6 +53,7 @@ from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from .project_hierarchy_service import strip_project_hierarchy_metadata
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -326,6 +327,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
     )
     log_generation_stage(payload, "before_docx_render", request.generation_result_id)
+    payload = strip_project_hierarchy_metadata(payload)
 
     doc = Document()
     _setup(doc)

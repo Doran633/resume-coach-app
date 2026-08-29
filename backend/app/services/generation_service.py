@@ -56,6 +56,7 @@ from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from .project_hierarchy_service import strip_project_hierarchy_metadata
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -516,6 +517,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     )
     evaluate_resume_output_quality(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "before_save")
+    payload = strip_project_hierarchy_metadata(payload)
 
     result = models.GenerationResult(
         experience_input_id=experience.id,

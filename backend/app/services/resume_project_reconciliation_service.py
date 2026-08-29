@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score, is_generic_detail
+from .project_hierarchy_service import merge_parent_child_projects
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 
 
@@ -273,6 +274,13 @@ def reconcile_resume_projects(
     if comprehensive and concrete:
         stats.comprehensive_projects_removed = len(comprehensive)
 
+    concrete = merge_parent_child_projects(
+        concrete,
+        raw_input,
+        stage=f"{stage}_reconciliation",
+        generation_result_id=generation_result_id,
+        write_log=write_log,
+    )
     _apply_detail_budget(concrete, raw_input)
     coverage = _assign_project_sources(concrete, identities)
     stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in coverage]
@@ -285,6 +293,7 @@ def reconcile_resume_projects(
         stage=f"{stage}_reconciliation",
         generation_result_id=generation_result_id,
         write_log=write_log,
+        apply_hierarchy=False,
     )
     stats.projects_after = len(updated.resume_sections.projects)
     if write_log:

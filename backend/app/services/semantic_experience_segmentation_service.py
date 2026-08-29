@@ -54,6 +54,14 @@ THEME_KEYWORDS = {
     "parking": ["停车场", "停车指引", "路线", "天气", "车流", "路演"],
 }
 
+PHASE_RELATION_TERMS = (
+    "MVP", "阶段", "版本", "模块", "子系统", "原型", "升级", "演进", "重构",
+    "第一阶段", "第二阶段",
+)
+HEADING_ROLE_TERMS = (
+    "个人项目", "课程项目", "独立开发者", "项目经历", "实习经历", "负责人", "核心成员",
+)
+
 
 @dataclass
 class SemanticExperienceSegment:
@@ -70,6 +78,11 @@ class SemanticExperienceSegment:
     evidence_terms: list[str] = field(default_factory=list)
     risk_terms: list[str] = field(default_factory=list)
     supported_inference_terms: list[str] = field(default_factory=list)
+    canonical_project_name: str = ""
+    project_aliases: list[str] = field(default_factory=list)
+    parent_project_name: str = ""
+    phase_name: str = ""
+    relation_type: str = "independent"
 
 
 @dataclass
@@ -84,6 +97,67 @@ class SemanticSegmentationResult:
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip(" ，,。；;：:")
+
+
+def clean_heading_title(text: str) -> str:
+    value = re.sub(r"^\s*#{1,6}\s*", "", str(text or "")).strip()
+    value = re.sub(
+        r"^(?:项目|经历)[一二三四五六七八九十\d]*\s*[:：|｜\-—]?\s*",
+        "",
+        value,
+    )
+    return value.split("｜", 1)[0].split("|", 1)[0].strip(" #：:|｜-—")
+
+
+def is_phase_heading(text: str) -> bool:
+    title = clean_heading_title(text)
+    return bool(title) and (
+        any(term.lower() in title.lower() for term in PHASE_RELATION_TERMS)
+        or bool(re.search(r"从.{2,50}(?:演进|升级|重构)到", title, re.IGNORECASE))
+    )
+
+
+def is_heading_only_text(text: str) -> bool:
+    value = _normalize(text)
+    if not value or len(value) > 110 or re.search(r"[。！？；;]", value):
+        return False
+    parts = [part.strip() for part in re.split(r"[｜|]", value) if part.strip()]
+    if len(parts) >= 2 and any(
+        term in part for part in parts[1:] for term in HEADING_ROLE_TERMS
+    ):
+        return True
+    return bool(re.match(r"^#{1,6}\s*[^。！？；;]{2,80}$", str(text or "").strip()))
+
+
+def infer_project_hierarchy_metadata(title: str, raw_text: str) -> dict[str, object]:
+    lines = [line.strip() for line in str(raw_text or "").splitlines() if line.strip()]
+    heading_titles = [clean_heading_title(line) for line in lines if is_heading_only_text(line)]
+    heading_titles = [item for item in heading_titles if item]
+    base_title = clean_heading_title(title)
+    if base_title and base_title not in heading_titles:
+        heading_titles.insert(0, base_title)
+
+    phase_title = next((item for item in heading_titles[1:] if is_phase_heading(item)), "")
+    parent_title = heading_titles[0] if phase_title and heading_titles else ""
+    if not phase_title and is_phase_heading(base_title):
+        phase_title = base_title
+        evolution = re.search(r"从\s*([^，。；;]{2,60})\s*(?:演进|升级|重构)到", raw_text, re.IGNORECASE)
+        parent_title = clean_heading_title(evolution.group(1)) if evolution else ""
+
+    phase_display_name = re.split(r"[（(]", phase_title, maxsplit=1)[0].strip() if phase_title else ""
+
+    relation_type = "independent"
+    if phase_title:
+        relation_type = "module_of" if any(term in phase_title for term in ["模块", "子系统"]) else "phase_of"
+    canonical = parent_title or base_title or (heading_titles[0] if heading_titles else "")
+    aliases = list(dict.fromkeys(item for item in [canonical, *heading_titles] if item))
+    return {
+        "canonical_project_name": canonical,
+        "project_aliases": aliases,
+        "parent_project_name": parent_title,
+        "phase_name": phase_display_name,
+        "relation_type": relation_type,
+    }
 
 
 def _strip_context(text: str) -> tuple[str, int]:
@@ -230,6 +304,35 @@ def _merge_related_campus_segments(segments: list[dict]) -> tuple[list[dict], in
     return result, merged
 
 
+def _merge_parent_phase_heading_segments(segments: list[dict]) -> tuple[list[dict], int]:
+    if len(segments) < 2:
+        return segments, 0
+    result: list[dict] = []
+    merged = 0
+    index = 0
+    while index < len(segments):
+        current = segments[index]
+        if index + 1 < len(segments):
+            following = segments[index + 1]
+            adjacent = following["start_offset"] - current["end_offset"] <= 4
+            if adjacent and is_heading_only_text(current["raw_text"]) and is_phase_heading(following["raw_text"]):
+                combined = dict(following)
+                combined["raw_text"] = f"{current['raw_text']}\n{following['raw_text']}"
+                combined["start_offset"] = current["start_offset"]
+                combined["segmentation_reasons"] = [
+                    *current["segmentation_reasons"],
+                    *following["segmentation_reasons"],
+                    "父产品标题与阶段标题合并",
+                ]
+                result.append(combined)
+                merged += 1
+                index += 2
+                continue
+        result.append(current)
+        index += 1
+    return result, merged
+
+
 def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage: str = "unknown") -> SemanticSegmentationResult:
     source = raw_input or ""
     cleaned, discarded = _strip_context(source)
@@ -278,10 +381,13 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 low_confidence += 1
                 questions.append(f"“{_infer_title(clause, _infer_type(clause))}”是否需要作为单独经历展示？")
 
-    grouped, merged_count = _merge_related_campus_segments(grouped)
+    grouped, hierarchy_merged_count = _merge_parent_phase_heading_segments(grouped)
+    grouped, campus_merged_count = _merge_related_campus_segments(grouped)
+    merged_count = hierarchy_merged_count + campus_merged_count
     segments: list[SemanticExperienceSegment] = []
     for index, item in enumerate(grouped, start=1):
         experience_type = _infer_type(item["raw_text"])
+        hierarchy = infer_project_hierarchy_metadata(item.get("title", ""), item["raw_text"])
         segments.append(
             SemanticExperienceSegment(
                 experience_id=f"EXP-{index:03d}",
@@ -292,6 +398,11 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 end_offset=item["end_offset"],
                 segmentation_confidence=item["segmentation_confidence"],
                 segmentation_reasons=item["segmentation_reasons"],
+                canonical_project_name=str(hierarchy["canonical_project_name"]),
+                project_aliases=list(hierarchy["project_aliases"]),
+                parent_project_name=str(hierarchy["parent_project_name"]),
+                phase_name=str(hierarchy["phase_name"]),
+                relation_type=str(hierarchy["relation_type"]),
             )
         )
 
@@ -328,6 +439,7 @@ def write_segmentation_log(result: SemanticSegmentationResult, raw_input_length:
                     "confidence": round(item.segmentation_confidence, 3),
                     "reasons": item.segmentation_reasons,
                     "raw_text_length": len(item.raw_text),
+                    "relation_type": item.relation_type,
                 }
                 for item in result.segments
             ],

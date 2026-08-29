@@ -644,3 +644,14 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - 新增输出相关性检查，要求歧义技能分类绑定 `experience_id` / `fact_id`，并在生成保存与历史 DOCX 导出前复检。
 - 错误分类只移动或删除技能标签，不删除用户明确提供的量化指标、工程动作和项目结果。
 - 新增脱敏结构化日志 `technical_term_disambiguation.jsonl` 和 `resume_output_relevance.jsonl`。
+
+## v0.6.8：父产品与阶段项目层级去重
+
+- 将“北辰 Agent / AI Study Assistant”与“Course-scoped Study MVP”重复输出定位为项目实体层级错误，而不是普通句子重复。
+- 语义分段与 Experience Identity 增加 MVP、阶段、版本、模块、子系统、原型、升级、演进和重构关系识别，纯标题行不再独立形成无事实经历。
+- 新增 `project_hierarchy_service.py`，检测通用简介、通用职责、标题式 detail 和缺少独立事实的空壳项目。
+- 父子项目只有在至少两个强关系信号成立时才合并；共享 RAG 或全栈技术栈不作为独立合并依据。
+- 合并标题采用“主产品名称（具体阶段）”，保留不重复的技术、评测、隔离、日志、部署和问题排查事实，并删除标题残片。
+- Fact Coverage 与 Experience Boundary 支持合并来源 ID，防止后续质量服务误删父子项目的本地事实。
+- 历史结果重新导出 DOCX 时同步执行空壳检测和父子合并，内部层级字段在输出前清理。
+- 新增 `backend/logs/project_hierarchy.jsonl`，记录空壳、父子关系、合并、标题残片和低置信关系统计，不记录完整经历正文。

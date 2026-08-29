@@ -1,8 +1,11 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .long_input_service import LongInputSegment, analyze_long_input
-from .semantic_experience_segmentation_service import segment_semantic_experiences
+from .semantic_experience_segmentation_service import (
+    infer_project_hierarchy_metadata,
+    segment_semantic_experiences,
+)
 
 
 @dataclass
@@ -16,6 +19,12 @@ class ExperienceIdentity:
     evidence_terms: list[str]
     risk_terms: list[str]
     supported_inference_terms: list[str]
+    canonical_project_name: str = ""
+    project_aliases: list[str] = field(default_factory=list)
+    parent_project_name: str = ""
+    phase_name: str = ""
+    relation_type: str = "independent"
+    source_span: tuple[int, int] = (0, 0)
 
 
 def _experience_type(segment: LongInputSegment) -> str:
@@ -41,7 +50,15 @@ def _experience_type(segment: LongInputSegment) -> str:
 def build_experience_identities(raw_input: str) -> list[ExperienceIdentity]:
     context = analyze_long_input(raw_input)
     identities: list[ExperienceIdentity] = []
+    cursor = 0
     for segment in context.segments:
+        hierarchy = infer_project_hierarchy_metadata(segment.title, segment.content)
+        start = raw_input.find(segment.content, cursor)
+        if start < 0:
+            start = raw_input.find(segment.content)
+        start = max(0, start)
+        end = start + len(segment.content)
+        cursor = end
         identities.append(
             ExperienceIdentity(
                 experience_id=segment.experience_id,
@@ -53,6 +70,12 @@ def build_experience_identities(raw_input: str) -> list[ExperienceIdentity]:
                 evidence_terms=segment.evidence_terms,
                 risk_terms=segment.risk_terms,
                 supported_inference_terms=segment.supported_resume_terms,
+                canonical_project_name=str(hierarchy["canonical_project_name"]),
+                project_aliases=list(hierarchy["project_aliases"]),
+                parent_project_name=str(hierarchy["parent_project_name"]),
+                phase_name=str(hierarchy["phase_name"]),
+                relation_type=str(hierarchy["relation_type"]),
+                source_span=(start, end),
             )
         )
     return identities
@@ -75,6 +98,8 @@ def build_experience_identity_context(raw_input: str) -> str:
         lines.extend(
             [
                 f"{item.experience_id}｜{item.experience_type}｜{item.title}",
+                f"项目层级：{item.relation_type}｜主项目：{item.canonical_project_name or item.title}"
+                + (f"｜阶段/模块：{item.phase_name}" if item.phase_name else ""),
                 f"原文摘要：{_semantic_preview(item.raw_text, 220)}",
                 f"明确技术词：{'、'.join(item.explicit_tech_terms) if item.explicit_tech_terms else '未识别'}",
                 f"指标/证据词：{'、'.join(item.evidence_terms) if item.evidence_terms else '未识别'}",

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .project_hierarchy_service import merge_parent_child_projects
 from .resume_fact_dedup_service import information_score, similarity
 
 
@@ -301,6 +302,7 @@ def deduplicate_resume_experience_entities(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    apply_hierarchy: bool = True,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     projects = [deepcopy(item) for item in updated.resume_sections.projects if isinstance(item, dict)]
@@ -311,6 +313,15 @@ def deduplicate_resume_experience_entities(
         generation_result_id=generation_result_id,
         project_count_before=len(projects),
     )
+
+    if apply_hierarchy:
+        projects = merge_parent_child_projects(
+            projects,
+            raw_input,
+            stage=f"{stage}_entity_dedup",
+            generation_result_id=generation_result_id,
+            write_log=write_log,
+        )
 
     for project in projects:
         project["name"] = clean_project_title(project.get("name")) or "项目经历"

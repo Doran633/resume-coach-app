@@ -11,6 +11,15 @@
 
 句子去重解决“同一个项目里重复说”，Experience Entity Dedup 解决“同一个项目被生成两次”，两者不能互相替代。
 
+## v0.6.8 项目层级识别
+
+- 识别同一产品下的 MVP、阶段、版本、模块、子系统、原型、升级、演进和重构关系，避免父产品与具体阶段被重复输出为两个项目。
+- 新增空壳项目检测：只有通用简介、通用职责和标题式 detail、缺少独立事实的项目不会直接进入 DOCX。
+- 父子合并至少需要两个强关系信号，并要求同源、明确父项目引用或“空壳 + 相邻 + 阶段词”等核心证据；不会仅凭 RAG、React、FastAPI、SQLite 等共享技术栈合并项目。
+- 合并后使用“主产品名称（具体阶段）”作为标题，保留双方不重复的高价值事实，并删除“名称｜身份｜时间”标题残片。
+- 生成保存和历史 DOCX 导出都会执行项目层级复检；内部层级字段在返回前移除，不进入前端结果和 DOCX。
+- 层级日志位于 `backend/logs/project_hierarchy.jsonl`，只记录空壳数量、关系数量、规范项目名、合并来源 ID 和低置信关系数量，不记录完整用户输入。
+
 ## v0.5.9 输出质量阶段收口
 
 v0.5.x 已完成从事实边界到专业叙事的阶段建设，后续默认冻结 Experience ID、Fact Ledger、Fact Coverage、Dedup、个人优势、技能证据和 DOCX 正文规则。质量由黄金回归和结构化日志持续守护，不再通过无限叠加 Guard 提升。
@@ -584,6 +593,7 @@ sqlite3 backend/data/resume_coach.db "select id, generation_result_id, file_type
 - 经历边界守卫日志：`backend/logs/experience_boundary.jsonl`
 - 混合输入分段日志：`backend/logs/experience_segmentation.jsonl`
 - 项目级内容对账日志：`backend/logs/resume_project_reconciliation.jsonl`
+- 项目层级关系日志：`backend/logs/project_hierarchy.jsonl`
 - 生成文件：`backend/outputs/`
 - 数据报告：`backend/reports/`
 

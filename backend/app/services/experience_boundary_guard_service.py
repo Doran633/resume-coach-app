@@ -75,6 +75,18 @@ def _project_text(project: dict[str, Any]) -> str:
     return "\n".join(str(project.get(key, "")) for key in ["name", "meta", "intro", "role", "details"])
 
 
+def _project_source_ids(project: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in ["source_experience_id", "merged_source_experience_ids", "source_experience_ids"]:
+        raw = project.get(key)
+        rows = raw if isinstance(raw, list) else [raw]
+        for item in rows:
+            value = str(item or "").strip()
+            if value and value not in values:
+                values.append(value)
+    return values
+
+
 def _score_project_identity(project: dict[str, Any], identity: ExperienceIdentity) -> int:
     project_text = _normalize(_project_text(project))
     score = 0
@@ -189,12 +201,19 @@ def guard_experience_boundaries(
             continue
         guarded["source_experience_id"] = segment.experience_id
 
-        blocked_terms = all_terms - _allowed_terms(segment)
+        related_ids = set(_project_source_ids(guarded)) or {segment.experience_id}
+        related_segments = [item for item in segments if item.experience_id in related_ids] or [segment]
+        related_raw_text = "\n".join(item.raw_text for item in related_segments)
+        related_allowed_terms: set[str] = set()
+        for related_segment in related_segments:
+            related_allowed_terms.update(_allowed_terms(related_segment))
+
+        blocked_terms = all_terms - related_allowed_terms
         for key in ["intro", "role"]:
             cleaned = _remove_contaminated_sentences(str(guarded.get(key, "")), blocked_terms)
             if cleaned != str(guarded.get(key, "")):
                 stats.fixed(f"projects[{index}].{key}")
-            if _has_metric_contamination(cleaned, segment.raw_text):
+            if _has_metric_contamination(cleaned, related_raw_text):
                 stats.fixed(f"projects[{index}].{key}")
                 cleaned = ""
             if cleaned:
@@ -218,17 +237,17 @@ def guard_experience_boundaries(
             if any(_contains_term(detail_text, term) for term in blocked_terms):
                 stats.fixed(f"projects[{index}].details")
                 continue
-            if _has_metric_contamination(detail_text, segment.raw_text):
+            if _has_metric_contamination(detail_text, related_raw_text):
                 stats.fixed(f"projects[{index}].details")
                 continue
             all_ranked = sorted(((fact, fact_match_score(detail_text, fact)) for fact in ledger.facts), key=lambda item: item[1], reverse=True)
             local_ranked = sorted(
-                ((fact, fact_match_score(detail_text, fact)) for fact in ledger.for_experience(segment.experience_id)),
+                ((fact, fact_match_score(detail_text, fact)) for fact in ledger.facts if fact.experience_id in related_ids),
                 key=lambda item: item[1], reverse=True,
             )
             best_fact, best_score = all_ranked[0] if all_ranked else (None, 0.0)
             local_score = local_ranked[0][1] if local_ranked else 0.0
-            if best_fact and best_fact.experience_id != segment.experience_id and best_score >= 0.62 and local_score < 0.45:
+            if best_fact and best_fact.experience_id not in related_ids and best_score >= 0.62 and local_score < 0.45:
                 stats.fixed(f"projects[{index}].details")
                 pending_moves.append((best_fact.experience_id, detail_text, best_fact.fact_id))
                 continue
@@ -236,7 +255,11 @@ def guard_experience_boundaries(
         guarded["details"] = _dedupe(details) or guarded.get("details", [])[:1]
         guarded_projects.append(guarded)
 
-    by_source = {str(project.get("source_experience_id") or ""): project for project in guarded_projects}
+    by_source = {
+        source_id: project
+        for project in guarded_projects
+        for source_id in _project_source_ids(project)
+    }
     for target_id, detail, fact_id in pending_moves:
         target = by_source.get(target_id)
         if target is not None and detail not in target.get("details", []):
