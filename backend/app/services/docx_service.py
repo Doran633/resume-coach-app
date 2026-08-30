@@ -54,6 +54,7 @@ from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
+from .resume_delivery_quality_gate_service import ensure_resume_delivery_quality
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 
 
@@ -332,6 +333,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="before_docx_render",
         generation_result_id=request.generation_result_id,
     )
+    payload = ensure_resume_delivery_quality(
+        payload,
+        raw_input,
+        stage="before_docx_render",
+        generation_result_id=request.generation_result_id,
+    )
     payload = prepare_docx_delivery(
         payload,
         generation_result_id=request.generation_result_id,
@@ -370,13 +377,15 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     edu = payload.resume_sections.education
     _p(doc, f"学校：{edu.get('学校', '[待填写]')} | 专业：{edu.get('专业', '[待填写]')} | 学历：{edu.get('学历', '[待填写]')} | 时间：{edu.get('时间', '[待填写]')}")
 
-    _heading(doc, "个人优势")
-    for item in payload.resume_sections.summary:
-        _bullet(doc, item)
+    if payload.resume_sections.summary:
+        _heading(doc, "个人优势")
+        for item in payload.resume_sections.summary:
+            _bullet(doc, item)
 
-    _heading(doc, "技能与能力")
-    for item in payload.resume_sections.skills:
-        _bullet(doc, item, bold_label=True)
+    if payload.resume_sections.skills:
+        _heading(doc, "技能与能力")
+        for item in payload.resume_sections.skills:
+            _bullet(doc, item, bold_label=True)
 
     projects = payload.resume_sections.projects[:5]
     detail_limit = _project_detail_limit(len(projects))
@@ -389,12 +398,15 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
                 title_line = f"{project.get('name') or '[待填写]'}｜{project.get('meta') or '项目经历'}｜{project.get('time') or '[待填写]'}"
             _p(doc, title_line, 11, True, "1F3763")
             intro_label = "经历简介：" if heading != "项目经历" else "项目简介："
-            _bullet(doc, intro_label + project.get("intro", ""), bold_label=True)
+            if str(project.get("intro") or "").strip():
+                _bullet(doc, intro_label + project.get("intro", ""), bold_label=True)
             if str(project.get("role") or "").strip():
                 _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
-            _bullet(doc, "技术细节：", bold_label=True)
-            for detail in project.get("details", [])[:detail_limit]:
-                _bullet(doc, detail, level=1)
+            details = [str(item) for item in project.get("details", []) if str(item).strip()]
+            if details:
+                _bullet(doc, "技术细节：", bold_label=True)
+                for detail in details[:detail_limit]:
+                    _bullet(doc, detail, level=1)
 
     path = _next_path("resume-coach-v0")
     doc.save(path)

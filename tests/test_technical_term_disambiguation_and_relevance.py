@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -169,7 +170,16 @@ def test_structured_logs_contain_bindings_but_not_source_text(tmp_path, monkeypa
         stage="test", generation_result_id=67, write_log=True,
     )
 
-    combined = term_log.read_text(encoding="utf-8") + relevance_log.read_text(encoding="utf-8")
+    entries = [
+        json.loads(line)
+        for path in (term_log, relevance_log)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    combined = json.dumps(
+        [{key: value for key, value in entry.items() if key != "created_at"} for entry in entries],
+        ensure_ascii=False,
+    )
     assert "敏感项目原文" not in combined
     assert "1400" not in combined and "600" not in combined
     assert "EXP-001" in combined and "fact_id" in combined

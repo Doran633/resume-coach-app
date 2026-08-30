@@ -292,3 +292,19 @@ cd /www/wwwroot/resume-coach-app
 - DOCX 不出现“我做过一个……”等口语项目标题，也不展示 Experience ID / Fact ID。
 - 检查 `backend/logs/resume_experience_entity_dedup.jsonl` 中的合并和低置信判定。
 - 运行 `python scripts/export_generation_quality.py --days 7`，检查“经历实体去重”统计。
+
+## 15. v0.6.10 最终投递质量门
+
+- `python -m pytest tests/test_v06_delivery_quality_gate.py -q` 已通过。
+- 黄金样例和 v0.4 / v0.6 真实案例回归已通过，高价值事实覆盖率没有下降。
+- 生成结果和历史结果重新导出的 DOCX 均不包含空壳项目、跨经历指标、内部字段、教练话术、HTML 实体、零宽字符和确定性残句。
+- 空 skills、role、intro 或 details 不渲染空标题，也不通过未知技能或模板句补足。
+- 相似但绑定不同事实、指标、动作或结果的详情仍然保留。
+- 质量门重复执行结果不变，最终质量门之后没有 Fallback 或正文扩写服务。
+- 检查 `backend/logs/resume_delivery_quality_gate.jsonl` 中 `gate_passed`、严重问题数、修复数和高价值事实覆盖率。
+
+查看最近质量门日志：
+
+```bash
+tail -n 20 backend/logs/resume_delivery_quality_gate.jsonl
+```

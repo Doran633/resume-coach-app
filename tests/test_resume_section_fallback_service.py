@@ -225,7 +225,10 @@ def test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections
             assert path.exists()
             text = "\n".join(paragraph.text for paragraph in Document(path).paragraphs)
             assert "回归分析智能计算器" in text
-            assert "个人优势" in text
+            # Historical rows without a linked raw_input cannot safely support a
+            # candidate summary; the DOCX must stay useful without rendering an
+            # empty heading or inventing an advantage.
+            assert "技能与能力" in text
             assert "项目经历" in text
         finally:
             docx_service.OUTPUT_DIR = original_output_dir

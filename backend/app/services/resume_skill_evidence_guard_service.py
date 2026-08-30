@@ -192,6 +192,11 @@ def guard_resume_skill_evidence(
         if key not in represented
     ]
     recovered = list(dict.fromkeys(recovered))
+    canonical_order = {
+        _canonical_term(term).lower(): index
+        for index, term in enumerate(SKILL_TERMS)
+    }
+    recovered.sort(key=lambda term: canonical_order.get(term.lower(), len(canonical_order)))
     if recovered:
         cleaned_lines.append("技能证据：" + "、".join(recovered))
         stats.recovered_skill_count = len(recovered)

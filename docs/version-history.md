@@ -667,3 +667,14 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - Entity Dedup 仅对“无独立事实且明确指向另一项目”的标题残片绕过不同 source ID 隔离，普通项目相似度阈值不变。
 - 历史结果重新导出 DOCX 时也会移除“其他经历”和标题残片，同时保留原项目的 RAG、隔离、日志、部署等高价值事实。
 - 新增脱敏日志 `backend/logs/resume_experience_validity.jsonl`，记录通用名称、标题残片、吸收、删除和 Fallback 拒绝数量。
+
+## v0.6.10：最终投递质量门与 v0.6.x 收口
+
+- 新增 `resume_delivery_quality_gate_service.py`，统一汇总现有事实、边界、有效性、技能、文本和防火墙服务的最终结果。
+- 生成保存前与历史 DOCX 导出前执行同一套投递检查，覆盖空正文、空壳经历、跨经历污染、硬事实幻觉、重复事实、残句、语义职责混乱、异常字符、内部字段和教练话术。
+- 高置信严重问题自动修复，低置信语义重复与完整技术词列表仅记录，避免为追求零告警而误删正常事实。
+- 修复前后计算高价值事实覆盖率；覆盖率下降时优先从同一 `experience_id` 的 Fact Ledger 恢复，再重新执行边界和有效性检查。
+- DOCX 对空 summary、skills、intro、role 和 details 使用条件渲染，不输出空模块标题或占位说明。
+- 技能证据恢复增加确定性排序，解决同一质量门重复执行时技能顺序变化的副作用。
+- 新增脱敏日志 `backend/logs/resume_delivery_quality_gate.jsonl` 和专项回归 `tests/test_v06_delivery_quality_gate.py`。
+- v0.6.x 至此完成实体唯一性、术语消歧、经历有效性、可靠性口径和最终投递检查的阶段收口。

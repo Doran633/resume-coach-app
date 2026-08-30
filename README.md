@@ -1,5 +1,20 @@
 # Resume Coach App
 
+## v0.6.10 最终投递质量门
+
+- 新增 `resume_delivery_quality_gate_service.py`，在生成保存和 DOCX 渲染前统一复检空内容、无效经历、跨经历事实、重复事实、残句、异常字符、内部字段、教练话术和无证据技能。
+- 高置信严重问题会按“同经历事实恢复 -> 确定性文本修复 -> 安全删除”处理；低置信语义相似或术语列表只记录，不做激进删除。
+- 修复前后比较 Experience Fact Ledger 的高价值事实覆盖率；不同 `fact_id`、指标、动作或结果的相似句继续保留。
+- 空技能、空职责和空技术详情不渲染对应 DOCX 标题，也不使用模板句或未知技能补足。
+- 最终质量门之后不再运行 Fallback 或正文扩写服务，避免污染内容反弹。
+- 脱敏日志位于 `backend/logs/resume_delivery_quality_gate.jsonl`，只记录问题代码、来源 ID、数量、覆盖率和修复动作。
+
+核心回归：
+
+```bash
+python -m pytest tests/test_v06_delivery_quality_gate.py -q
+```
+
 ## v0.6.0 Experience Entity Dedup
 
 - 新增经历实体级去重：同一 `source_experience_id` 最终只保留一个正式经历对象。

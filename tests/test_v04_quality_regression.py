@@ -140,7 +140,11 @@ def test_all_real_world_cases_generate_nonempty_delivery_docx_without_internal_c
                     anonymous_user_id=f"u-{index}", session_id=f"s-{index}", generation_result_id=index,
                 ))
                 text = "\n".join(p.text for p in Document(Path(tmpdir) / response.file_name).paragraphs)
-                assert "个人简历" in text and "个人优势" in text and "技能与能力" in text
+                assert "个人简历" in text and "个人优势" in text
+                if payload.resume_sections.skills:
+                    assert "技能与能力" in text
+                else:
+                    assert "技能与能力" not in text
                 assert not any(term in text for term in ["面试准备清单", "source_experience_id", "fact_id", "综合经历项目"])
                 if case.get("expects_internship"):
                     assert text.index("技能与能力") < text.index("实习经历") < text.index("项目经历")

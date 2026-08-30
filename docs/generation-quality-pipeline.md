@@ -75,6 +75,40 @@ Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance �
 | 最终事实复检 | Fact Guard + Output Firewall | 是 | 对后续改写产生的内容做最终安全检查 |
 | 最终类型与标题 | Type Resolver + `resume_title_format_service` | 修改类型/标题 | 固化类型；生成公司、岗位、项目类型和时间标题 |
 | 输出质量评分 | `resume_output_quality_gate_service` | 否 | 记录七项质量分数和告警，不修改正文或阻断交付 |
+| 最终投递质量门 | `resume_delivery_quality_gate_service` | 是 | 汇总严重输出问题、执行保守修复并验证高价值事实覆盖率 |
+
+## v0.6.10 最终投递顺序
+
+生成保存前：
+
+```text
+Existing Quality Pipeline
+-> Experience Entity Dedup
+-> Experience Validity
+-> Resume Delivery Quality Gate
+-> Read-only Quality Evaluation
+-> Strip Internal Hierarchy Metadata
+-> Save
+```
+
+DOCX 导出前：
+
+```text
+Project Reconciliation
+-> Experience Boundary
+-> Experience Entity Dedup
+-> Experience Validity
+-> Resume Delivery Quality Gate
+-> DOCX Delivery Readiness
+-> Strip Internal Hierarchy Metadata
+-> Render
+```
+
+`Resume Delivery Quality Gate` 是现有服务的终局编排器，不是新的内容生成器。它只从同一 `experience_id` / `fact_id` 恢复事实，并复用已有确定性清洗能力。质量门之后禁止运行 Fallback、Fact Coverage 或其他会新增 projects、skills、summary、role、intro、details 的服务。
+
+自动修复仅用于高置信严重问题：空壳、明确跨经历事实、未支持硬事实、完全重复、确定性残句、异常字符和内部话术。低置信语义重复、完整的技术术语列表和难以判断的信息增量只记录为 warning / observe。自动删除普通详情不得超过项目详情的 25%，明确污染和标题空壳除外。
+
+事实保护通过修复前后高价值覆盖率实现。相似表达若绑定不同 `fact_id`，或包含不同指标、动作、结果和工程证据，必须保留；覆盖下降时只能从本段 Fact Ledger 恢复，之后重新执行 Experience Boundary 与 Experience Validity。
 
 ## v0.6.0 经历实体唯一性检查点
 

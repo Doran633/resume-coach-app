@@ -57,6 +57,7 @@ from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
+from .resume_delivery_quality_gate_service import ensure_resume_delivery_quality
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 
 
@@ -520,6 +521,9 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
         payload, request.raw_input, stage="before_save",
     )
     payload = ensure_resume_experience_validity(
+        payload, request.raw_input, stage="before_save",
+    )
+    payload = ensure_resume_delivery_quality(
         payload, request.raw_input, stage="before_save",
     )
     evaluate_resume_output_quality(payload, request.raw_input, stage="generation")
