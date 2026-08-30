@@ -9,7 +9,7 @@ from app import models, schemas  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
 from app.services.resume_fact_dedup_service import deduplicate_resume_facts  # noqa: E402
-from app.services.resume_title_format_service import extract_internship_position, resolve_resume_titles  # noqa: E402
+from app.services.resume_title_format_service import extract_company, extract_internship_position, resolve_resume_titles  # noqa: E402
 from docx import Document  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
@@ -93,6 +93,14 @@ def test_internship_position_is_local_and_missing_stays_placeholder():
     assert extract_internship_position("在星河科技有限公司实习，参与项目开发。", "前端开发") == "[待填写]"
 
 
+def test_company_name_is_normalized_without_damaging_real_prefixes():
+    assert extract_company("在自行者科技有限公司实习，负责 RAG 测试。") == "自行者科技有限公司"
+    assert extract_company("曾在自行者科技有限公司担任 AI Agent 实习。") == "自行者科技有限公司"
+    assert extract_company("于自行者科技有限公司参与项目交付。") == "自行者科技有限公司"
+    assert extract_company("在自行者科技有限公司 AI Agent 岗位实习。") == "自行者科技有限公司"
+    assert extract_company("在在线科技有限公司实习，负责接口开发。") == "在线科技有限公司"
+
+
 def test_title_resolution_uses_company_position_and_specific_project_type():
     internship_raw = "实习经历｜自行者科技有限公司\n在自行者科技有限公司担任 AI Agent 开发实习生，负责 RAG 测试。"
     internship = make_payload(["建设 RAG 测试集"], meta="实习经历", name="自行者科技有限公司 AI Agent 开发实习")
@@ -100,6 +108,7 @@ def test_title_resolution_uses_company_position_and_specific_project_type():
     resolved = resolve_resume_titles(internship, internship_raw)
     project = resolved.resume_sections.projects[0]
     assert project["name"] == "自行者科技有限公司"
+    assert not project["name"].startswith("在")
     assert project["position"] == "AI Agent 开发实习"
 
     personal = make_payload(["实现 RAG 问答"], meta="项目经历")
@@ -108,9 +117,24 @@ def test_title_resolution_uses_company_position_and_specific_project_type():
     assert personal.resume_sections.projects[0]["meta"] == "个人项目"
 
 
+def test_internship_company_uses_only_its_source_experience():
+    raw = (
+        "项目经历｜星河数据平台\n为星河科技有限公司设计数据看板。\n\n"
+        "实习经历｜自行者科技有限公司\n"
+        "在自行者科技有限公司 AI Agent 岗位实习，负责 RAG 测试。"
+    )
+    internship = make_payload(["建设 RAG 测试集"], meta="实习经历", name="在星河科技有限公司")
+    project = internship.resume_sections.projects[0]
+    project["source_experience_id"] = "EXP-002"
+    project["resolved_experience_type"] = "实习经历"
+    resolved = resolve_resume_titles(internship, raw)
+    assert resolved.resume_sections.projects[0]["name"] == "自行者科技有限公司"
+    assert resolved.resume_sections.projects[0]["position"] == "AI Agent 开发实习"
+
+
 def test_docx_uses_formal_titles_and_hides_internal_ids():
     raw = "实习经历｜自行者科技有限公司\n在自行者科技有限公司 AI agent 岗位实习，负责 RAG 测试集建设。"
-    payload = make_payload(["建设 RAG 测试集"], meta="实习经历", name="自行者科技有限公司 AI Agent 开发实习", fact_ids=[["EXP-001-F001"]])
+    payload = make_payload([" - 建设 RAG 测试集"], meta="实习经历", name="在自行者科技有限公司 AI Agent 开发实习", fact_ids=[["EXP-001-F001"]])
     payload.resume_sections.projects[0]["time"] = "[待填写]"
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
@@ -123,8 +147,18 @@ def test_docx_uses_formal_titles_and_hides_internal_ids():
         try:
             docx_service.OUTPUT_DIR = Path(tmpdir)
             response = docx_service.create_docx(db, schemas.DocxCreate(anonymous_user_id="u", session_id="s", generation_result_id=910))
-            text = "\n".join(paragraph.text for paragraph in Document(Path(tmpdir) / response.file_name).paragraphs)
+            document = Document(Path(tmpdir) / response.file_name)
+            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
             assert "自行者科技有限公司｜AI Agent 开发实习｜[待填写]" in text
+            assert "在自行者科技有限公司｜" not in text
+            assert "" not in text and "- 建设 RAG 测试集" not in text
+            assert "建设 RAG 测试集" in text
+            title = next(paragraph for paragraph in document.paragraphs if paragraph.text == "自行者科技有限公司｜AI Agent 开发实习｜[待填写]")
+            assert title.runs[0].bold is True
+            assert title.runs[0].font.size.pt == 11
+            assert str(title.runs[0].font.color.rgb) == "1F3763"
+            detail = next(paragraph for paragraph in document.paragraphs if paragraph.text == "建设 RAG 测试集")
+            assert detail.style.name == "List Bullet 2"
             assert "source_experience_id" not in text and "source_fact_ids" not in text and "EXP-001" not in text
         finally:
             docx_service.OUTPUT_DIR = old_output

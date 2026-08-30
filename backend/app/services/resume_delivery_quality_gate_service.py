@@ -20,7 +20,11 @@ from .resume_output_firewall_service import guard_resume_output
 from .resume_semantic_unit_service import ensure_semantic_units, fragment_reasons
 from .resume_skill_evidence_guard_service import _skill_terms, evaluate_skill_evidence, guard_resume_skill_evidence
 from .resume_summary_quality_service import ensure_resume_summary_quality
-from .resume_typography_quality_service import clean_typography, ensure_typography_quality
+from .resume_typography_quality_service import (
+    clean_typography,
+    ensure_typography_quality,
+    has_leading_structure_marker,
+)
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality, normalize_resume_whitespace
 
 
@@ -204,6 +208,8 @@ def _clean_visible_text(value: object) -> tuple[str, set[str]]:
         reasons.add("invalid_character")
     if MARKDOWN_RESIDUE.search(cleaned):
         cleaned = MARKDOWN_RESIDUE.sub("", cleaned)
+        reasons.add("markdown_residue")
+    if has_leading_structure_marker(cleaned):
         reasons.add("markdown_residue")
     for internal, replacement in INTERNAL_FIELD_REPLACEMENTS.items():
         if re.search(re.escape(internal), cleaned, re.IGNORECASE):

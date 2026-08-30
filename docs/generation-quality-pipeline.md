@@ -267,3 +267,9 @@ DOCX 导出前重复执行上述投递检查，使历史结果重新导出时也
 - Recruiter Language 只转换内部字段表达，不再固化切割边界空格。
 - 输入分段继续保留原始 `segment.content` 和 Fact Ledger source span；内部摘要中的压缩不会覆盖原文事实。
 - 受保护技术短语通过临时占位符恢复，内部占位符不得进入日志或用户输出。
+
+## v0.6.12 标题实体与列表结构净化
+
+- `resume_title_format_service` 只从对应 Experience ID 的局部原文解析公司和岗位；公司字段保存实体名称，不保存“在某公司”等句法片段。
+- Typography Quality 在不修改 raw input 和 Fact Ledger source span 的前提下，清理用户可见字段的 Markdown/List 行首标记。
+- DOCX Renderer 在应用 Word List Bullet 前重复执行同一确定性净化，作为历史结果的最终防御；该步骤不改变字体、颜色、字号或高价值事实。

@@ -5,7 +5,15 @@ from .experience_identity_service import build_experience_identities
 
 
 PLACEHOLDER = "[待填写]"
-COMPANY_PATTERN = re.compile(r"([A-Za-z0-9一-鿿·（）()]{2,40}(?:有限责任公司|有限公司|公司|企业|事务所|研究院))", re.I)
+COMPANY_ENTITY = r"[A-Za-z0-9一-鿿·（）()]{2,40}(?:有限责任公司|有限公司|公司|企业|事务所|研究院)"
+COMPANY_PATTERN = re.compile(rf"({COMPANY_ENTITY})", re.I)
+CONTEXTUAL_COMPANY_PATTERNS = [
+    re.compile(
+        rf"(?:曾在|就职于|任职于|在|于)\s*(?P<company>{COMPANY_ENTITY})"
+        r"(?=\s*(?:担任|任职|从事|参与|工作|做|实习|[^，。；;\n]{1,28}(?:岗位)?实习))",
+        re.I,
+    ),
+]
 POSITION_PATTERNS = [
     re.compile(r"(?:有限责任公司|有限公司|公司|企业|事务所|研究院)[ \t]*(?:担任[ \t]*)?([^，。；;\n]{2,32}?)(?:岗位)?实习", re.I),
     re.compile(r"担任\s*([^，。；;\n]{2,30}?)(?:实习生|实习)", re.I),
@@ -47,8 +55,22 @@ def extract_internship_position(local_raw_text: str, llm_position: str = "") -> 
 
 
 def extract_company(local_raw_text: str) -> str:
-    match = COMPANY_PATTERN.search(local_raw_text or "")
-    return match.group(1).strip() if match else ""
+    text = str(local_raw_text or "").strip()
+    for pattern in CONTEXTUAL_COMPANY_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return match.group("company").strip()
+    match = COMPANY_PATTERN.search(text)
+    if not match:
+        return ""
+    company = match.group(1).strip()
+    # A bare locative prefix without employment context is ambiguous. Do not
+    # render it as part of the company entity or guess the missing company.
+    if re.match(r"^(?:曾在|就职于|任职于|于)", company) or (
+        company.startswith("在") and not company.startswith("在线")
+    ):
+        return ""
+    return company
 
 
 def resolve_project_display_type(local_raw_text: str, current_meta: str) -> str:
@@ -78,9 +100,8 @@ def resolve_resume_titles(payload: schemas.GenerationPayload, raw_input: str) ->
         meta = str(project.get("resolved_experience_type") or project.get("meta") or "项目经历")
         if meta == "实习经历":
             project["position"] = extract_internship_position(local, str(project.get("position") or ""))
-            company = extract_company(local)
-            if company:
-                project["name"] = company
+            company = extract_company(local) or extract_company(str(project.get("name") or ""))
+            project["name"] = company or PLACEHOLDER
             project["meta"] = "实习经历"
         elif meta == "项目经历":
             project["meta"] = resolve_project_display_type(local, str(project.get("meta") or ""))

@@ -34,7 +34,7 @@ from .generation_stage_quality_service import log_generation_stage
 from .docx_delivery_readiness_service import prepare_docx_delivery
 from .resume_title_format_service import resolve_resume_titles
 from .resume_dedup_quality_service import ensure_dedup_quality
-from .resume_typography_quality_service import ensure_typography_quality
+from .resume_typography_quality_service import ensure_typography_quality, strip_leading_structure_markers
 from .resume_output_quality_gate_service import evaluate_resume_output_quality
 from .resume_adaptive_narrative_service import organize_adaptive_narrative
 from .resume_information_gain_service import ensure_information_gain
@@ -106,17 +106,24 @@ def _heading(doc: Document, text: str) -> None:
 
 
 def _bullet(doc: Document, text: str, level: int = 0, bold_label: bool = False) -> None:
+    cleaned = strip_leading_structure_markers(str(text or ""))
+    if bold_label and "：" in cleaned:
+        label, rest = cleaned.split("：", 1)
+        rest = strip_leading_structure_markers(rest)
+        cleaned = label + "：" + rest
+    if not cleaned.strip():
+        return
     paragraph = doc.add_paragraph(style="List Bullet" if level == 0 else "List Bullet 2")
     paragraph.paragraph_format.space_after = Pt(1)
     paragraph.paragraph_format.left_indent = Cm(0.45 + level * 0.35)
-    if bold_label and "：" in text:
-        label, rest = text.split("：", 1)
+    if bold_label and "：" in cleaned:
+        label, rest = cleaned.split("：", 1)
         run = paragraph.add_run(label + "：")
         _font(run, 9.2, True)
         run = paragraph.add_run(rest)
         _font(run, 9.2)
     else:
-        run = paragraph.add_run(text)
+        run = paragraph.add_run(cleaned)
         _font(run, 9.2)
 
 

@@ -351,6 +351,14 @@ resume_sections 必须包含：
 - React、Vite、Ant Design、Zustand 不能单独证明 TypeScript；Spring 不能单独证明 Java。
 - 目标岗位、包装指令、knowledge_checklist、interview_plan 和 missing_questions 中的技术词不得作为技能证据。
 - 不得为补全技能栏添加 Docker、Redis、MySQL 等没有明确事实或确定性生态关系的技术；同一技能只输出一次。
+
+## v0.6.12 实习标题与列表符号规则
+
+- 实习 project.name 只写公司实体名称，不得保留“在、曾在、于、就职于、任职于”等句子成分；position 单独写实习岗位。
+- 实习标题由系统按“公司名称｜实习岗位｜时间”渲染，不要把公司、岗位和时间拼进同一字段。
+- summary、skills、intro、role 和 details 数组项直接写正文，不得以 `-`、`*`、`+`、`#`、`•`、`` 或 Markdown 编号开头。
+- 用户输入中的 Markdown 标题和列表符只用于识别结构，不属于简历事实；不得复制到正式正文。
+- DOCX 会自动渲染项目符号，不要在字符串中重复添加列表标记。
 ## v0.5.4 语义空格规则
 
 - 中文词语之间不要插入无意义空格，中文标点前后不得残留空格。

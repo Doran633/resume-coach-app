@@ -161,3 +161,10 @@ risk_level 只能是 green、yellow、red、black。
 - React、Vite、Ant Design、Zustand 本身不能证明 TypeScript，Spring 本身不能证明 Java。
 - 目标岗位、包装要求、knowledge_checklist、interview_plan 和 missing_questions 不得反向证明技能。
 - 技能证据不足时宁可不输出，不得补入 Docker、Redis、MySQL 等未知技术；跨经历汇总后同一技能只保留一次。
+
+## v0.6.12 长输入实习标题与结构符规则
+
+- 实习经历的 name 只保留当前 experience_id 对应的公司实体，position 单独保留岗位；不得把“在某公司”写成公司名称。
+- 用户粘贴的 `#` 标题、`-`、`*`、`+`、`•`、`` 和编号列表仅用于输入结构识别，不得进入 summary、skills、intro、role 或 details。
+- projects.details 的每个字符串直接以正文开头，DOCX 会自动添加列表样式，不得重复输出 Markdown/List 前缀。
+- 清理结构符时必须保留 C#、C++、BAAI/bge-m3、no-answer policy、负数指标、URL、版本号和代码标识。

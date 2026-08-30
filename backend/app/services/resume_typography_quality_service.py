@@ -12,6 +12,14 @@ LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_typography_qua
 REPEATED = [(r"、{2,}", "、"), (r"，{2,}", "，"), (r"。{2,}", "。"), (r"；{2,}", "；"), (r"：{2,}", "："), (r"！{2,}", "！"), (r"？{2,}", "？")]
 MIXED = [(r"、\s*,+|,+\s*、", "、"), (r"，\s*,+|,+\s*，", "，")]
 ABNORMAL_PATTERN = re.compile(r"、、|，，|。。|；；|：：|！！|？？|、[ \t]*,|,[ \t]*、|，[ \t]*,|,[ \t]*，|[ \t]{2,}")
+LEADING_STRUCTURE_PATTERNS = (
+    re.compile(r"^\s*[-*+]\s*\[[ xX]\]\s+", re.MULTILINE),
+    re.compile(r"^\s*[•▪◦‣●○·]+\s*", re.MULTILINE),
+    re.compile(r"^\s*[-*+]\s+", re.MULTILINE),
+    re.compile(r"^\s*#{1,6}\s+", re.MULTILINE),
+    re.compile(r"^\s*>\s+", re.MULTILINE),
+    re.compile(r"^\s*\d{1,3}[.)、]\s+", re.MULTILINE),
+)
 
 
 @dataclass
@@ -23,12 +31,45 @@ class TypographyStats:
     mixed_punctuation_fixed_count: int = 0
     trailing_punctuation_fixed_count: int = 0
     spacing_fixed_count: int = 0
+    leading_markup_detected_count: int = 0
+    leading_markup_removed_count: int = 0
     affected_fields: list[str] = field(default_factory=list)
     affected_experience_ids: list[str] = field(default_factory=list)
 
 
 def count_typography_issues(text: str) -> int:
-    return len(ABNORMAL_PATTERN.findall(str(text or ""))) + int(bool(re.search(r"[、，,；;]+\s*$", str(text or ""))))
+    value = str(text or "")
+    return (
+        len(ABNORMAL_PATTERN.findall(value))
+        + int(bool(re.search(r"[、，,；;]+\s*$", value)))
+        + sum(len(pattern.findall(value)) for pattern in LEADING_STRUCTURE_PATTERNS)
+    )
+
+
+def has_leading_structure_marker(text: str) -> bool:
+    value = str(text or "")
+    return any(pattern.search(value) for pattern in LEADING_STRUCTURE_PATTERNS)
+
+
+def strip_leading_structure_markers(
+    text: str,
+    stats: TypographyStats | None = None,
+) -> str:
+    value = str(text or "")
+    total = 0
+    # Re-run because pasted LLM text may contain nested markers such as ` -`.
+    for _ in range(8):
+        pass_count = 0
+        for pattern in LEADING_STRUCTURE_PATTERNS:
+            value, count = pattern.subn("", value)
+            pass_count += count
+        total += pass_count
+        if not pass_count:
+            break
+    if stats and total:
+        stats.leading_markup_detected_count += total
+        stats.leading_markup_removed_count += total
+    return value
 
 
 def clean_typography(text: str, stats: TypographyStats | None = None) -> str:
@@ -36,6 +77,7 @@ def clean_typography(text: str, stats: TypographyStats | None = None) -> str:
     original = value
     if stats:
         stats.abnormal_punctuation_count += count_typography_issues(value)
+    value = strip_leading_structure_markers(value, stats)
     for pattern, replacement in REPEATED:
         value, count = re.subn(pattern, replacement, value)
         if stats:
