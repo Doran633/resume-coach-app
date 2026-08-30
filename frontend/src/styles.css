@@ -26,6 +26,74 @@ body {
   color: #1f3763;
 }
 
+.site-footer {
+  padding: 20px 24px 28px;
+  text-align: center;
+  color: #667085;
+  background: transparent;
+}
+
+.site-footer nav,
+.filing-links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+
+.filing-links {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.site-footer a,
+.generation-consent-note a {
+  color: #365f9d;
+}
+
+.generation-consent-note {
+  margin: 10px 0 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.generation-consent-note a {
+  margin: 0 3px;
+}
+
+.legal-page {
+  max-width: 860px;
+  margin: 24px auto 0;
+}
+
+.legal-back {
+  align-self: flex-start;
+}
+
+.legal-document .ant-card-body {
+  padding: 28px 32px;
+}
+
+.legal-document h3 {
+  margin: 24px 0 8px;
+  color: #172554;
+  font-size: 18px;
+}
+
+.legal-document p {
+  color: #475467;
+  line-height: 1.85;
+}
+
+.delete-data-button {
+  margin-top: 18px;
+}
+
+.ai-output-notice {
+  border-radius: 6px;
+}
+
 .content {
   width: min(1180px, calc(100% - 32px));
   margin: 0 auto;
@@ -100,6 +168,14 @@ body {
   .input-length-status {
     flex-direction: column;
     gap: 4px;
+  }
+
+  .site-footer {
+    padding-inline: 16px;
+  }
+
+  .legal-document .ant-card-body {
+    padding: 18px;
   }
 }
 

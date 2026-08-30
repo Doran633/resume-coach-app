@@ -445,6 +445,9 @@ export default function InputPage() {
         <Button type="primary" htmlType="submit" size="large" loading={generating} disabled={generating || inputTooLong}>
           {generating ? "正在生成简历内容" : "生成包装与面试承接"}
         </Button>
+        <p className="generation-consent-note">
+          继续生成即表示您已阅读<a href="#/terms">服务条款</a>和<a href="#/privacy">隐私政策</a>。内容由 AI 辅助整理，请在投递前核验事实。
+        </p>
       </Form>
     </Card>
   );

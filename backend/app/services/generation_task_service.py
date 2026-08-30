@@ -226,6 +226,20 @@ class GenerationTaskManager:
             except Exception:
                 pass
 
+    def has_active_owner(self, owner_hash: str) -> bool:
+        client = resource_protection._redis
+        if client:
+            try:
+                if client.get(f"rc:generation:owner:{owner_hash}"):
+                    return True
+            except Exception:
+                pass
+        with self._lock:
+            return any(
+                state.owner_hash == owner_hash and state.status in {"queued", "running"}
+                for state in self._states.values()
+            )
+
     def response(self, state: GenerationTaskState) -> schemas.GenerationTaskResponse:
         generation = None
         if state.status == "succeeded" and state.generation_result_id:

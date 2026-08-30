@@ -1,5 +1,22 @@
 # Resume Coach App
 
+## v0.7.2 公开测试上线准备
+
+- 新增隐私政策、服务条款与 AI 辅助生成说明，全站页脚长期可访问；备案号和隐私联系邮箱由前端环境变量配置。
+- 匿名用户可以删除当前签名 Cookie 对应的经历、生成结果、会话与 DOCX，服务端执行所有权校验和脱敏审计。
+- 默认保留期：用户内容 30 天、DOCX 7 天、脱敏分析 90 天、SQLite 备份 14 天，均可通过环境变量调整。
+- 新增在线 SQLite 备份、临时目录恢复验证、保留期清理和公开测试上线预检脚本。
+- 运行防护报告增加备份新鲜度、数据库完整性、磁盘、证书、清理任务和限流观察指标。
+
+```bash
+python scripts/backup_production_data.py
+python scripts/verify_production_backup.py
+python scripts/cleanup_retained_data.py --dry-run
+python scripts/launch_preflight.py --env /etc/resume-coach/resume-coach.env --frontend-env frontend/.env.production --public-base https://resume.example.com
+```
+
+公开测试运维见 [docs/public-beta-operations.md](docs/public-beta-operations.md)，数据删除与保留期见 [docs/data-retention-and-deletion.md](docs/data-retention-and-deletion.md)，AI 内容合规待办见 [docs/ai-content-compliance-checklist.md](docs/ai-content-compliance-checklist.md)。
+
 ## v0.7.0 公开测试安全基线
 
 - 服务端签发匿名身份并以 HttpOnly Cookie 保存；前端身份字段继续兼容，但不再作为资源授权依据。

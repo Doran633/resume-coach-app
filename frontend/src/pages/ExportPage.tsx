@@ -1,4 +1,4 @@
-import { Button, Card, Form, Input, Radio, Space, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Input, Radio, Space, Typography, message } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildApiUrl, createDocx, submitFeedback, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
@@ -153,6 +153,8 @@ export default function ExportPage() {
           <p>简历正文和面试准备内容已经整理完成。您可以先下载查看，再下拉分享您的使用体验。</p>
         </div>
       </Card>
+
+      <Alert className="ai-output-notice" type="info" showIcon message="本页内容由 AI 辅助整理，请在投递或面试使用前核验所有事实、时间与指标。" />
 
       <Card className="panel export-hero" title="下载正式简历">
         <Typography.Paragraph>生成的 DOCX 只包含正式简历正文。姓名、联系方式、照片和未提供的教育信息会保留为待填写占位，不包含面试准备或系统建议。</Typography.Paragraph>

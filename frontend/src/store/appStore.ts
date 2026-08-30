@@ -20,6 +20,7 @@ interface AppState {
   setCurrentAttemptId: (attemptId: string) => void;
   markCurrentAttemptComplete: () => void;
   setGeneration: (generation: GenerateResponse) => void;
+  resetAfterDataDeletion: () => void;
 }
 
 const currentAttemptKey = "resume_coach_current_attempt_id";
@@ -52,12 +53,24 @@ const getOrCreate = (key: string, prefix: string) => {
   return value;
 };
 
+const createIdentity = (): Identity => ({
+  anonymous_user_id: getOrCreate("resume_coach_anonymous_user_id", "anon"),
+  session_id: getOrCreate("resume_coach_session_id", "sess")
+});
+
+const localDataKeys = [
+  "resume_coach_anonymous_user_id",
+  "resume_coach_session_id",
+  "resume_coach_draft_input",
+  "resume_coach_draft_target_role",
+  "resume_coach_draft_packaging_level",
+  currentAttemptKey,
+  currentAttemptCreatedAtKey
+];
+
 export const useAppStore = create<AppState>((set) => ({
   step: 0,
-  identity: {
-    anonymous_user_id: getOrCreate("resume_coach_anonymous_user_id", "anon"),
-    session_id: getOrCreate("resume_coach_session_id", "sess")
-  },
+  identity: createIdentity(),
   currentAttemptId: restoreCurrentAttemptId(),
   setStep: (step) => set({ step }),
   setLastRequest: (lastRequest) => set({ lastRequest }),
@@ -75,5 +88,15 @@ export const useAppStore = create<AppState>((set) => ({
     localStorage.removeItem(currentAttemptKey);
     localStorage.removeItem(currentAttemptCreatedAtKey);
   },
-  setGeneration: (generation) => set({ generation, step: 1 })
+  setGeneration: (generation) => set({ generation, step: 1 }),
+  resetAfterDataDeletion: () => {
+    localDataKeys.forEach((key) => localStorage.removeItem(key));
+    set({
+      step: 0,
+      identity: createIdentity(),
+      generation: undefined,
+      lastRequest: undefined,
+      currentAttemptId: undefined
+    });
+  }
 }));

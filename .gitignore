@@ -8,10 +8,14 @@ dist/
 .DS_Store
 Thumbs.db
 backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
 backend/logs/*
 backend/outputs/*
 backend/reports/*
+backend/backups/*
 !backend/data/.gitkeep
 !backend/logs/.gitkeep
 !backend/outputs/.gitkeep
 !backend/reports/.gitkeep
+!backend/backups/.gitkeep

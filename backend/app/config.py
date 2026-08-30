@@ -69,6 +69,10 @@ class Settings:
     allowed_hosts: list[str]
     log_retention_days: int
     security_log_retention_days: int
+    user_content_retention_days: int
+    generated_file_retention_days: int
+    analytics_retention_days: int
+    backup_retention_days: int
 
     @property
     def production(self) -> bool:
@@ -123,4 +127,8 @@ def get_settings() -> Settings:
         allowed_hosts=_env_list("ALLOWED_HOSTS", ["localhost", "127.0.0.1", "testserver"]),
         log_retention_days=_env_int("LOG_RETENTION_DAYS", 30),
         security_log_retention_days=_env_int("SECURITY_LOG_RETENTION_DAYS", 90),
+        user_content_retention_days=_env_int("USER_CONTENT_RETENTION_DAYS", 30),
+        generated_file_retention_days=_env_int("GENERATED_FILE_RETENTION_DAYS", 7),
+        analytics_retention_days=_env_int("ANALYTICS_RETENTION_DAYS", 90),
+        backup_retention_days=_env_int("BACKUP_RETENTION_DAYS", 14),
     )

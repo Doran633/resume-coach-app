@@ -156,3 +156,11 @@ export async function submitFeedback(
     throw new ApiRequestError("network request failed", undefined, "network");
   }
 }
+
+export async function deleteMyData() {
+  await ensureServerIdentity();
+  return requestJson<{ ok: boolean; files_cleanup_pending: number }>("/api/privacy/my-data", {
+    method: "DELETE",
+    credentials: "include"
+  });
+}

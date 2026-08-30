@@ -2,6 +2,40 @@
 
 这份清单用于校园墙、社群或小范围内测投放前的最后确认。目标是避免“代码没更新、服务没重启、API 没配置、数据没记录”这类低级问题影响第一批用户体验。
 
+## 0. v0.7.2 上线硬门槛
+
+先运行：
+
+```bash
+cd /www/wwwroot/resume-coach-app
+.venv/bin/python scripts/launch_preflight.py \
+  --env /etc/resume-coach/resume-coach.env \
+  --frontend-env frontend/.env.production \
+  --public-base https://resume.example.com \
+  --backups /var/backups/resume-coach
+```
+
+以下 `FAIL` 必须阻止公开推广：
+
+- 生产环境仍使用默认密钥，或域名/Origin 白名单错误。
+- Redis 不可用或监听非本机地址。
+- SQLite `integrity_check` 失败。
+- 日志、输出、报告或备份目录不可写。
+- 没有最近七天内且可恢复验证的备份。
+- 可用磁盘低于 500 MB，HTTPS 证书不足 7 天，或健康检查失败。
+- `frontend/dist` 缺失，DOCX API 路由缺失，Nginx 配置错误或存在重复 `server_name`。
+- 公网首页或签名匿名 Cookie 无法访问。
+
+`RATE_LIMIT_DRY_RUN=true`、ICP 尚未配置、备份超过 48 小时但不超过 7 天属于 `WARN`。观察期可以保留限流 dry-run；正式公开推广前应完成备案信息确认。
+
+还应确认：
+
+- 隐私政策、服务条款、AI 说明和删除入口可访问。
+- 删除测试账号后，其 DOCX 同步消失，其他匿名账号仍可访问自己的结果。
+- 已执行一次 `cleanup_retained_data.py --dry-run`，数量符合预期。
+- 已完成一次备份和临时目录恢复验证。
+- 已配置每日备份、每日清理、每日运行报告和每小时健康检查。
+
 ## 1. 代码状态
 
 - GitHub 最新代码已经 push。

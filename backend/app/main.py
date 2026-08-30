@@ -11,7 +11,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from . import models
 from .config import get_settings
 from .database import DATA_DIR, engine, ensure_v01_schema
-from .routers import events, feedback, files, generation, identity
+from .routers import events, feedback, files, generation, identity, privacy
 from .services.resource_protection_service import resource_protection
 from .services.structured_log_service import cleanup_structured_logs, write_structured_log
 
@@ -20,7 +20,7 @@ models.Base.metadata.create_all(bind=engine)
 ensure_v01_schema()
 
 settings = get_settings()
-app = FastAPI(title="Resume Coach App", version="0.7.0")
+app = FastAPI(title="Resume Coach App", version="0.7.2")
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
@@ -70,6 +70,7 @@ app.include_router(identity.router)
 app.include_router(generation.router)
 app.include_router(files.router)
 app.include_router(feedback.router)
+app.include_router(privacy.router)
 
 
 @app.on_event("startup")
@@ -77,7 +78,7 @@ def log_startup():
     cleanup_structured_logs()
     disk = shutil.disk_usage(DATA_DIR)
     write_structured_log(
-        "runtime", "service_started", version="0.7.0", environment=settings.environment,
+        "runtime", "service_started", version="0.7.2", environment=settings.environment,
         redis_ready=resource_protection.redis_ready, degraded=resource_protection.degraded,
         disk_free_bytes=disk.free, status="ready",
     )
@@ -85,12 +86,12 @@ def log_startup():
 
 @app.on_event("shutdown")
 def log_shutdown():
-    write_structured_log("runtime", "service_stopped", version="0.7.0", status="stopped")
+    write_structured_log("runtime", "service_stopped", version="0.7.2", status="stopped")
 
 
 @app.get("/api/health/live")
 def health_live():
-    return {"ok": True, "version": "0.7.0"}
+    return {"ok": True, "version": "0.7.2"}
 
 
 @app.get("/api/health/ready")
@@ -110,7 +111,7 @@ def health_ready():
         status_code=200 if ready else 503,
         content={
             "ok": ready,
-            "version": "0.7.0",
+            "version": "0.7.2",
             "checks": {
                 "database": database_ready,
                 "redis": redis_ready,
@@ -124,4 +125,4 @@ def health_ready():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.7.0"}
+    return {"ok": True, "version": "0.7.2"}
