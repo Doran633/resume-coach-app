@@ -18,8 +18,24 @@ interface AppState {
   setStep: (step: number) => void;
   setLastRequest: (request: GenerateRequestDraft) => void;
   setCurrentAttemptId: (attemptId: string) => void;
+  markCurrentAttemptComplete: () => void;
   setGeneration: (generation: GenerateResponse) => void;
 }
+
+const currentAttemptKey = "resume_coach_current_attempt_id";
+const currentAttemptCreatedAtKey = "resume_coach_current_attempt_created_at";
+const currentAttemptMaxAgeMs = 20 * 60 * 1000;
+
+const restoreCurrentAttemptId = () => {
+  const attemptId = localStorage.getItem(currentAttemptKey) || "";
+  const createdAt = Number(localStorage.getItem(currentAttemptCreatedAtKey) || 0);
+  if (attemptId && createdAt > 0 && Date.now() - createdAt <= currentAttemptMaxAgeMs) {
+    return attemptId;
+  }
+  localStorage.removeItem(currentAttemptKey);
+  localStorage.removeItem(currentAttemptCreatedAtKey);
+  return undefined;
+};
 
 const createClientId = () => {
   if (globalThis.crypto?.randomUUID) {
@@ -42,8 +58,22 @@ export const useAppStore = create<AppState>((set) => ({
     anonymous_user_id: getOrCreate("resume_coach_anonymous_user_id", "anon"),
     session_id: getOrCreate("resume_coach_session_id", "sess")
   },
+  currentAttemptId: restoreCurrentAttemptId(),
   setStep: (step) => set({ step }),
   setLastRequest: (lastRequest) => set({ lastRequest }),
-  setCurrentAttemptId: (currentAttemptId) => set({ currentAttemptId }),
+  setCurrentAttemptId: (currentAttemptId) => {
+    if (currentAttemptId) {
+      localStorage.setItem(currentAttemptKey, currentAttemptId);
+      localStorage.setItem(currentAttemptCreatedAtKey, String(Date.now()));
+    } else {
+      localStorage.removeItem(currentAttemptKey);
+      localStorage.removeItem(currentAttemptCreatedAtKey);
+    }
+    set({ currentAttemptId: currentAttemptId || undefined });
+  },
+  markCurrentAttemptComplete: () => {
+    localStorage.removeItem(currentAttemptKey);
+    localStorage.removeItem(currentAttemptCreatedAtKey);
+  },
   setGeneration: (generation) => set({ generation, step: 1 })
 }));

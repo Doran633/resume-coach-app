@@ -1,5 +1,22 @@
 # Resume Coach App
 
+## v0.7.0 公开测试安全基线
+
+- 服务端签发匿名身份并以 HttpOnly Cookie 保存；前端身份字段继续兼容，但不再作为资源授权依据。
+- Generation Result、Generated File 和 DOCX 下载均执行所有权校验；下载地址使用默认20分钟有效的HMAC签名凭证。
+- 生成采用任务状态接口，Redis负责用户/IP限流、5个全站并发、15个等待任务、`attempt_id`幂等和每日模型预算；Redis故障时进入保守降级。
+- 校园共享IP额度保持宽松，主要额度绑定服务端匿名身份：每个用户2次/5分钟、6次/小时、20次/天。
+- 输入超过2,000字显示分段提醒，超过4,000字前后端共同拒绝，不截断、不调用模型且保留草稿。
+- 生成中的 `attempt_id` 会短暂保存在浏览器；刷新页面后使用同一任务恢复，避免重复调用模型。
+- 新增 `runtime.jsonl`、`generation_queue.jsonl`、`security_events.jsonl` 与 `llm_usage.jsonl`，只记录脱敏运行指标。
+- Redis、systemd 和 Nginx 上线步骤见 [docs/v0.7-launch-security.md](docs/v0.7-launch-security.md)，Nginx示例见 [docs/nginx-v070-example.conf](docs/nginx-v070-example.conf)。运行与防护报告使用：
+
+```bash
+python scripts/export_runtime_protection.py --days 7
+```
+
+生产环境必须配置 Redis、HTTPS、真实域名白名单，以及独立的 Cookie、下载和IP哈希密钥。建议先使用 `RATE_LIMIT_DRY_RUN=true` 观察三天，再启用正式拦截。
+
 ## v0.6.12 实习公司实体与列表符清理
 
 - 实习标题继续使用“公司名称｜实习岗位｜时间”，公司字段不再保留“在、曾在、于、就职于、任职于”等口语化句法成分。

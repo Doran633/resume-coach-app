@@ -308,3 +308,24 @@ cd /www/wwwroot/resume-coach-app
 ```bash
 tail -n 20 backend/logs/resume_delivery_quality_gate.jsonl
 ```
+# v0.7.0 公开测试安全检查
+
+- [ ] `APP_ENV=production`，Cookie设置Secure。
+- [ ] `ANONYMOUS_COOKIE_SECRET`、`DOWNLOAD_SIGNING_SECRET`、`IP_HASH_SECRET`均为独立强随机值。
+- [ ] `REDIS_URL`可用，`/api/health/ready`中Redis检查通过。
+- [ ] `ALLOWED_ORIGINS`和`ALLOWED_HOSTS`只包含正式域名。
+- [ ] Nginx生成接口为60次/分钟/IP、`burst=30`，请求体不超过128KB。
+- [ ] 全站生成并发为5，等待队列为15。
+- [ ] `MODEL_MAX_CONCURRENT_CALLS` 不高于模型供应商实际并发额度。
+- [ ] 刷新生成页面后，同一 `attempt_id` 可以恢复且不会重复调用模型。
+- [ ] 输入2,000字显示提醒，4,001字被前后端拒绝且草稿保留。
+- [ ] 用户A无法读取、导出或下载用户B的结果。
+- [ ] 下载链接过期、篡改或身份不匹配时返回404。
+- [ ] 模型供应商后台已设置账单告警或消费上限。
+- [ ] `LLM_INPUT_PRICE_CNY_PER_MILLION`与`LLM_OUTPUT_PRICE_CNY_PER_MILLION`已按当前供应商填写。
+- [ ] 日志目录、数据库目录和输出目录均不能经Nginx直接访问。
+- [ ] 运行防护报告不包含用户输入、Prompt、简历正文、Cookie、Token、API Key和明文IP。
+- [ ] 上线前三天保持`RATE_LIMIT_DRY_RUN=true`并观察校园共享IP误伤情况。
+- [ ] Redis短时故障进入1并发保守模式，持续故障后暂停新生成；已有结果和下载仍可用。
+- [ ] `runtime-protection`报告可正常导出，队列P90超过60秒时不继续扩大队列。
+- [ ] 已按 `docs/v0.7-launch-security.md` 检查环境变量、systemd、Nginx和目录权限。

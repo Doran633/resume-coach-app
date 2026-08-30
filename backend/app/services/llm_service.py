@@ -11,6 +11,9 @@ class LLMResult:
     text: str
     model: str
     latency_ms: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    estimated_cost_cny: float = 0.0
 
 
 class LLMServiceError(RuntimeError):
@@ -83,12 +86,11 @@ def call_openai(prompt: str) -> LLMResult:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise LLMServiceError(f"OpenAI API HTTP {exc.code}: {detail[:500]}") from exc
+        raise LLMServiceError(f"OpenAI-compatible API returned HTTP {exc.code}.") from exc
     except TimeoutError as exc:
         raise LLMServiceError(f"OpenAI-compatible API request timed out after {timeout}s.") from exc
     except Exception as exc:
-        raise LLMServiceError(f"OpenAI API request failed: {exc}") from exc
+        raise LLMServiceError(f"OpenAI-compatible API request failed ({type(exc).__name__}).") from exc
 
     latency_ms = int((time.perf_counter() - started_at) * 1000)
     try:
@@ -96,4 +98,17 @@ def call_openai(prompt: str) -> LLMResult:
     except (KeyError, IndexError, TypeError) as exc:
         raise LLMServiceError("OpenAI API returned an unexpected response shape.") from exc
 
-    return LLMResult(text=text, model=model, latency_ms=latency_ms)
+    usage = data.get("usage") if isinstance(data, dict) else {}
+    input_tokens = int((usage or {}).get("prompt_tokens") or (usage or {}).get("input_tokens") or 0)
+    output_tokens = int((usage or {}).get("completion_tokens") or (usage or {}).get("output_tokens") or 0)
+    input_price = float(os.getenv("LLM_INPUT_PRICE_CNY_PER_MILLION", "0") or 0)
+    output_price = float(os.getenv("LLM_OUTPUT_PRICE_CNY_PER_MILLION", "0") or 0)
+    estimated_cost = input_tokens * input_price / 1_000_000 + output_tokens * output_price / 1_000_000
+    return LLMResult(
+        text=text,
+        model=model,
+        latency_ms=latency_ms,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        estimated_cost_cny=estimated_cost,
+    )

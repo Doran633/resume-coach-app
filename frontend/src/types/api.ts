@@ -39,6 +39,15 @@ export interface GenerateResponse {
   result: GenerationResult;
 }
 
+export interface GenerationTaskResponse {
+  attempt_id: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "expired";
+  queue_position: number;
+  error_code?: string;
+  user_message?: string;
+  generation?: GenerateResponse;
+}
+
 export interface Identity {
   anonymous_user_id: string;
   session_id: string;

@@ -20,6 +20,7 @@ class EventCreate(IdentityPayload):
 
 
 class GenerateRequest(IdentityPayload):
+    attempt_id: str | None = Field(default=None, min_length=8, max_length=96)
     target_role: str
     mode: Literal["single_experience", "full_resume"] = "single_experience"
     packaging_level: Literal["稳妥", "大胆", "极限"] = "大胆"
@@ -64,6 +65,22 @@ class GenerateResponse(BaseModel):
     experience_input_id: int
     generation_result_id: int
     result: GenerationPayload
+
+
+class GenerationTaskResponse(BaseModel):
+    attempt_id: str
+    status: Literal["queued", "running", "succeeded", "failed", "expired"]
+    queue_position: int = 0
+    error_code: str | None = None
+    user_message: str | None = None
+    generation: GenerateResponse | None = None
+
+
+class ErrorResponse(BaseModel):
+    error_code: str
+    user_message: str
+    retry_after: int | None = None
+    attempt_id: str | None = None
 
 
 class DocxCreate(IdentityPayload):

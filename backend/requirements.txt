@@ -5,3 +5,4 @@ sqlalchemy
 python-docx
 python-multipart
 python-dotenv
+redis>=5.0,<7.0

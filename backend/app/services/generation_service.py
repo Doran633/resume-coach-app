@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 from dataclasses import asdict, dataclass
@@ -60,6 +61,7 @@ from .resume_experience_entity_dedup_service import deduplicate_resume_experienc
 from .resume_experience_validity_service import ensure_resume_experience_validity
 from .resume_delivery_quality_gate_service import ensure_resume_delivery_quality
 from .project_hierarchy_service import strip_project_hierarchy_metadata
+from .resource_protection_service import resource_protection
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -67,7 +69,9 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class GenerationServiceError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "GENERATION_FAILED") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _write_llm_log(log: dict):
@@ -361,9 +365,22 @@ def build_llm_generation(request: schemas.GenerateRequest, long_input_context: L
     prompt = build_generation_prompt(request, long_input_context)
     last_error = ""
 
-    for attempt in range(2):
+    max_attempts = max(1, min(int(os.getenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")), 2))
+    for attempt in range(max_attempts):
+        budget = resource_protection.check_daily_budget()
+        if not budget.allowed:
+            raise GenerationServiceError("Daily model budget reached.", code="DAILY_BUDGET_REACHED")
         try:
             llm_result = call_openai(prompt)
+            resource_protection.record_llm_usage(
+                model=llm_result.model,
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                cost_cny=llm_result.estimated_cost_cny,
+                latency_ms=llm_result.latency_ms,
+                success=True,
+                attempt_id=request.attempt_id or "",
+            )
             parsed = parse_llm_json(llm_result.text)
             payload = schemas.GenerationPayload.model_validate(normalize_llm_payload(parsed))
             return payload, {
@@ -374,6 +391,9 @@ def build_llm_generation(request: schemas.GenerateRequest, long_input_context: L
                 "error_message": None,
                 "attempt": attempt + 1,
                 "prompt_type": "long" if long_input_context.long_input_mode else "normal",
+                "input_tokens": llm_result.input_tokens,
+                "output_tokens": llm_result.output_tokens,
+                "estimated_cost_cny": llm_result.estimated_cost_cny,
             }
         except (JSONRepairError, ValueError) as exc:
             last_error = str(exc)
@@ -382,7 +402,12 @@ def build_llm_generation(request: schemas.GenerateRequest, long_input_context: L
                 + "\n\n上一次输出无法被解析为符合 schema 的 JSON。请只重新输出一个完整、合法、字段齐全的 JSON 对象。"
             )
         except LLMServiceError as exc:
-            raise GenerationServiceError(str(exc)) from exc
+            resource_protection.record_llm_usage(
+                model=get_openai_model(), input_tokens=0, output_tokens=0, cost_cny=0,
+                latency_ms=0, success=False, attempt_id=request.attempt_id or "",
+            )
+            code = "MODEL_TIMEOUT" if "timed out" in str(exc).lower() else "GENERATION_FAILED"
+            raise GenerationServiceError(str(exc), code=code) from exc
 
     raise GenerationServiceError(f"LLM JSON validation failed after retry: {last_error}")
 
@@ -439,6 +464,12 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
             stability_log["model"] = llm_log.get("model")
             stability_log["llm_success"] = True
         except GenerationServiceError as exc:
+            if "JSON validation failed" not in str(exc):
+                stability_log["model"] = get_openai_model()
+                stability_log["llm_success"] = False
+                stability_log["error_message"] = type(exc).__name__
+                _write_generation_stability_log(stability_log)
+                raise
             payload = build_stable_generation_fallback(request, long_input_context)
             stability_log["model"] = get_openai_model()
             stability_log["llm_success"] = False

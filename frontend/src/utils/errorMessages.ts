@@ -1,6 +1,6 @@
 import { ApiRequestError } from "../api/client";
 
-export type GenerationErrorType = "timeout" | "network" | "server" | "configuration" | "invalid_response" | "unknown";
+export type GenerationErrorType = "timeout" | "network" | "server" | "configuration" | "invalid_response" | "rate_limit" | "capacity" | "input" | "budget" | "unknown";
 
 export type GenerationErrorInfo = {
   type: GenerationErrorType;
@@ -9,8 +9,25 @@ export type GenerationErrorInfo = {
 
 export function getGenerationErrorInfo(error: unknown): GenerationErrorInfo {
   if (error instanceof ApiRequestError) {
-    if (error.code === "timeout") {
+    if (error.code === "timeout" || error.code === "MODEL_TIMEOUT") {
       return { type: "timeout", message: "生成时间超过预期，请稍后重试。您的输入内容仍然保留。" };
+    }
+    if (error.code === "INPUT_TOO_LARGE") return { type: "input", message: error.message };
+    if (error.code === "USER_RATE_LIMITED" || error.code === "IP_RATE_LIMITED") {
+      return { type: "rate_limit", message: error.message || "操作有些频繁，请稍后再试。" };
+    }
+    if (
+      error.code === "GENERATION_QUEUE_FULL"
+      || error.code === "GENERATION_ALREADY_RUNNING"
+      || error.code === "PROTECTION_DEGRADED"
+    ) {
+      return { type: "capacity", message: error.message || "当前生成任务较多，请稍后再试。" };
+    }
+    if (error.code === "GENERATION_EXPIRED") {
+      return { type: "timeout", message: "生成任务等待时间过长，请重新提交。您的输入内容仍然保留。" };
+    }
+    if (error.code === "DAILY_BUDGET_REACHED") {
+      return { type: "budget", message: "今日生成容量已达到上限，请稍后再试。您的输入内容仍然保留。" };
     }
     if (error.status === 401 || error.status === 403) {
       return { type: "configuration", message: "生成服务配置异常，请联系网站维护者。" };

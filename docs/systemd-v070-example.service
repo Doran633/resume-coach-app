@@ -1,0 +1,24 @@
+[Unit]
+Description=Resume Coach backend v0.7
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/www/wwwroot/resume-coach-app
+EnvironmentFile=/etc/resume-coach/resume-coach.env
+ExecStart=/www/wwwroot/resume-coach-app/.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8001 --workers 1
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/www/wwwroot/resume-coach-app/backend/data /www/wwwroot/resume-coach-app/backend/logs /www/wwwroot/resume-coach-app/backend/outputs /www/wwwroot/resume-coach-app/backend/reports
+
+[Install]
+WantedBy=multi-user.target

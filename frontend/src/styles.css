@@ -67,6 +67,38 @@ body {
   border-radius: 6px;
 }
 
+.input-length-status {
+  min-height: 24px;
+  margin: -12px 2px 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  color: #7a8699;
+  font-size: 13px;
+}
+
+.input-length-status strong {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: inherit;
+}
+
+.input-length-status.is-warning {
+  color: #8a5a12;
+}
+
+.input-length-status.is-error {
+  color: #c62828;
+}
+
+@media (max-width: 600px) {
+  .input-length-status {
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
 .input-panel .ant-form-item {
   margin-bottom: 18px;
 }

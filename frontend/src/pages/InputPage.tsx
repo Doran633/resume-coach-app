@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Form, Input, Select, Space, Spin, Typography, message } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { generateExperience, trackEvent } from "../api/client";
+import { ApiRequestError, generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import { getGenerationErrorInfo, type GenerationErrorInfo } from "../utils/errorMessages";
 import { createAttemptId, estimateExperienceCount, hasTechnicalTerms } from "../utils/generationAttempt";
@@ -72,14 +72,19 @@ export default function InputPage() {
   const [generationStage, setGenerationStage] = useState(generationStages[0]);
   const [generationError, setGenerationError] = useState<GenerationErrorInfo | null>(null);
   const [activeTemplate, setActiveTemplate] = useState("");
-  const { identity, lastRequest, setCurrentAttemptId, setGeneration, setLastRequest } = useAppStore();
+  const { identity, lastRequest, currentAttemptId, markCurrentAttemptComplete, setCurrentAttemptId, setGeneration, setLastRequest } = useAppStore();
   const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
+  const rawInput = String(Form.useWatch("raw_input", form) ?? "");
+  const inputLength = Array.from(rawInput).length;
+  const inputTooLong = inputLength > 4000;
+  const inputIsLong = inputLength > 2000;
   const textAreaRef = useRef<any>(null);
   const templateFeedbackTimerRef = useRef<number | null>(null);
   const generationTimerRefs = useRef<number[]>([]);
   const generationInFlightRef = useRef(false);
   const retryingRef = useRef(false);
   const pendingAttemptIdRef = useRef<string | null>(null);
+  const resumedAttemptRef = useRef(false);
   const initialValues = useMemo(() => {
     const savedPackagingLevel = localStorage.getItem(draftKeys.packaging_level) || "重点放大";
     return {
@@ -129,6 +134,48 @@ export default function InputPage() {
     }, stage.delay));
   };
 
+  useEffect(() => {
+    if (!currentAttemptId || resumedAttemptRef.current || generationInFlightRef.current) return;
+    resumedAttemptRef.current = true;
+    generationInFlightRef.current = true;
+    setGenerating(true);
+    startGenerationStages(Array.from(initialValues.raw_input).length, currentAttemptId);
+    const recoveredRequest = {
+      target_role: initialValues.target_role,
+      mode: "full_resume",
+      experience_type: "综合经历",
+      packaging_level: packagingLevelMap[initialValues.packaging_level] ?? initialValues.packaging_level,
+      raw_input: initialValues.raw_input,
+      attempt_id: currentAttemptId
+    };
+    setLastRequest(recoveredRequest);
+    void generateExperience(identity, recoveredRequest, (status) => {
+      if (status.status === "queued") {
+        setGenerationStage({
+          delay: 0,
+          key: "queued",
+          text: status.queue_position > 0 ? `已恢复任务，当前排队第 ${status.queue_position} 位` : "已恢复排队任务"
+        });
+      } else if (status.status === "running") {
+        setGenerationStage({ delay: 0, key: "running", text: "已恢复生成任务，正在继续处理" });
+      }
+    }).then((result) => {
+      setGeneration(result);
+      markCurrentAttemptComplete();
+      message.success("已恢复并完成上次生成任务。");
+    }).catch((error) => {
+      const errorInfo = getGenerationErrorInfo(error);
+      setGenerationError(errorInfo);
+      if (!(error instanceof ApiRequestError) || error.code !== "network") {
+        setCurrentAttemptId("");
+      }
+    }).finally(() => {
+      clearGenerationTimers();
+      generationInFlightRef.current = false;
+      setGenerating(false);
+    });
+  }, [currentAttemptId]);
+
   const toBackendValues = (values: any) => ({
     ...values,
     mode: "full_resume",
@@ -168,6 +215,14 @@ export default function InputPage() {
 
   const onFinish = async (values: any) => {
     if (generating || generationInFlightRef.current) return;
+    const unicodeLength = Array.from(String(values.raw_input || "")).length;
+    if (unicodeLength > 4000) {
+      setGenerationError({
+        type: "input",
+        message: "当前输入超过4,000字。建议保留与目标岗位最相关的经历，或分批整理后再提交。"
+      });
+      return;
+    }
     generationInFlightRef.current = true;
     const backendValues = toBackendValues(values);
     const attemptId = pendingAttemptIdRef.current || createAttemptId();
@@ -191,7 +246,17 @@ export default function InputPage() {
       attempt_id: attemptId
     });
     try {
-      const result = await generateExperience(identity, backendValues);
+      const result = await generateExperience(identity, { ...backendValues, attempt_id: attemptId }, (status) => {
+        if (status.status === "queued") {
+          setGenerationStage({
+            delay: 0,
+            key: "queued",
+            text: status.queue_position > 0 ? `当前排队第 ${status.queue_position} 位，请稍候` : "生成任务正在排队"
+          });
+        } else if (status.status === "running") {
+          setGenerationStage({ delay: 0, key: "running", text: "已开始生成，正在整理您的经历" });
+        }
+      });
       void trackEvent(identity, "generate_success", {
         generation_result_id: result.generation_result_id,
         completeness_score: result.result.completeness_score,
@@ -200,10 +265,14 @@ export default function InputPage() {
         attempt_id: attemptId
       });
       setGeneration(result);
+      markCurrentAttemptComplete();
       message.success("生成完成，正在为您展示结果。");
     } catch (error) {
       const errorInfo = getGenerationErrorInfo(error);
       setGenerationError(errorInfo);
+      if (!(error instanceof ApiRequestError) || error.code !== "network") {
+        setCurrentAttemptId("");
+      }
       if (import.meta.env.DEV) console.error(error);
       void trackEvent(identity, "generate_failed", {
         error_type: errorInfo.type,
@@ -319,13 +388,31 @@ export default function InputPage() {
               <span className="template-label">点击模板快速填入</span>
             </div>
           </div>
-          <Form.Item name="raw_input" rules={[{ required: true, min: 10 }]}>
+          <Form.Item
+            name="raw_input"
+            rules={[
+              { required: true, min: 10 },
+              { validator: async (_, value) => {
+                if (Array.from(String(value || "")).length > 4000) {
+                  throw new Error("当前输入超过4,000字，请精简后再提交。");
+                }
+              } }
+            ]}
+          >
             <Input.TextArea
               ref={textAreaRef}
               autoSize={{ minRows: 5, maxRows: 14 }}
               placeholder="选择一个模板，或直接输入您的项目 / 实习 / 科研 / 开源经历。"
             />
           </Form.Item>
+          <div className={`input-length-status${inputTooLong ? " is-error" : inputIsLong ? " is-warning" : ""}`}>
+            <span>{inputIsLong && !inputTooLong
+              ? "内容较长，系统会进行分段处理。建议检查不同经历之间是否有清晰分隔，以获得更稳定的结果。"
+              : inputTooLong
+                ? "当前输入超过4,000字。建议保留与目标岗位最相关的经历，或分批整理后再提交。"
+                : ""}</span>
+            <strong>{inputLength} / 4000</strong>
+          </div>
           <Alert
             className="privacy-reminder"
             type="info"
@@ -357,7 +444,7 @@ export default function InputPage() {
           </div>
         )}
 
-        <Button type="primary" htmlType="submit" size="large" loading={generating} disabled={generating}>
+        <Button type="primary" htmlType="submit" size="large" loading={generating} disabled={generating || inputTooLong}>
           {generating ? "正在生成简历内容" : "生成包装与面试承接"}
         </Button>
       </Form>

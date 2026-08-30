@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Col, Collapse, Input, Progress, Row, Space, Tabs, Typography, message } from "antd";
 import { useEffect, useRef, useState } from "react";
-import { generateExperience, trackEvent } from "../api/client";
+import { ApiRequestError, generateExperience, trackEvent } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import type { ClaimResult } from "../types/api";
 import { getGenerationErrorInfo } from "../utils/errorMessages";
@@ -386,7 +386,7 @@ function KnowledgeList({ items }: { items: string[] }) {
 }
 
 export default function ResultPage() {
-  const { currentAttemptId, generation, identity, lastRequest, setCurrentAttemptId, setGeneration, setLastRequest, setStep } = useAppStore();
+  const { currentAttemptId, generation, identity, lastRequest, markCurrentAttemptComplete, setCurrentAttemptId, setGeneration, setLastRequest, setStep } = useAppStore();
   const [followup, setFollowup] = useState("");
   const [regenerating, setRegenerating] = useState(false);
   const [followupError, setFollowupError] = useState("");
@@ -451,7 +451,7 @@ export default function ResultPage() {
     setRegenerating(true);
     setLastRequest(nextRequest);
     try {
-      const next = await generateExperience(identity, nextRequest);
+      const next = await generateExperience(identity, { ...nextRequest, attempt_id: attemptId });
       void trackEvent(identity, "generate_success", {
         generation_result_id: next.generation_result_id,
         completeness_score: next.result.completeness_score,
@@ -461,11 +461,15 @@ export default function ResultPage() {
         source: "followup"
       });
       setGeneration(next);
+      markCurrentAttemptComplete();
       setFollowup("");
       message.success("已根据补充信息重新生成");
     } catch (error) {
       const errorInfo = getGenerationErrorInfo(error);
       setFollowupError(errorInfo.message);
+      if (!(error instanceof ApiRequestError) || error.code !== "network") {
+        setCurrentAttemptId("");
+      }
       if (import.meta.env.DEV) console.error(error);
       void trackEvent(identity, "generate_failed", {
         error_type: errorInfo.type,
