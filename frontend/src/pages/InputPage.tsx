@@ -217,10 +217,7 @@ export default function InputPage() {
     if (generating || generationInFlightRef.current) return;
     const unicodeLength = Array.from(String(values.raw_input || "")).length;
     if (unicodeLength > 4000) {
-      setGenerationError({
-        type: "input",
-        message: "当前输入超过4,000字。建议保留与目标岗位最相关的经历，或分批整理后再提交。"
-      });
+      textAreaRef.current?.focus();
       return;
     }
     generationInFlightRef.current = true;
@@ -389,29 +386,30 @@ export default function InputPage() {
             </div>
           </div>
           <Form.Item
+            className="raw-input-form-item"
             name="raw_input"
-            rules={[
-              { required: true, min: 10 },
-              { validator: async (_, value) => {
-                if (Array.from(String(value || "")).length > 4000) {
-                  throw new Error("当前输入超过4,000字，请精简后再提交。");
-                }
-              } }
-            ]}
+            rules={[{ required: true, min: 10 }]}
           >
             <Input.TextArea
               ref={textAreaRef}
               autoSize={{ minRows: 5, maxRows: 14 }}
+              aria-describedby="raw-input-length-status"
+              aria-invalid={inputTooLong}
               placeholder="选择一个模板，或直接输入您的项目 / 实习 / 科研 / 开源经历。"
             />
           </Form.Item>
-          <div className={`input-length-status${inputTooLong ? " is-error" : inputIsLong ? " is-warning" : ""}`}>
+          <div
+            id="raw-input-length-status"
+            className={`input-length-status${inputTooLong ? " is-error" : inputIsLong ? " is-warning" : ""}`}
+            role={inputTooLong ? "alert" : "status"}
+            aria-live={inputTooLong ? "assertive" : "polite"}
+          >
             <span>{inputIsLong && !inputTooLong
               ? "内容较长，系统会进行分段处理。建议检查不同经历之间是否有清晰分隔，以获得更稳定的结果。"
               : inputTooLong
-                ? "当前输入超过4,000字。建议保留与目标岗位最相关的经历，或分批整理后再提交。"
+                ? "当前输入超过4,000字，请精简或拆分经历后再提交。"
                 : ""}</span>
-            <strong>{inputLength} / 4000</strong>
+            <strong>当前字数：{inputLength} / 4000</strong>
           </div>
           <Alert
             className="privacy-reminder"

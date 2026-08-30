@@ -69,13 +69,17 @@ body {
 
 .input-length-status {
   min-height: 24px;
-  margin: -12px 2px 12px;
+  margin: 8px 2px 12px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   color: #7a8699;
   font-size: 13px;
+}
+
+.experience-editor .raw-input-form-item {
+  margin-bottom: 0;
 }
 
 .input-length-status strong {
