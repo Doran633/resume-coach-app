@@ -6,14 +6,20 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .experience_fact_ledger_service import build_experience_fact_ledger
-from .long_input_service import TECH_TERMS
+from .resume_skill_evidence_aggregation_service import (
+    SKILL_TERMS,
+    AggregatedSkillEvidence,
+    aggregate_historical_project_skill_evidence,
+    aggregate_skill_evidence,
+    canonical_skill_term,
+    contains_skill_term,
+    extract_skill_terms,
+)
 from .technical_term_disambiguation_service import (
     best_resolution,
     resolve_technical_terms,
     write_disambiguation_log,
 )
-from .uncertain_expression_cleanup_service import INFERENCE_TERMS
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_skill_evidence.jsonl"
@@ -21,13 +27,6 @@ UNCERTAIN_MARKERS = (
     "如掌握", "如有", "若熟悉", "可补充", "建议学习", "建议掌握", "计划学习",
     "了解即可", "可能使用", "可考虑", "待确认", "熟悉者优先", "掌握者优先",
 )
-SKILL_TERMS = list(dict.fromkeys([
-    *TECH_TERMS, *INFERENCE_TERMS, "Git", "Linux", "Pydantic", "SQLAlchemy",
-    "python-docx", "PyPDF2", "Nginx", "systemd", "Vite", "Zustand", "Ant Design",
-    "pytest", "Smoke Test", "JMeter", "Groundedness", "Citation", "Retrieval", "Debug Trace",
-]))
-
-
 @dataclass
 class SkillEvidenceStats:
     stage: str
@@ -36,6 +35,7 @@ class SkillEvidenceStats:
     skill_count_after: int = 0
     verified_skill_count: int = 0
     explicit_skill_count: int = 0
+    deterministic_inference_count: int = 0
     recovered_skill_count: int = 0
     normalized_skill_count: int = 0
     uncertain_skill_removed_count: int = 0
@@ -46,22 +46,15 @@ class SkillEvidenceStats:
 
 
 def _contains(text: str, term: str) -> bool:
-    # `+` is also a common separator in user input (LoRa+sensor, SSL+Token),
-    # so it must not block evidence recognition. Terms such as C++ remain safe
-    # because the plus signs are part of the escaped term itself.
-    return bool(re.search(rf"(?<![A-Za-z0-9.#-]){re.escape(term)}(?![A-Za-z0-9.#-])", text, re.I))
+    return contains_skill_term(text, term)
 
 
 def _skill_terms(text: str) -> list[str]:
-    return [term for term in SKILL_TERMS if _contains(text, term)]
+    return extract_skill_terms(text)
 
 
 def _canonical_term(term: str) -> str:
-    aliases = {
-        "codebuddy": "CodeBuddy", "lora": "LoRa", "地图api": "地图 API",
-        "token": "Token", "ssl": "SSL", "智能制图": "数据可视化",
-    }
-    return aliases.get(re.sub(r"\s+", "", term).lower(), term)
+    return canonical_skill_term(term)
 
 
 def _has_grounded_term(text: str, term: str) -> bool:
@@ -117,6 +110,7 @@ def guard_resume_skill_evidence(
     payload: schemas.GenerationPayload,
     raw_input: str,
     *,
+    aggregated_evidence: list[AggregatedSkillEvidence] | None = None,
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
@@ -124,27 +118,27 @@ def guard_resume_skill_evidence(
     updated = payload.model_copy(deep=True)
     stats = SkillEvidenceStats(stage=stage, generation_result_id=generation_result_id)
     stats.skill_count_before = len(updated.resume_sections.skills)
-    evidence = _visible_evidence(updated, raw_input)
-    ledger = build_experience_fact_ledger(raw_input)
+    evidence_rows = aggregated_evidence if aggregated_evidence is not None else aggregate_skill_evidence(raw_input)
+    if not raw_input.strip() and not evidence_rows:
+        evidence_rows = aggregate_historical_project_skill_evidence(updated)
     resolutions = resolve_technical_terms(raw_input)
     if write_log:
         write_disambiguation_log(
             resolutions, stage=stage, generation_result_id=generation_result_id,
         )
-    supported_by_term: dict[str, list] = {}
-    for fact in ledger.facts:
-        for term in _skill_terms(fact.fact_text):
-            if _has_grounded_term(fact.fact_text, term):
-                canonical = _canonical_term(term)
-                if canonical.lower() == "token":
-                    resolution = best_resolution(
-                        [item for item in resolutions if item.fact_id == fact.fact_id], "Token",
-                    )
-                    if not resolution or not resolution.category or resolution.confidence < 0.65:
-                        continue
-                stats.normalized_skill_count += canonical != term
-                supported_by_term.setdefault(canonical.lower(), []).append(fact)
-                stats.explicit_skill_count += 1
+    supported_by_term: dict[str, AggregatedSkillEvidence] = {}
+    for evidence_row in evidence_rows:
+        canonical = _canonical_term(evidence_row.term)
+        if canonical.lower() == "token":
+            resolution = best_resolution(resolutions, "Token")
+            if not resolution or not resolution.category or resolution.confidence < 0.65:
+                continue
+        stats.normalized_skill_count += canonical != evidence_row.term
+        supported_by_term[canonical.lower()] = evidence_row
+        if evidence_row.evidence_type == "explicit":
+            stats.explicit_skill_count += 1
+        else:
+            stats.deterministic_inference_count += 1
 
     cleaned_lines: list[str] = []
     for raw_line in updated.resume_sections.skills:
@@ -158,19 +152,12 @@ def guard_resume_skill_evidence(
         supported: list[str] = []
         for term in terms:
             term = _canonical_term(term)
-            facts = supported_by_term.get(term.lower(), [])
-            explicit = _has_grounded_term(evidence, term)
-            # Remove the current skill line from evidence: a generated skill cannot prove itself.
-            explicit = explicit and _has_grounded_term("\n".join([raw_input, *payload.confirmed_facts, *[
-                str(value) for project in payload.resume_sections.projects
-                for value in [project.get("intro", ""), project.get("role", ""), *(project.get("details", []) or [])]
-            ]]), term)
-            if explicit or facts:
+            evidence_row = supported_by_term.get(term.lower())
+            if evidence_row:
                 supported.append(term)
                 stats.verified_skill_count += 1
-                for fact in facts:
-                    stats.source_experience_ids.append(fact.experience_id)
-                    stats.source_fact_ids.append(fact.fact_id)
+                stats.source_experience_ids.extend(evidence_row.source_experience_ids)
+                stats.source_fact_ids.extend(evidence_row.source_fact_ids)
             else:
                 stats.unsupported_skills.append(term)
                 if uncertain:
@@ -188,7 +175,7 @@ def guard_resume_skill_evidence(
             term for term in SKILL_TERMS
             if _canonical_term(term).lower() == key
         ))
-        for key, facts in supported_by_term.items()
+        for key in supported_by_term
         if key not in represented
     ]
     recovered = list(dict.fromkeys(recovered))

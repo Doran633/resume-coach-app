@@ -1,5 +1,15 @@
 # Resume Coach App
 
+## v0.6.11 技能证据聚合与输入模板精简
+
+- 输入页删除“大模型 / Agent 经历”模板，AI / Agent 项目统一使用“项目经历”模板；目标岗位中的“AI / 大模型 / Agent”保持不变。
+- 新增 `resume_skill_evidence_aggregation_service.py`，从所有 Experience Identity 与 Fact Ledger 聚合经过验证的技能证据。
+- 项目正文继续严格遵守 Experience ID 边界，技能栏可以跨经历汇总；例如不同经历中的 Python 与 TypeScript 会统一呈现为“编程语言：Python、TypeScript”。
+- FastAPI、SQLAlchemy、Pydantic、pytest、Django、Flask 可确定性支撑 Python；React 本身不能证明 TypeScript，Spring 本身不能证明 Java。
+- 技能证据不会读取目标岗位、包装指令、知识清单或面试准备，避免把“想学/想投”误写成“已经使用”。
+- 实习标题将缺少具体方向的“AI Agent 实习”规范为“AI Agent 开发实习”，并保留用户明确提供的测试、产品等具体岗位。
+- 生成保存和历史 DOCX 导出使用同一技能聚合链路，同一技能只展示一次，不引入无证据的 Docker、Redis、MySQL。
+
 ## v0.6.10 最终投递质量门
 
 - 新增 `resume_delivery_quality_gate_service.py`，在生成保存和 DOCX 渲染前统一复检空内容、无效经历、跨经历事实、重复事实、残句、异常字符、内部字段、教练话术和无证据技能。

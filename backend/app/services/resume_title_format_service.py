@@ -21,6 +21,8 @@ def _normalize_position(value: str) -> str:
     text = re.sub(r"实习$", "", text).strip()
     text = re.sub(r"AI\s*Agent", "AI Agent", text, flags=re.I)
     text = text.replace("AI Agent开发", "AI Agent 开发")
+    if text == "AI Agent":
+        text = "AI Agent 开发"
     if text in {"前端", "后端"}:
         text += "开发"
     if not text or text in {"岗位", "开发岗位", "实习"}:

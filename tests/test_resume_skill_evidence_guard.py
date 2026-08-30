@@ -41,10 +41,13 @@ def test_knowledge_checklist_does_not_prove_skill():
 
 def test_target_role_requirement_does_not_prove_redis():
     result = guard_resume_skill_evidence(payload(["Redis"]), "目标岗位需要 Redis，但本人项目使用 SQLite。", write_log=False)
-    assert result.resume_sections.skills == []
+    text = " ".join(result.resume_sections.skills)
+    assert "Redis" not in text
+    assert "SQLite" in text
 
 
 def test_grounded_rag_react_fastapi_are_kept():
     raw = "使用 React 和 FastAPI 开发 RAG 应用。"
     result = guard_resume_skill_evidence(payload(["React", "FastAPI", "RAG"], details=[raw]), raw, write_log=False)
-    assert result.resume_sections.skills == ["React", "FastAPI", "RAG"]
+    text = " ".join(result.resume_sections.skills)
+    assert all(term in text for term in ["React", "FastAPI", "RAG", "Python"])

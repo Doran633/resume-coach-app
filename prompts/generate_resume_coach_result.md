@@ -342,6 +342,15 @@ resume_sections 必须包含：
 - “名称｜身份｜时间”是元数据，不是独立经历；不得将其重复写入 intro、role 或 details。
 - 无法确认类型或只有标题元数据时，将确认问题写入 missing_questions，不得使用通用项目承载剩余文本。
 - 不得为了覆盖所有 experience_id 而创建无事实项目；经历数量服从有效事实数量。
+
+## v0.6.11 全局技能证据聚合规则
+
+- 项目正文必须继续遵守 experience_id 事实隔离；skills 可以跨经历汇总已经获得事实证据的技术能力。
+- 用户明确写出 Python 或 TypeScript 时，应进入“编程语言”分类；多段经历分别提供证据时，可以汇总为“编程语言：Python、TypeScript”。
+- FastAPI、SQLAlchemy、Pydantic、pytest、Django、Flask 等 Python 专属生态可以确定性支撑 Python，但必须保留对应 experience_id / fact_id 证据。
+- React、Vite、Ant Design、Zustand 不能单独证明 TypeScript；Spring 不能单独证明 Java。
+- 目标岗位、包装指令、knowledge_checklist、interview_plan 和 missing_questions 中的技术词不得作为技能证据。
+- 不得为补全技能栏添加 Docker、Redis、MySQL 等没有明确事实或确定性生态关系的技术；同一技能只输出一次。
 ## v0.5.4 语义空格规则
 
 - 中文词语之间不要插入无意义空格，中文标点前后不得残留空格。

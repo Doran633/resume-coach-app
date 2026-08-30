@@ -153,3 +153,11 @@ risk_level 只能是 green、yellow、red、black。
 - 纯“名称｜身份｜时间”标题行只能补充相邻项目元数据，不能单独占用 experience_id，也不能重复进入 intro、role 或 details。
 - 无法确认的标题或经历类型进入 missing_questions；不得为覆盖片段数量创建空壳项目。
 - 输入较长不构成使用通用项目兜底的理由，具体高价值事实必须留在原有有效经历中。
+
+## v0.6.11 长输入全局技能证据规则
+
+- 先在每个 experience_id 内提取有事实依据的技术，再跨经历聚合 skills；项目 details 仍不得跨经历借用事实。
+- 明确出现 Python、TypeScript 时归入编程语言；FastAPI、SQLAlchemy、Pydantic、pytest、Django、Flask 可以确定性支撑 Python，并绑定来源 fact_id。
+- React、Vite、Ant Design、Zustand 本身不能证明 TypeScript，Spring 本身不能证明 Java。
+- 目标岗位、包装要求、knowledge_checklist、interview_plan 和 missing_questions 不得反向证明技能。
+- 技能证据不足时宁可不输出，不得补入 Docker、Redis、MySQL 等未知技术；跨经历汇总后同一技能只保留一次。

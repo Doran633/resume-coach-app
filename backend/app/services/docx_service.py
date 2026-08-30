@@ -43,6 +43,7 @@ from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_semantic_unit_service import ensure_semantic_units
 from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
 from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
+from .resume_skill_evidence_aggregation_service import aggregate_skill_evidence
 from .resume_section_layering_service import layer_resume_sections
 from .resume_fact_increment_service import ensure_resume_fact_increment
 from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
@@ -270,8 +271,13 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         stage="docx_export",
         generation_result_id=request.generation_result_id,
     )
+    skill_evidence = aggregate_skill_evidence(raw_input)
     payload = guard_resume_skill_evidence(
-        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
+        payload,
+        raw_input,
+        aggregated_evidence=skill_evidence,
+        stage="docx_export",
+        generation_result_id=request.generation_result_id,
     )
     payload = calibrate_resume_skill_taxonomy(
         payload, target_role, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,

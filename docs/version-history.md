@@ -678,3 +678,12 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - 技能证据恢复增加确定性排序，解决同一质量门重复执行时技能顺序变化的副作用。
 - 新增脱敏日志 `backend/logs/resume_delivery_quality_gate.jsonl` 和专项回归 `tests/test_v06_delivery_quality_gate.py`。
 - v0.6.x 至此完成实体唯一性、术语消歧、经历有效性、可靠性口径和最终投递检查的阶段收口。
+
+## v0.6.11：全局技能证据聚合与标题表达补丁
+
+- 输入页模板由五个精简为项目、实习、开源和比赛四类；AI / 大模型 / Agent 项目继续通过项目模板输入，目标岗位选项不变。
+- 新增全局 Skill Evidence Aggregation，在不放宽项目 Experience ID 边界的前提下，跨经历汇总明确技术证据。
+- 支持从 FastAPI、SQLAlchemy、Pydantic、pytest、Django、Flask 确定性推断 Python，并记录来源 Experience ID、Fact ID 和推断依据。
+- 禁止从 React 单独推断 TypeScript、从 Spring 单独推断 Java，也不从目标岗位、知识准备和包装指令反推技能。
+- Skill Evidence Guard 在 LLM 技能栏为空时恢复真实技能，Taxonomy 统一分类并去重；历史 DOCX 重新导出同样生效。
+- 实习标题将无具体方向的“AI Agent 岗位实习 / AI Agent 实习”书面化为“AI Agent 开发实习”，用户明确提供的测试、产品等岗位保持不变。

@@ -1279,13 +1279,17 @@ body {
     justify-content: flex-start;
   }
 
+  .template-actions .ant-space-item {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 132px;
+  }
+
   .template-stack {
     justify-items: start;
   }
 
   .template-actions .ant-btn {
-    flex: 1 1 calc(50% - 8px);
-    min-width: 132px;
+    width: 100%;
   }
 
   .result-tabs-card > .ant-card-body {
@@ -1543,7 +1547,7 @@ body {
   }
 
   .template-actions .ant-btn {
-    flex-basis: 100%;
+    width: 100%;
   }
 
   .summary-main h3,

@@ -240,6 +240,17 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 
 技能处理顺序固定为：Technical Term Disambiguation -> Skill Evidence Guard -> Skill Taxonomy -> Output Relevance -> Recruiter Language -> Whitespace Quality。后置文本清洗不得删除技能分类标题。
 
+### v0.6.11 全局技能证据聚合
+
+技能链路调整为：`Experience Fact Ledger -> Skill Evidence Aggregation -> Skill Evidence Guard -> Skill Taxonomy -> Output Relevance -> Delivery Quality Gate`。
+
+- Skill Evidence Aggregation 读取所有经历的明确技术事实，记录 `term`、证据类型、置信度、来源 Experience ID、来源 Fact ID 和确定性推断依据。
+- 项目 intro、role、details 继续只能读取各自 Experience ID；只有 skills 是跨经历能力视图，不能把聚合结果反向灌入项目正文。
+- Python 可由 FastAPI、SQLAlchemy、Pydantic、pytest、Django、Flask 等专属生态确定性支撑；React/Vite/Ant Design/Zustand 不足以证明 TypeScript，Spring 不足以证明 Java。
+- 目标岗位、包装指令、knowledge checklist、interview plan 和 missing questions 不参与证据聚合。
+- Skill Evidence Guard 决定技能是否准入，Taxonomy 只分类和排序，Output Relevance 处理 Token 等上下文歧义，Delivery Quality Gate 只复检、不承担技能推断。
+- DOCX 导出会重新构建聚合证据，历史结果即使 skills 为空，也能恢复真实能力且不展示内部证据字段。
+
 职责处理遵循：Experience Boundary Guard -> Resume Role Resolution -> Template Language Guard -> Resume Output Firewall。Role Resolution 只能使用当前 `experience_id` 的职责/动作事实；无法恢复时允许留空，任何后置服务不得重新写入系统占位说明。
 2. `recruiter_language_service`：把内部字段枚举转换为招聘者可理解的工程价值，不改变事实归属。
 3. `resume_recruiter_readability_service`：清理开发日志、文件清单和与项目简介重复的低价值详情。

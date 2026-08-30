@@ -86,6 +86,9 @@ def test_same_fact_ids_merge_but_do_not_invent_evaluation_scope():
 
 def test_internship_position_is_local_and_missing_stays_placeholder():
     assert extract_internship_position("在自行者科技有限公司 AI Agent 开发岗位实习，负责 RAG 测试。") == "AI Agent 开发实习"
+    assert extract_internship_position("在自行者科技有限公司 AI agent 岗位实习，负责 RAG 测试。") == "AI Agent 开发实习"
+    assert extract_internship_position("在自行者科技有限公司 AI Agent 实习，负责 RAG 测试。") == "AI Agent 开发实习"
+    assert extract_internship_position("在自行者科技有限公司 AI Agent 测试实习，负责质量验证。") == "AI Agent 测试实习"
     assert extract_internship_position("担任后端开发实习生，负责接口开发。") == "后端开发实习"
     assert extract_internship_position("在星河科技有限公司实习，参与项目开发。", "前端开发") == "[待填写]"
 
@@ -106,8 +109,9 @@ def test_title_resolution_uses_company_position_and_specific_project_type():
 
 
 def test_docx_uses_formal_titles_and_hides_internal_ids():
-    raw = "实习经历｜自行者科技有限公司\n在自行者科技有限公司担任 AI Agent 开发实习生，负责 RAG 测试集建设。"
+    raw = "实习经历｜自行者科技有限公司\n在自行者科技有限公司 AI agent 岗位实习，负责 RAG 测试集建设。"
     payload = make_payload(["建设 RAG 测试集"], meta="实习经历", name="自行者科技有限公司 AI Agent 开发实习", fact_ids=[["EXP-001-F001"]])
+    payload.resume_sections.projects[0]["time"] = "[待填写]"
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()
@@ -120,7 +124,7 @@ def test_docx_uses_formal_titles_and_hides_internal_ids():
             docx_service.OUTPUT_DIR = Path(tmpdir)
             response = docx_service.create_docx(db, schemas.DocxCreate(anonymous_user_id="u", session_id="s", generation_result_id=910))
             text = "\n".join(paragraph.text for paragraph in Document(Path(tmpdir) / response.file_name).paragraphs)
-            assert "自行者科技有限公司｜AI Agent 开发实习｜2026" in text
+            assert "自行者科技有限公司｜AI Agent 开发实习｜[待填写]" in text
             assert "source_experience_id" not in text and "source_fact_ids" not in text and "EXP-001" not in text
         finally:
             docx_service.OUTPUT_DIR = old_output

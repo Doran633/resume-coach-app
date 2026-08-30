@@ -42,6 +42,12 @@ def _display_term(term: str, meaning: str) -> str:
     return term
 
 
+def _ordered_skill_terms(line: str) -> list[str]:
+    terms = _skill_terms(line)
+    lowered = line.lower()
+    return sorted(terms, key=lambda term: lowered.find(term.lower()))
+
+
 def _write_log(stats: OutputRelevanceStats) -> None:
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -76,7 +82,7 @@ def guard_resume_output_relevance(
         line = str(raw_line or "").strip()
         label_match = re.match(r"^([^：:]{1,24})[：:]", line)
         current_category = label_match.group(1).strip() if label_match else "其他技术"
-        for raw_term in _skill_terms(line):
+        for raw_term in _ordered_skill_terms(line):
             term = _canonical_term(raw_term)
             stats.checked_skill_count += 1
             target_category = current_category

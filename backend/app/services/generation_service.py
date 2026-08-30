@@ -46,6 +46,7 @@ from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_semantic_unit_service import ensure_semantic_units
 from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
 from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
+from .resume_skill_evidence_aggregation_service import aggregate_skill_evidence
 from .resume_section_layering_service import layer_resume_sections
 from .resume_fact_increment_service import ensure_resume_fact_increment
 from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
@@ -500,7 +501,13 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = resolve_resume_roles(payload, request.raw_input, stage="before_save")
     payload = guard_resume_output(payload, request.raw_input, stage="before_save")
     payload = professionalize_resume_language(payload, stage="generation")
-    payload = guard_resume_skill_evidence(payload, request.raw_input, stage="generation")
+    skill_evidence = aggregate_skill_evidence(request.raw_input)
+    payload = guard_resume_skill_evidence(
+        payload,
+        request.raw_input,
+        aggregated_evidence=skill_evidence,
+        stage="generation",
+    )
     payload = calibrate_resume_skill_taxonomy(
         payload, request.target_role, request.raw_input, stage="generation",
     )
