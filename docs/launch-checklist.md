@@ -363,3 +363,17 @@ tail -n 20 backend/logs/resume_delivery_quality_gate.jsonl
 - [ ] Redis短时故障进入1并发保守模式，持续故障后暂停新生成；已有结果和下载仍可用。
 - [ ] `runtime-protection`报告可正常导出，队列P90超过60秒时不继续扩大队列。
 - [ ] 已按 `docs/v0.7-launch-security.md` 检查环境变量、systemd、Nginx和目录权限。
+# v0.7.3 发布可观测性检查
+
+- [ ] `APP_VERSION` 与根目录 `VERSION` 一致。
+- [ ] `BUILD_COMMIT` 为当前完整 Git commit，`BUILD_TIME` 为本次构建时间。
+- [ ] 前端 `VITE_APP_VERSION`、`VITE_BUILD_COMMIT`、`VITE_BUILD_TIME` 与后端相同。
+- [ ] `python scripts/run_release_quality_gate.py` 已为当前 commit 生成通过记录。
+- [ ] 最近 2 小时 shallow smoke 通过。
+- [ ] 部署后 full smoke 通过，且测试匿名数据删除成功。
+- [ ] 最近 2 小时 SLO 没有 critical。
+- [ ] 健康接口、前端页脚和服务器 Git 的 commit 一致。
+- [ ] 用户可在错误区和结果页复制 `req_...` 问题编号。
+- [ ] `list_recent_quality_incidents.py --request-id` 可以回接 attempt、result 和 file。
+- [ ] 烟测 attempt 已从真实用户 SLO 与漏斗中排除。
+- [ ] `launch_preflight.py` 没有 failed 项。

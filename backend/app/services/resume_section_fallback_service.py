@@ -564,7 +564,8 @@ def fill_resume_sections(
     stage: str = "unknown",
     raw_input: str = "",
     write_log: bool = True,
-) -> schemas.GenerationPayload:
+    return_stats: bool = False,
+) -> schemas.GenerationPayload | tuple[schemas.GenerationPayload, FallbackStats]:
     stats = FallbackStats(generation_result_id=generation_result_id, stage=stage)
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
@@ -677,4 +678,4 @@ def fill_resume_sections(
     stats.projects_removed = max(0, stats.projects_before - stats.projects_after)
     if write_log:
         _write_fallback_log(stats)
-    return filled
+    return (filled, stats) if return_stats else filled

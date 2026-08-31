@@ -7,11 +7,16 @@ from pathlib import Path
 from typing import Any
 
 
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "backend" / "data" / "resume_coach.db"
 DEFAULT_LOGS = ROOT / "backend" / "logs"
 DEFAULT_OUT = ROOT / "backend" / "reports"
 BEIJING = timezone(timedelta(hours=8))
+
+
+def is_smoke_attempt(value: Any) -> bool:
+    return str(value or "").startswith("smoke_")
 
 
 def parse_args():
@@ -120,7 +125,17 @@ def build_report(db_path: Path, logs_dir: Path, days: int | None = None) -> str:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        events = _load_events(conn, cutoff)
+        all_events = _load_events(conn, cutoff)
+        smoke_event_count = sum(
+            is_smoke_attempt(event["payload"].get("attempt_id"))
+            or event["event_name"] == "public_smoke_test"
+            for event in all_events
+        )
+        events = [
+            event for event in all_events
+            if not is_smoke_attempt(event["payload"].get("attempt_id"))
+            and event["event_name"] != "public_smoke_test"
+        ]
         generation_result_count = _count_table(conn, "generation_results", cutoff)
         generated_file_count = _count_table(conn, "generated_files", cutoff)
         feedback_row_count = _count_table(conn, "feedback", cutoff)
@@ -191,6 +206,7 @@ def build_report(db_path: Path, logs_dir: Path, days: int | None = None) -> str:
         f"- 可关联 attempt_id 数量：{len(attempts)}",
         f"- 有提交事件的生成尝试：{len(submitted)}",
         f"- 缺少 attempt_id 的历史生成相关事件：{legacy_generation_events}",
+        f"- 已排除烟测事件：{smoke_event_count}",
         "- 历史事件无法可靠还原单次生成链路，不会被强行计入失败尝试。" if legacy_generation_events else "- 当前生成事件均可按 attempt_id 关联。",
         "",
         "## 请求级漏斗",

@@ -15,9 +15,11 @@ interface AppState {
   generation?: GenerateResponse;
   lastRequest?: GenerateRequestDraft;
   currentAttemptId?: string;
+  supportRequestId?: string;
   setStep: (step: number) => void;
   setLastRequest: (request: GenerateRequestDraft) => void;
   setCurrentAttemptId: (attemptId: string) => void;
+  setSupportRequestId: (requestId?: string) => void;
   markCurrentAttemptComplete: () => void;
   setGeneration: (generation: GenerateResponse) => void;
   resetAfterDataDeletion: () => void;
@@ -84,6 +86,7 @@ export const useAppStore = create<AppState>((set) => ({
     }
     set({ currentAttemptId: currentAttemptId || undefined });
   },
+  setSupportRequestId: (supportRequestId) => set({ supportRequestId }),
   markCurrentAttemptComplete: () => {
     localStorage.removeItem(currentAttemptKey);
     localStorage.removeItem(currentAttemptCreatedAtKey);
@@ -96,7 +99,8 @@ export const useAppStore = create<AppState>((set) => ({
       identity: createIdentity(),
       generation: undefined,
       lastRequest: undefined,
-      currentAttemptId: undefined
+      currentAttemptId: undefined,
+      supportRequestId: undefined
     });
   }
 }));

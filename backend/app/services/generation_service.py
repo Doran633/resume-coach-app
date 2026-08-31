@@ -59,7 +59,11 @@ from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
 from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
-from .resume_delivery_quality_gate_service import ensure_resume_delivery_quality
+from .resume_delivery_quality_gate_service import (
+    ensure_resume_delivery_quality,
+    evaluate_delivery_quality_issues,
+    measure_high_value_fact_coverage,
+)
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 from .resource_protection_service import resource_protection
 
@@ -438,11 +442,13 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
         "latency_ms": 0,
         "success": 1,
         "error_message": None,
+        "attempt_id": request.attempt_id or "",
         "prompt_type": "normal",
     }
     stability_log = {
         "mode": mode,
         "model": "mock",
+        "attempt_id": request.attempt_id or "",
         "long_input_mode": long_input_context.long_input_mode,
         "raw_input_length": long_input_context.raw_input_length,
         "line_count": long_input_context.line_count,
@@ -492,7 +498,9 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = cleanup_generation_payload(payload, source=mode)
     log_generation_stage(payload, "after_normalize")
     payload = guard_hard_facts(payload, request.raw_input)
-    payload = fill_resume_sections(payload, stage="generation", raw_input=request.raw_input)
+    payload, resume_fallback_stats = fill_resume_sections(
+        payload, stage="generation", raw_input=request.raw_input, return_stats=True,
+    )
     payload = ensure_resume_experience_validity(
         payload, request.raw_input, stage="generation_after_fallback",
     )
@@ -564,6 +572,20 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     payload = ensure_resume_delivery_quality(
         payload, request.raw_input, stage="before_save",
     )
+    final_quality_issues = evaluate_delivery_quality_issues(payload, request.raw_input)
+    final_projects = payload.resume_sections.projects
+    projects_with_source_id = sum(bool(project.get("source_experience_id")) for project in final_projects)
+    projects_missing_source_id = len(final_projects) - projects_with_source_id
+    stability_log.update({
+        "resume_section_fallback_triggered": bool(resume_fallback_stats.fallback_sections),
+        "resume_section_fallback_sections": list(resume_fallback_stats.fallback_sections),
+        "role_fallback_triggered_count": resume_fallback_stats.role_fallback_triggered,
+        "projects_with_source_id": projects_with_source_id,
+        "projects_missing_source_id": projects_missing_source_id,
+        "high_value_fact_coverage": round(measure_high_value_fact_coverage(payload, request.raw_input), 3),
+        "unresolved_quality_issue_codes": sorted({issue.issue_code for issue in final_quality_issues}),
+        "unresolved_critical_issue_count": sum(issue.severity == "critical" for issue in final_quality_issues),
+    })
     evaluate_resume_output_quality(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "before_save")
     payload = strip_project_hierarchy_metadata(payload)

@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Col, Collapse, Input, Progress, Row, Space, Tabs, Typography, message } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { ApiRequestError, generateExperience, trackEvent } from "../api/client";
+import SupportCode from "../components/SupportCode";
 import { useAppStore } from "../store/appStore";
 import type { ClaimResult } from "../types/api";
 import { getGenerationErrorInfo } from "../utils/errorMessages";
@@ -386,11 +387,13 @@ function KnowledgeList({ items }: { items: string[] }) {
 }
 
 export default function ResultPage() {
-  const { currentAttemptId, generation, identity, lastRequest, markCurrentAttemptComplete, setCurrentAttemptId, setGeneration, setLastRequest, setStep } = useAppStore();
+  const { currentAttemptId, generation, identity, lastRequest, markCurrentAttemptComplete, setCurrentAttemptId, setGeneration, setLastRequest, setStep, setSupportRequestId, supportRequestId } = useAppStore();
   const [followup, setFollowup] = useState("");
   const [regenerating, setRegenerating] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
+  const [reportCodeVisible, setReportCodeVisible] = useState(false);
+  const [followupRequestId, setFollowupRequestId] = useState<string | undefined>();
   const viewedResultIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -451,7 +454,9 @@ export default function ResultPage() {
     setRegenerating(true);
     setLastRequest(nextRequest);
     try {
-      const next = await generateExperience(identity, { ...nextRequest, attempt_id: attemptId });
+      const generated = await generateExperience(identity, { ...nextRequest, attempt_id: attemptId });
+      const next = generated.generation;
+      setSupportRequestId(generated.requestId);
       void trackEvent(identity, "generate_success", {
         generation_result_id: next.generation_result_id,
         completeness_score: next.result.completeness_score,
@@ -467,6 +472,7 @@ export default function ResultPage() {
     } catch (error) {
       const errorInfo = getGenerationErrorInfo(error);
       setFollowupError(errorInfo.message);
+      setFollowupRequestId(errorInfo.requestId);
       if (!(error instanceof ApiRequestError) || error.code !== "network") {
         setCurrentAttemptId("");
       }
@@ -508,7 +514,7 @@ export default function ResultPage() {
         }}
         placeholder="例如：500人是累计真实用户，不是同时在线；RAG 已实现 chunk、embedding、top-k 检索，但 rerank 还在规划。"
       />
-      {followupError && <Alert className="followup-error" type="error" showIcon message="重新生成没有成功" description={followupError} />}
+      {followupError && <Alert className="followup-error" type="error" showIcon message="重新生成没有成功" description={<><span>{followupError}</span><SupportCode requestId={followupRequestId} onCopy={(requestId) => trackEvent(identity, "copy_support_code", { request_id: requestId, operation: "followup", attempt_id: currentAttemptId })} /></>} />}
       <Space className="footer-actions" wrap>
         <Button
           onClick={() => {
@@ -656,20 +662,33 @@ export default function ResultPage() {
             <strong>查看包装结果</strong>
             <span>切换下方栏目，检查定位、表达与承接准备。</span>
           </div>
-          <Button
-            type="primary"
-            className="result-export-button"
-            onClick={() => {
-              void trackEvent(identity, "open_export_from_result", {
+          <div className="result-toolbar-actions">
+            <Button
+              type="primary"
+              className="result-export-button"
+              onClick={() => {
+                void trackEvent(identity, "open_export_from_result", {
+                  generation_result_id: generation.generation_result_id,
+                  active_tab: activeTab,
+                  attempt_id: currentAttemptId
+                });
+                setStep(2);
+              }}
+            >
+              导出简历与查看准备清单
+            </Button>
+            <Button type="link" className="report-result-button" onClick={() => setReportCodeVisible((visible) => !visible)}>
+              报告此结果问题
+            </Button>
+            {reportCodeVisible && (
+              <SupportCode requestId={supportRequestId} onCopy={(requestId) => trackEvent(identity, "copy_support_code", {
+                request_id: requestId,
+                operation: "result",
                 generation_result_id: generation.generation_result_id,
-                active_tab: activeTab,
                 attempt_id: currentAttemptId
-              });
-              setStep(2);
-            }}
-          >
-            导出简历与查看准备清单
-          </Button>
+              })} />
+            )}
+          </div>
         </div>
         <Tabs
           activeKey={activeTab}

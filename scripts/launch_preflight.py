@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -79,6 +80,35 @@ def _display_path(path: Path, project_root: Path) -> str:
         return str(path)
 
 
+def _git_commit(project_root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=project_root,
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _report_age_hours(payload: dict) -> float | None:
+    try:
+        created = datetime.fromisoformat(str(payload.get("created_at", "")).replace("Z", "+00:00"))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=datetime.now().astimezone().tzinfo)
+        return (datetime.now().astimezone() - created.astimezone()).total_seconds() / 3600
+    except ValueError:
+        return None
+
+
 def _redis_public_listener(port: int) -> bool | None:
     ss = shutil.which("ss")
     if not ss:
@@ -107,6 +137,7 @@ def run_checks(
     public_env = {**env, **(_read_env(frontend_env_path) if frontend_env_path else {})}
     checks: list[Check] = []
     environment = _env_value(env, "APP_ENV", "development").lower()
+    production = environment in {"production", "prod"}
     checks.append(Check("production environment", "passed" if environment in {"production", "prod"} else "failed", f"APP_ENV is {environment or 'missing'}"))
 
     weak = {"", "change-me", "dev-only-secret"}
@@ -147,6 +178,8 @@ def run_checks(
     checks.append(Check("Redis", "passed" if redis_ok else "failed", redis_message))
 
     database_url = _env_value(env, "DATABASE_URL", f"sqlite:///{project_root / 'backend' / 'data' / 'resume_coach.db'}")
+    live: dict = {}
+    ready: dict = {}
     try:
         database_path = sqlite_database_path(database_url, base_dir=project_root)
         valid, integrity = database_integrity(database_path)
@@ -197,6 +230,22 @@ def run_checks(
         checks.append(Check("backend health", "failed", f"local health request failed: {type(exc).__name__}"))
         checks.append(Check("DOCX route", "failed", "OpenAPI route check was unavailable"))
 
+    version_file = project_root / "VERSION"
+    source_version = version_file.read_text(encoding="utf-8").strip() if version_file.exists() else ""
+    expected_version = _env_value(env, "APP_VERSION", source_version)
+    expected_commit = _env_value(env, "BUILD_COMMIT")
+    git_commit = _git_commit(project_root)
+    backend_release_ok = bool(
+        live and live.get("version") == expected_version
+        and expected_commit and str(live.get("commit", "")) == expected_commit[:8]
+        and (not git_commit or expected_commit.startswith(git_commit[:8]))
+    )
+    release_status = "passed" if backend_release_ok else "failed" if production else "warning"
+    checks.append(Check(
+        "backend release identity", release_status,
+        "backend version and commit match configured build" if backend_release_ok else "APP_VERSION, BUILD_COMMIT, running backend, and current Git commit do not match",
+    ))
+
     icp_number = _env_value(public_env, "VITE_ICP_NUMBER")
     checks.append(Check("ICP footer configuration", "passed" if icp_number else "warning", "ICP number is configured" if icp_number else "ICP number is not configured"))
     privacy_contact = _env_value(public_env, "VITE_PRIVACY_CONTACT_EMAIL")
@@ -219,17 +268,61 @@ def run_checks(
         try:
             homepage = Request(public_base.rstrip("/") + "/", method="GET")
             with urlopen(homepage, timeout=6) as response:
-                homepage_ok = response.status == 200 and bool(response.read(512))
+                homepage_html = response.read().decode("utf-8", errors="ignore")
+                homepage_ok = response.status == 200 and bool(homepage_html)
             identity_status, _, headers = _http_json(public_base.rstrip("/") + "/api/identity", method="POST")
             cookie = headers.get("set-cookie", "").lower()
             identity_ok = identity_status == 200 and all(flag in cookie for flag in ["httponly", "secure", "samesite=lax"])
             checks.append(Check("public homepage", "passed" if homepage_ok else "failed", "public homepage is reachable" if homepage_ok else "public homepage check failed"))
             checks.append(Check("public anonymous identity", "passed" if identity_ok else "failed", "signed secure cookie is issued" if identity_ok else "identity cookie flags are incomplete"))
+            frontend_version = re.search(r'name="resume-coach-version" content="([^"]+)"', homepage_html)
+            frontend_commit = re.search(r'name="resume-coach-commit" content="([^"]+)"', homepage_html)
+            frontend_release_ok = bool(
+                frontend_version and frontend_version.group(1) == expected_version
+                and frontend_commit and frontend_commit.group(1) == expected_commit[:8]
+                and live.get("version") == frontend_version.group(1)
+                and str(live.get("commit", "")) == frontend_commit.group(1)
+            )
+            checks.append(Check(
+                "frontend/backend release identity", "passed" if frontend_release_ok else "failed",
+                "deployed frontend and backend release metadata match" if frontend_release_ok else "frontend and backend version or commit differ",
+            ))
         except Exception as exc:
             checks.append(Check("public homepage", "failed", f"public request failed: {type(exc).__name__}"))
             checks.append(Check("public anonymous identity", "failed", "public identity endpoint was unavailable"))
     else:
         checks.append(Check("public deployment", "warning", "--public-base was not provided"))
+
+    reports_dir = project_root / "backend" / "reports"
+    release_record = _read_json(reports_dir / f"release-verification-{git_commit[:8]}.json") if git_commit else {}
+    golden_ok = bool(
+        git_commit and release_record.get("golden_regression_passed")
+        and str(release_record.get("commit", "")) == git_commit
+    )
+    previous_records = [
+        _read_json(path) for path in reports_dir.glob("release-verification-*.json")
+        if path.name != f"release-verification-{git_commit[:8]}.json"
+    ]
+    previous_stable = next((str(item.get("short_commit")) for item in reversed(previous_records) if item.get("golden_regression_passed")), "none")
+    checks.append(Check(
+        "golden regression record", "passed" if golden_ok else "failed" if production else "warning",
+        "current commit has a passing deterministic regression record" if golden_ok else f"current commit has no passing record; previous stable commit: {previous_stable}",
+    ))
+    for mode, max_age in [("shallow", 2), ("full", 36)]:
+        report = _read_json(reports_dir / f"public-smoke-{mode}-latest.json")
+        age = _report_age_hours(report)
+        passed = bool(report.get("passed")) and age is not None and age <= max_age
+        checks.append(Check(
+            f"recent {mode} smoke", "passed" if passed else "failed" if production else "warning",
+            f"latest {mode} smoke passed {age:.1f} hours ago" if passed and age is not None else f"no passing {mode} smoke within {max_age} hours",
+        ))
+    slo = _read_json(reports_dir / "operational-slo-latest.json")
+    slo_age = _report_age_hours(slo)
+    slo_ok = bool(slo) and slo.get("status") != "critical" and slo_age is not None and slo_age <= 2
+    checks.append(Check(
+        "operational SLO", "passed" if slo_ok else "failed" if production else "warning",
+        f"latest SLO is {slo.get('status')} and {slo_age:.1f} hours old" if slo_ok and slo_age is not None else "recent SLO report is missing, stale, or critical",
+    ))
     return checks
 
 

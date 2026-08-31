@@ -186,6 +186,34 @@ def test_fact_guard_keeps_real_internship_when_raw_provides_it():
     assert "前端开发实习" in all_text(guarded)
 
 
+def test_fact_guard_preserves_supported_project_subtype_and_position():
+    payload = schemas.GenerationPayload.model_validate(build_hallucinated_payload())
+    payload.resume_sections.projects = [{
+        "name": "课程资料问答项目",
+        "position": "独立开发者",
+        "meta": "课程项目",
+        "time": "[待填写]",
+        "intro": "面向课程资料问答场景",
+        "role": "负责项目开发",
+        "details": ["使用 FastAPI 实现检索接口"],
+        "source_experience_id": "EXP-001",
+        "resolved_experience_type": "项目经历",
+        "type_locked": True,
+        "source_fact_ids": ["EXP-001-F001"],
+        "detail_fact_ids": [["EXP-001-F001"]],
+    }]
+
+    guarded = guard_hard_facts(
+        payload,
+        "独立开发课程资料问答项目，使用 FastAPI 实现检索接口。",
+    )
+
+    project = guarded.resume_sections.projects[0]
+    assert project["meta"] == "课程项目"
+    assert project["position"] == "独立开发者"
+    assert project["detail_fact_ids"] == [["EXP-001-F001"]]
+
+
 if __name__ == "__main__":
     test_fact_guard_removes_missing_major_and_implicit_school_facts()
     test_fact_guard_removes_training_and_concurrency_hallucination_but_keeps_rag()
@@ -194,4 +222,5 @@ if __name__ == "__main__":
     test_fact_guard_downgrades_internship_meta_when_raw_has_no_internship()
     test_fact_guard_removes_internship_experience_from_summary_without_company_fact()
     test_fact_guard_keeps_real_internship_when_raw_provides_it()
+    test_fact_guard_preserves_supported_project_subtype_and_position()
     print("fact guard tests passed")

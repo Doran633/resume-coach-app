@@ -720,3 +720,13 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - 输入2,000字提示、4,000字硬限制，超限不调用模型且不丢草稿。
 - 增加脱敏运行、防护、队列和LLM成本日志，以及运行防护日报。
 - 核心生成质量管线保持冻结，容量不足或模型故障不再触发低质量Fallback。
+# v0.7.3：生产可观测性与问题编号
+
+- 严格校验 `X-Request-ID`，将其作为用户可复制的问题编号，拒绝控制字符、超长和不合法请求头进入日志。
+- 异步生成任务保存首个 request ID，并在成功时关联 attempt ID 与 generation result ID；DOCX 日志继续关联 file ID。
+- 前端生成、DOCX、下载、反馈和删除错误显示问题编号；结果页提供克制的结果问题报告入口。
+- 新增质量事件查询脚本，按编号回接 Delivery Quality Gate、Fact Coverage、Experience Boundary、Fallback 和 DOCX 日志，旧记录明确标为 legacy。
+- 新增 shallow/full 公开烟测；full 使用 `smoke_` attempt、检查输出污染和 DOCX，并在 finally 中删除测试数据。
+- 新增运行 SLO，覆盖成功率、P50/P90、队列、Redis、Fallback、Experience ID、事实覆盖、DOCX、删除、成本、备份、磁盘和证书。
+- 使用根目录 `VERSION`、`BUILD_COMMIT` 和 `BUILD_TIME` 统一前后端发布身份；上线检查会阻止版本错配、缺少当前 commit 黄金回归、烟测过期或 SLO critical 的发布。
+- 监控只发现和报告问题，不修改用户结果，不记录用户正文或敏感凭据。

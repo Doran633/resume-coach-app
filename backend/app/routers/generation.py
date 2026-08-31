@@ -46,7 +46,8 @@ def _prepare_request(payload: schemas.GenerateRequest, request: Request, respons
     identity = resolve_request_identity(request, response)
     if len(raw) > settings.max_raw_input_chars:
         write_structured_log(
-            "security_events", "input_too_large", attempt_id=payload.attempt_id or "",
+            "security_events", "input_too_large",
+            request_id=getattr(request.state, "request_id", ""), attempt_id=payload.attempt_id or "",
             anonymous_id_hash=identity.anonymous_id_hash, ip_hash=identity.ip_hash,
             input_length=len(raw), limit=settings.max_raw_input_chars,
         )
@@ -63,6 +64,12 @@ def _prepare_request(payload: schemas.GenerateRequest, request: Request, respons
 
 def _submit(payload: schemas.GenerateRequest, request: Request, response: Response) -> schemas.GenerationTaskResponse:
     trusted, owner_hash, ip_hash = _prepare_request(payload, request, response)
+    write_structured_log(
+        "generation_queue", "generation_attempt_received",
+        request_id=getattr(request.state, "request_id", ""),
+        attempt_id=trusted.attempt_id or "", anonymous_id_hash=owner_hash,
+        status="received",
+    )
     existing = generation_task_manager.get(trusted.attempt_id or "")
     if existing:
         if existing.owner_hash != owner_hash:
@@ -84,9 +91,17 @@ def _submit(payload: schemas.GenerateRequest, request: Request, response: Respon
         raise _error(429, rate.error_code, message, retry_after=rate.retry_after, attempt_id=trusted.attempt_id)
     resource_protection.observe_generation_risk(owner_hash, ip_hash, trusted.raw_input)
     try:
-        state = generation_task_manager.submit(trusted, owner_hash)
+        state = generation_task_manager.submit(
+            trusted, owner_hash, getattr(request.state, "request_id", ""),
+        )
     except PermissionError:
         raise _error(404, "GENERATION_NOT_FOUND", "生成任务不存在。")
+    write_structured_log(
+        "generation_queue", "generation_attempt_submitted",
+        request_id=getattr(request.state, "request_id", ""),
+        attempt_id=trusted.attempt_id or "", anonymous_id_hash=owner_hash,
+        status=state.status, queue_position=state.queue_position,
+    )
     return generation_task_manager.response(state)
 
 

@@ -18,6 +18,7 @@ class GenerationTaskState:
     attempt_id: str
     owner_hash: str
     status: str
+    request_id: str = ""
     queue_position: int = 0
     generation_result_id: int | None = None
     experience_input_id: int | None = None
@@ -64,7 +65,7 @@ class GenerationTaskManager:
         with self._lock:
             return self._states.get(attempt_id)
 
-    def submit(self, request: schemas.GenerateRequest, owner_hash: str) -> GenerationTaskState:
+    def submit(self, request: schemas.GenerateRequest, owner_hash: str, request_id: str = "") -> GenerationTaskState:
         attempt_id = request.attempt_id or ""
         existing = self.get(attempt_id)
         if existing:
@@ -76,6 +77,7 @@ class GenerationTaskManager:
         if not self._claim_owner(owner_hash, attempt_id):
             return GenerationTaskState(
                 attempt_id=attempt_id, owner_hash=owner_hash, status="failed",
+                request_id=request_id,
                 error_code="GENERATION_ALREADY_RUNNING",
                 user_message="当前简历正在生成，请耐心等待。",
                 created_at=time.time(), updated_at=time.time(),
@@ -85,6 +87,7 @@ class GenerationTaskManager:
         if admission.status == "full":
             state = GenerationTaskState(
                 attempt_id=attempt_id, owner_hash=owner_hash, status="failed",
+                request_id=request_id,
                 error_code="GENERATION_QUEUE_FULL",
                 user_message="当前生成任务较多，请稍后再试。",
                 created_at=time.time(),
@@ -97,6 +100,7 @@ class GenerationTaskManager:
             attempt_id=attempt_id,
             owner_hash=owner_hash,
             status=admission.status,
+            request_id=request_id,
             queue_position=admission.queue_position,
             created_at=time.time(),
         )
@@ -121,6 +125,7 @@ class GenerationTaskManager:
                 self._save(state)
                 write_structured_log(
                     "generation_queue", "generation_task_started", attempt_id=attempt_id,
+                    request_id=state.request_id,
                     anonymous_id_hash=owner_hash,
                     queue_wait_ms=int((time.time() - state.created_at) * 1000),
                 )
@@ -160,6 +165,8 @@ class GenerationTaskManager:
                 self._save(state)
             write_structured_log(
                 "generation_queue", "generation_task_succeeded", attempt_id=attempt_id,
+                request_id=state.request_id if state else "",
+                generation_result_id=result.generation_result_id,
                 anonymous_id_hash=owner_hash, elapsed_ms=int((time.perf_counter() - started) * 1000),
             )
         except GenerationServiceError as exc:
@@ -195,7 +202,8 @@ class GenerationTaskManager:
             self._save(state)
         write_structured_log(
             "runtime", "generation_task_failed", attempt_id=attempt_id,
-            anonymous_id_hash=owner_hash, error_type=error_type,
+            request_id=state.request_id if state else "",
+            anonymous_id_hash=owner_hash, error_type=error_type, error_code=code,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
         )
 

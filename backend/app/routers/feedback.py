@@ -5,6 +5,7 @@ from .. import models, schemas
 from ..database import get_db
 from ..services.identity_service import ensure_session, get_or_create_anonymous_user
 from ..services.security_service import owns_generation_result, resolve_request_identity
+from ..services.structured_log_service import write_structured_log
 
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
@@ -28,4 +29,11 @@ def submit_feedback(payload: schemas.FeedbackCreate, request: Request, response:
     db.add(row)
     db.commit()
     db.refresh(row)
+    write_structured_log(
+        "runtime", "feedback_submitted",
+        request_id=getattr(request.state, "request_id", ""),
+        anonymous_id_hash=identity.anonymous_id_hash,
+        generation_result_id=payload.generation_result_id,
+        feedback_id=row.id, status="success",
+    )
     return {"ok": True, "feedback_id": row.id}

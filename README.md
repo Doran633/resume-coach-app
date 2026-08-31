@@ -850,3 +850,25 @@ v0.3 建议主题：输出质量优化。
 - 生成保存和 DOCX 渲染前执行最终有效性检查；标题空壳优先吸收到对应真实项目，无法恢复时移出正文并写入信息补充问题。
 - 普通实体去重阈值保持不变，共享 RAG 或全栈技术栈的两个真实项目不会因此被合并。
 - 有效性日志位于 `backend/logs/resume_experience_validity.jsonl`，只记录空壳数量、处理结果和来源 ID，不记录用户完整输入或简历正文。
+# v0.7.3：版本身份、问题编号与质量退化发现
+
+- `X-Request-ID` 作为唯一用户问题编号，串联生成 attempt、结果和 DOCX 文件，不创建第二套 Trace ID。
+- 结果页和各类失败提示支持复制问题编号；请求未到达服务器时明确提示暂未生成编号。
+- `scripts/list_recent_quality_incidents.py` 支持按问题编号或结果 ID 查询脱敏质量事件。
+- `scripts/run_public_smoke_test.py` 提供不调用模型的 shallow 模式和显式调用模型、自动清理数据的 full 模式。
+- `scripts/check_operational_slo.py` 汇总成功率、耗时、队列、Redis、Fallback、事实覆盖、DOCX、备份、磁盘、证书和模型成本。
+- `VERSION`、构建 commit 与构建时间统一进入后端健康接口、启动日志、前端页脚和发布检查。
+- 生产使用说明见 [生产可观测性](docs/production-observability.md) 和 [问题响应手册](docs/incident-response.md)。
+
+本地提交后、发布前，为当前 commit 生成确定性回归记录（工作区不干净时脚本会拒绝记录）：
+
+```bash
+python scripts/run_release_quality_gate.py
+```
+
+服务器查看最近质量事件：
+
+```bash
+python scripts/list_recent_quality_incidents.py --hours 24
+python scripts/list_recent_quality_incidents.py --request-id req_xxxxxxxxxxxxxxxx --hours 72
+```

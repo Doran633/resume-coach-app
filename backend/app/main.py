@@ -1,6 +1,5 @@
 import shutil
 import time
-import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +12,7 @@ from .config import get_settings
 from .database import DATA_DIR, engine, ensure_v01_schema
 from .routers import events, feedback, files, generation, identity, privacy
 from .services.resource_protection_service import resource_protection
+from .services.request_id_service import resolve_request_id
 from .services.structured_log_service import cleanup_structured_logs, write_structured_log
 
 
@@ -20,7 +20,7 @@ models.Base.metadata.create_all(bind=engine)
 ensure_v01_schema()
 
 settings = get_settings()
-app = FastAPI(title="Resume Coach App", version="0.7.2")
+app = FastAPI(title="Resume Coach App", version=settings.app_version)
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
@@ -31,12 +31,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
 
 @app.middleware("http")
 async def request_security_middleware(request: Request, call_next):
-    request_id = request.headers.get("x-request-id", "").strip()[:96] or f"req_{uuid.uuid4().hex}"
+    request_id = resolve_request_id(request.headers.get("x-request-id"))
     request.state.request_id = request_id
     content_length = request.headers.get("content-length")
     if content_length and content_length.isdigit() and int(content_length) > settings.max_request_body_bytes:
@@ -78,7 +79,9 @@ def log_startup():
     cleanup_structured_logs()
     disk = shutil.disk_usage(DATA_DIR)
     write_structured_log(
-        "runtime", "service_started", version="0.7.2", environment=settings.environment,
+        "runtime", "service_started", version=settings.app_version,
+        build_commit=settings.build_commit[:8], build_time=settings.build_time,
+        environment=settings.environment,
         redis_ready=resource_protection.redis_ready, degraded=resource_protection.degraded,
         disk_free_bytes=disk.free, status="ready",
     )
@@ -86,12 +89,23 @@ def log_startup():
 
 @app.on_event("shutdown")
 def log_shutdown():
-    write_structured_log("runtime", "service_stopped", version="0.7.2", status="stopped")
+    write_structured_log(
+        "runtime", "service_stopped", version=settings.app_version,
+        build_commit=settings.build_commit[:8], status="stopped",
+    )
+
+
+def _release_payload() -> dict[str, str]:
+    return {
+        "version": settings.app_version,
+        "commit": settings.build_commit[:8],
+        "build_time": settings.build_time,
+    }
 
 
 @app.get("/api/health/live")
 def health_live():
-    return {"ok": True, "version": "0.7.2"}
+    return {"ok": True, **_release_payload()}
 
 
 @app.get("/api/health/ready")
@@ -111,7 +125,7 @@ def health_ready():
         status_code=200 if ready else 503,
         content={
             "ok": ready,
-            "version": "0.7.2",
+            **_release_payload(),
             "checks": {
                 "database": database_ready,
                 "redis": redis_ready,
@@ -125,4 +139,4 @@ def health_ready():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.7.2"}
+    return {"ok": True, **_release_payload()}

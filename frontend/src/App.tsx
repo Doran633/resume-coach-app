@@ -71,6 +71,7 @@ export default function App() {
           <a href="#/ai">AI 辅助生成说明</a>
         </nav>
         <div className="filing-links">
+          <span className="release-identity">v{__APP_VERSION__} · {__BUILD_COMMIT__.slice(0, 8)}</span>
           {import.meta.env.VITE_ICP_NUMBER && (
             <a href={import.meta.env.VITE_ICP_LINK || "https://beian.miit.gov.cn/"} target="_blank" rel="noreferrer">
               {import.meta.env.VITE_ICP_NUMBER}

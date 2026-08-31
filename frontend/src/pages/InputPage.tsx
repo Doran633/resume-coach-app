@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Form, Input, Select, Space, Spin, Typography, message } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, generateExperience, trackEvent } from "../api/client";
+import SupportCode from "../components/SupportCode";
 import { useAppStore } from "../store/appStore";
 import { getGenerationErrorInfo, type GenerationErrorInfo } from "../utils/errorMessages";
 import { createAttemptId, estimateExperienceCount, hasTechnicalTerms } from "../utils/generationAttempt";
@@ -72,7 +73,7 @@ export default function InputPage() {
   const [generationStage, setGenerationStage] = useState(generationStages[0]);
   const [generationError, setGenerationError] = useState<GenerationErrorInfo | null>(null);
   const [activeTemplate, setActiveTemplate] = useState("");
-  const { identity, lastRequest, currentAttemptId, markCurrentAttemptComplete, setCurrentAttemptId, setGeneration, setLastRequest } = useAppStore();
+  const { identity, lastRequest, currentAttemptId, markCurrentAttemptComplete, setCurrentAttemptId, setGeneration, setLastRequest, setSupportRequestId } = useAppStore();
   const packagingLevel = Form.useWatch("packaging_level", form) ?? "重点放大";
   const rawInput = String(Form.useWatch("raw_input", form) ?? "");
   const inputLength = Array.from(rawInput).length;
@@ -159,7 +160,8 @@ export default function InputPage() {
       } else if (status.status === "running") {
         setGenerationStage({ delay: 0, key: "running", text: "已恢复生成任务，正在继续处理" });
       }
-    }).then((result) => {
+    }).then(({ generation: result, requestId }) => {
+      setSupportRequestId(requestId);
       setGeneration(result);
       markCurrentAttemptComplete();
       message.success("已恢复并完成上次生成任务。");
@@ -243,7 +245,7 @@ export default function InputPage() {
       attempt_id: attemptId
     });
     try {
-      const result = await generateExperience(identity, { ...backendValues, attempt_id: attemptId }, (status) => {
+      const generated = await generateExperience(identity, { ...backendValues, attempt_id: attemptId }, (status) => {
         if (status.status === "queued") {
           setGenerationStage({
             delay: 0,
@@ -254,6 +256,8 @@ export default function InputPage() {
           setGenerationStage({ delay: 0, key: "running", text: "已开始生成，正在整理您的经历" });
         }
       });
+      const result = generated.generation;
+      setSupportRequestId(generated.requestId);
       void trackEvent(identity, "generate_success", {
         generation_result_id: result.generation_result_id,
         completeness_score: result.result.completeness_score,
@@ -436,6 +440,14 @@ export default function InputPage() {
             <div>
               <strong>这次没有生成成功</strong>
               <p>{generationError.message}</p>
+              <SupportCode
+                requestId={generationError.requestId}
+                onCopy={(requestId) => trackEvent(identity, "copy_support_code", {
+                  request_id: requestId,
+                  operation: "generation",
+                  attempt_id: currentAttemptId
+                })}
+              />
               <small>您可以检查或修改输入，也可以直接使用当前内容重新生成。</small>
             </div>
             <Button className="retry-generation-button" onClick={retryGeneration}>重新生成</Button>

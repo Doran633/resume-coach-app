@@ -209,18 +209,25 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
     for project in projects if isinstance(projects, list) else []:
         item = project if isinstance(project, dict) else {"name": "项目经历", "intro": project}
         locked_type = str(item.get("resolved_experience_type") or "") if item.get("type_locked") else ""
-        meta = locked_type or _clean_text(item.get("meta"), facts) or "项目经历"
+        current_meta = _clean_text(item.get("meta"), facts)
+        project_subtypes = {"个人项目", "课程项目", "软件工程实践", "独立项目实践"}
+        meta = current_meta if locked_type == "项目经历" and current_meta in project_subtypes else locked_type or current_meta or "项目经历"
         if not locked_type and not facts["company"] and "实习" in meta:
             meta = _infer_non_work_meta(item)
         cleaned = {
                 "name": _clean_text(item.get("name"), facts) or "项目经历",
+                "position": _clean_text(item.get("position"), facts),
                 "meta": meta,
                 "time": _clean_text(item.get("time"), facts) or PLACEHOLDER,
                 "intro": _clean_text(item.get("intro"), facts),
                 "role": _clean_text(item.get("role"), facts),
                 "details": _clean_list(item.get("details"), facts),
             }
-        for key in ["source_experience_id", "resolved_experience_type", "type_resolution_version", "type_locked", "source_fact_ids"]:
+        for key in [
+            "source_experience_id", "source_experience_ids", "merged_source_experience_ids",
+            "resolved_experience_type", "type_resolution_version", "type_locked",
+            "source_fact_ids", "detail_fact_ids",
+        ]:
             if key in item:
                 cleaned[key] = item[key]
         cleaned_projects.append(cleaned)

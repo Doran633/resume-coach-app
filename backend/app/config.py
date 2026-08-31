@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -34,8 +35,19 @@ def _env_list(name: str, default: list[str]) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()] if raw else default
 
 
+def _project_version() -> str:
+    version_file = Path(__file__).resolve().parents[2] / "VERSION"
+    try:
+        return version_file.read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
 @dataclass(frozen=True)
 class Settings:
+    app_version: str
+    build_commit: str
+    build_time: str
     environment: str
     anonymous_cookie_name: str
     anonymous_cookie_secret: str
@@ -92,6 +104,9 @@ class Settings:
 def get_settings() -> Settings:
     environment = os.getenv("APP_ENV", "development").strip()
     return Settings(
+        app_version=os.getenv("APP_VERSION", _project_version()).strip(),
+        build_commit=os.getenv("BUILD_COMMIT", "unknown").strip(),
+        build_time=os.getenv("BUILD_TIME", "unknown").strip(),
         environment=environment,
         anonymous_cookie_name=os.getenv("ANONYMOUS_COOKIE_NAME", "resume_coach_identity").strip(),
         anonymous_cookie_secret=os.getenv("ANONYMOUS_COOKIE_SECRET", "dev-only-secret").strip(),

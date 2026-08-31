@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Form, Input, Radio, Space, Typography, message } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildApiUrl, createDocx, submitFeedback, trackEvent } from "../api/client";
+import { createDocx, downloadDocx, submitFeedback, trackEvent } from "../api/client";
+import SupportCode from "../components/SupportCode";
 import { useAppStore } from "../store/appStore";
 import { buildInterviewPreparation, formatInterviewItems, type InterviewGroupKey, type InterviewPreparationItem } from "../utils/interviewPreparation";
 import { getGenerationErrorInfo, getOperationErrorMessage } from "../utils/errorMessages";
@@ -19,6 +20,8 @@ export default function ExportPage() {
   const [docxGenerated, setDocxGenerated] = useState(false);
   const [downloadStarted, setDownloadStarted] = useState(false);
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [docxError, setDocxError] = useState<{ message: string; requestId?: string } | null>(null);
+  const [feedbackError, setFeedbackError] = useState<{ message: string; requestId?: string } | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<InterviewGroupKey>>(new Set());
   const feedbackSectionRef = useRef<HTMLDivElement | null>(null);
   const feedbackViewedRef = useRef(false);
@@ -80,29 +83,34 @@ export default function ExportPage() {
     if (docxInFlightRef.current) return;
     docxInFlightRef.current = true;
     setDocxLoading(true);
+    setDocxError(null);
     try {
       await trackEvent(identity, "download_docx_started", { generation_result_id: generation.generation_result_id, attempt_id: currentAttemptId });
       const file = await createDocx(identity, generation.generation_result_id);
       setDocxGenerated(true);
       await trackEvent(identity, "generate_docx", { file_id: file.file_id, generation_result_id: generation.generation_result_id, attempt_id: currentAttemptId });
+      const downloaded = await downloadDocx(file.download_url);
       const link = document.createElement("a");
-      link.href = buildApiUrl(file.download_url);
+      const objectUrl = URL.createObjectURL(downloaded.blob);
+      link.href = objectUrl;
       link.download = file.file_name;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       setDownloadStarted(true);
       await trackEvent(identity, "download_docx", { file_id: file.file_id, generation_result_id: generation.generation_result_id, attempt_id: currentAttemptId });
       message.success("DOCX 已开始下载");
     } catch (error) {
       const errorInfo = getGenerationErrorInfo(error);
+      setDocxError({ message: getOperationErrorMessage(error, "docx"), requestId: errorInfo.requestId });
       await trackEvent(identity, "download_docx_failed", {
         generation_result_id: generation.generation_result_id,
         attempt_id: currentAttemptId,
         error_type: errorInfo.type
       });
       if (import.meta.env.DEV) console.error(error);
-      message.error(getOperationErrorMessage(error, "docx"));
+      message.error("DOCX 操作没有成功，您可以稍后重试。");
     } finally {
       docxInFlightRef.current = false;
       setDocxLoading(false);
@@ -113,6 +121,7 @@ export default function ExportPage() {
     if (feedbackInFlightRef.current) return;
     feedbackInFlightRef.current = true;
     setFeedbackSubmitting(true);
+    setFeedbackError(null);
     try {
       await submitFeedback(identity, { generation_result_id: generation.generation_result_id, ...values });
       await trackEvent(identity, "submit_feedback", {
@@ -126,8 +135,10 @@ export default function ExportPage() {
       });
       message.success("感谢您的真实反馈，我们会认真看。");
     } catch (error) {
+      const errorInfo = getGenerationErrorInfo(error);
+      setFeedbackError({ message: getOperationErrorMessage(error, "feedback"), requestId: errorInfo.requestId });
       if (import.meta.env.DEV) console.error(error);
-      message.error(getOperationErrorMessage(error, "feedback"));
+      message.error("评价暂未提交，填写内容仍然保留。");
     } finally {
       feedbackInFlightRef.current = false;
       setFeedbackSubmitting(false);
@@ -163,6 +174,7 @@ export default function ExportPage() {
           <Button onClick={() => setStep(1)}>返回查看结果</Button>
           <Button type="primary" loading={docxLoading} onClick={generateDocx}>{docxLoading ? "正在生成 DOCX" : "生成并下载 DOCX"}</Button>
         </Space>
+        {docxError && <Alert className="operation-error" type="error" showIcon message={docxError.message} description={<SupportCode requestId={docxError.requestId} onCopy={(requestId) => trackEvent(identity, "copy_support_code", { request_id: requestId, operation: "docx", generation_result_id: generation.generation_result_id })} />} />}
       </Card>
 
       <Card className="panel interview-delivery" title="面试准备方案" extra={totalItems > 0 ? <Button onClick={copyAll}>复制全部</Button> : null}>
@@ -201,6 +213,7 @@ export default function ExportPage() {
             <Form.Item label="你认为这个服务相比当前市场大模型效果如何？" name="model_comparison" rules={[{ required: true }]}><Radio.Group options={["明显更好", "略好一些", "差不多", "不如直接用大模型"].map((value) => ({ label: value, value }))} /></Form.Item>
             <Form.Item label="你认为这样的服务价值多少？" name="value_choice" rules={[{ required: true }]}><Radio.Group options={["0元", "2.99元", "9.99元"].map((value) => ({ label: value, value }))} /></Form.Item>
             <Form.Item label="还有什么想告诉我们？" name="comment"><Input.TextArea rows={4} placeholder="可以写下觉得好用的地方、遇到的问题，或者希望我们增加的能力。" /></Form.Item>
+            {feedbackError && <Alert className="operation-error" type="error" showIcon message={feedbackError.message} description={<SupportCode requestId={feedbackError.requestId} onCopy={(requestId) => trackEvent(identity, "copy_support_code", { request_id: requestId, operation: "feedback", generation_result_id: generation.generation_result_id })} />} />}
             <Button type="primary" htmlType="submit" loading={feedbackSubmitting} disabled={feedbackSubmitting}>提交评价</Button>
           </Form>
         </Card>

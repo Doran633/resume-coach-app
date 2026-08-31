@@ -40,3 +40,14 @@ Certbot 通常自带续期 timer，另需确认 `systemctl status certbot.timer`
 7. 观察运行日志与错误率，再开始公开分享。
 
 预检的 `FAIL` 阻止上线，`WARN` 需要人工确认。限流观察期允许 `RATE_LIMIT_DRY_RUN=true`，但生产密钥、Redis、数据库、备份、HTTPS、健康检查和前端构建不能带失败上线。
+# v0.7.3 日常观测
+
+每小时运行浅层烟测，每 15-30 分钟运行 SLO；部署后和每日低峰期运行完整烟测。完整命令和指标口径见 `docs/production-observability.md`。
+
+收到用户问题编号后，优先执行：
+
+```bash
+.venv/bin/python scripts/list_recent_quality_incidents.py --hours 72 --request-id req_xxxxxxxxxxxxxxxx
+```
+
+不得要求用户发送完整经历或 Cookie。若页面显示“暂未生成问题编号”，按时间、操作类型和网络状态查询 runtime 日志，不将无编号请求强行关联到某个生成结果。

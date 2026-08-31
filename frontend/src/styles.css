@@ -1699,3 +1699,47 @@ body {
     border-radius: 8px;
   }
 }
+.support-code,
+.support-code-unavailable {
+  display: block;
+  margin-top: 6px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.support-code code {
+  color: #344054;
+  word-break: break-all;
+}
+
+.result-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.report-result-button {
+  padding-inline: 4px;
+}
+
+.operation-error {
+  margin-top: 14px;
+}
+
+.release-identity {
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .result-toolbar-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .result-toolbar-actions .result-export-button {
+    flex: 1 1 100%;
+  }
+}

@@ -1,13 +1,15 @@
 import { Alert, Button, Card, Modal, Space, Typography, message } from "antd";
 import { useState } from "react";
-import { deleteMyData } from "../api/client";
+import { deleteMyData, trackEvent } from "../api/client";
+import SupportCode from "../components/SupportCode";
 import { useAppStore } from "../store/appStore";
+import { getGenerationErrorInfo, getOperationErrorMessage } from "../utils/errorMessages";
 
 
 export type LegalPageKey = "privacy" | "terms" | "ai";
 
 const effectiveDate = "2026-08-31";
-const version = "v0.7.2";
+const version = `v${__APP_VERSION__}`;
 const retentionDays = import.meta.env.VITE_USER_CONTENT_RETENTION_DAYS || "30";
 const contactEmail = import.meta.env.VITE_PRIVACY_CONTACT_EMAIL || "";
 const providerName = import.meta.env.VITE_AI_PROVIDER_NAME || "第三方大模型服务商";
@@ -21,10 +23,13 @@ function ContactLine() {
 export default function LegalPage({ page, onBack }: { page: LegalPageKey; onBack: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deletionError, setDeletionError] = useState<{ message: string; requestId?: string } | null>(null);
+  const identity = useAppStore((state) => state.identity);
   const resetAfterDataDeletion = useAppStore((state) => state.resetAfterDataDeletion);
 
   const confirmDelete = async () => {
     setDeleting(true);
+    setDeletionError(null);
     try {
       const result = await deleteMyData();
       resetAfterDataDeletion();
@@ -33,8 +38,10 @@ export default function LegalPage({ page, onBack }: { page: LegalPageKey; onBack
       message.success(result.files_cleanup_pending
         ? "数据记录已删除，少量文件正在等待系统清理。"
         : "您的经历、生成结果和导出文件已删除。");
-    } catch {
-      message.error("数据删除失败，请稍后重试。现有内容不会被前端静默清空。");
+    } catch (error) {
+      const info = getGenerationErrorInfo(error);
+      setDeletionError({ message: getOperationErrorMessage(error, "deletion"), requestId: info.requestId });
+      message.error("数据删除没有成功，现有内容仍然保留。");
     } finally {
       setDeleting(false);
     }
@@ -59,6 +66,7 @@ export default function LegalPage({ page, onBack }: { page: LegalPageKey; onBack
           <Typography.Paragraph>您可以在下方删除当前匿名身份对应的经历、生成结果、会话和导出文件。在线数据删除后无法恢复，也不会影响其他用户的数据；受限备份中的历史副本仅用于灾难恢复，并会在最长 14 天的备份保留期内到期清理。</Typography.Paragraph>
           <ContactLine />
           <Alert type="warning" showIcon message="删除前请先下载需要保留的 DOCX。删除完成后，当前浏览器中的草稿和结果也会被清空。" />
+          {deletionError && <Alert className="operation-error" type="error" showIcon message={deletionError.message} description={<SupportCode requestId={deletionError.requestId} onCopy={(requestId) => trackEvent(identity, "copy_support_code", { request_id: requestId, operation: "deletion" })} />} />}
           <Button danger className="delete-data-button" onClick={() => setConfirmOpen(true)}>删除我的数据</Button>
         </Card>
       )}
