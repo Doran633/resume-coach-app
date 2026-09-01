@@ -7,6 +7,8 @@ dist/
 .env
 .DS_Store
 Thumbs.db
+.pytest-*/
+.pytest_cache/
 backend/data/*.db
 backend/data/*.db-wal
 backend/data/*.db-shm

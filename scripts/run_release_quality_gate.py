@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +43,20 @@ def write_record(out_dir: Path, commit: str, tests: list[str], passed: bool) -> 
     return path
 
 
+def build_pytest_command(tests: list[str], base_temp: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "pytest",
+        *tests,
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        str(base_temp),
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run deterministic release regressions and record the tested commit.")
     parser.add_argument("--out", type=Path, default=ROOT / "backend" / "reports")
@@ -50,7 +66,12 @@ def main() -> None:
         print("Release verification refused: commit or stash the current changes first.", file=sys.stderr)
         raise SystemExit(2)
     tests = args.tests or DEFAULT_TESTS
-    result = subprocess.run([sys.executable, "-m", "pytest", *tests, "-q"], cwd=ROOT)
+    args.out.mkdir(parents=True, exist_ok=True)
+    base_temp = args.out / f".pytest-release-{uuid.uuid4().hex[:12]}"
+    try:
+        result = subprocess.run(build_pytest_command(tests, base_temp), cwd=ROOT)
+    finally:
+        shutil.rmtree(base_temp, ignore_errors=True)
     commit = current_commit()
     if result.returncode == 0:
         print(write_record(args.out, commit, tests, True))

@@ -12,6 +12,7 @@ from scripts.evaluate_rate_limit_rollout import evaluate_rollout
 from scripts.export_operations_status import _update_alerts
 from scripts.operations_common import BEIJING, exclusive_operation_lock
 from scripts.run_public_beta_operations import Task, build_tasks, execute_tasks
+from scripts.run_release_quality_gate import build_pytest_command
 from scripts.verify_rollback_readiness import evaluate_rollback
 
 
@@ -22,6 +23,13 @@ def _write_rows(path: Path, rows: list[dict]):
 
 def _now() -> str:
     return datetime.now(BEIJING).isoformat()
+
+
+def test_release_quality_gate_uses_isolated_project_temp(tmp_path):
+    base_temp = tmp_path / "release-temp"
+    command = build_pytest_command(["tests/test_example.py"], base_temp)
+    assert command[-2:] == ["--basetemp", str(base_temp)]
+    assert command[command.index("-p") + 1] == "no:cacheprovider"
 
 
 def test_operation_lock_blocks_overlap_and_is_released(tmp_path):
