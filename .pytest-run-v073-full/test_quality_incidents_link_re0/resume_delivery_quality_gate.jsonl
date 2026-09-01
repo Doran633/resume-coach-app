@@ -1,0 +1,2 @@
+{"created_at": "2099-08-31T12:00:00+08:00", "generation_result_id": 42, "stage": "generation", "critical_issue_count": 1, "unresolved_issue_count": 1, "gate_passed": false, "issues": [{"issue_code": "CROSS_EXPERIENCE_FACT"}]}
+{"created_at": "2099-08-31T12:00:00+08:00", "generation_result_id": 9, "stage": "generation", "critical_issue_count": 0, "unresolved_issue_count": 1, "gate_passed": false, "issues": [{"issue_code": "LOW_HIGH_VALUE_FACT_COVERAGE"}]}

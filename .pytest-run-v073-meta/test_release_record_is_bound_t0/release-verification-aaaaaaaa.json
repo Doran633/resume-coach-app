@@ -1,0 +1,9 @@
+{
+  "created_at": "2026-08-31T12:57:51.287205+00:00",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "short_commit": "aaaaaaaa",
+  "golden_regression_passed": true,
+  "tests": [
+    "tests/test_golden_resume_regression.py"
+  ]
+}

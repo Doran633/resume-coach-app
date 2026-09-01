@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Resume Coach daily public beta operations
+
+[Timer]
+OnCalendar=*-*-* 02:10:00 Asia/Shanghai
+RandomizedDelaySec=10min
+Persistent=true
+Unit=resume-coach-daily-operations.service
+
+[Install]
+WantedBy=timers.target

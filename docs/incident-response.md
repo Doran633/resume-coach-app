@@ -35,6 +35,15 @@ cd /www/wwwroot/resume-coach-app
 .venv/bin/python scripts/run_public_smoke_test.py --mode shallow --base https://resume.doran633.com
 ```
 
+v0.7.4 优先查看统一总览和合并告警：
+
+```bash
+sed -n '1,240p' backend/reports/operations-status-latest.md
+sed -n '1,200p' backend/reports/operations-alert-latest.md
+```
+
+输出质量漂移异常时，先确认样本数和当前 commit，再分别检查事实覆盖、Experience ID、Fallback、重复事实和未解决质量门问题。样本少于 10 次只判断确定性的 critical 问题，不根据波动自动回滚。
+
 先确认线上版本：
 
 ```bash

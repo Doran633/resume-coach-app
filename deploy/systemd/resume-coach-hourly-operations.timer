@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Resume Coach hourly public beta operations
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=resume-coach-hourly-operations.service
+
+[Install]
+WantedBy=timers.target
+

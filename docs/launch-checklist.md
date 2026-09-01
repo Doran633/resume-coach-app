@@ -377,3 +377,16 @@ tail -n 20 backend/logs/resume_delivery_quality_gate.jsonl
 - [ ] `list_recent_quality_incidents.py --request-id` 可以回接 attempt、result 和 file。
 - [ ] 烟测 attempt 已从真实用户 SLO 与漏斗中排除。
 - [ ] `launch_preflight.py` 没有 failed 项。
+
+# v0.7.4 自动运维与质量漂移
+
+- [ ] hourly 和 daily systemd timer 已启用，`systemctl list-timers 'resume-coach-*'` 可见下次运行时间。
+- [ ] `operations-status-latest.md` 已生成且版本、commit、健康状态一致。
+- [ ] 最近 shallow smoke、SLO、质量漂移和备份未超过新鲜度阈值。
+- [ ] full smoke 未启用时明确处于 observe；部署后已显式运行一次 full smoke。
+- [ ] 输出质量漂移无 critical，高价值事实覆盖率和 Experience ID 绑定率没有明显下降。
+- [ ] 当前稳定质量基线来自不少于 10 次非烟测样本，且写入时没有 critical。
+- [ ] 限流报告已评估校园共享 IP，未自动修改 `RATE_LIMIT_DRY_RUN`。
+- [ ] 数据库完整性为 ok，最近备份可以恢复。
+- [ ] 数据库可迁移性报告已生成；当前未修改 schema 或生产 `DATABASE_URL`。
+- [ ] 回滚准备报告能识别上一稳定 commit，但没有执行自动回滚。

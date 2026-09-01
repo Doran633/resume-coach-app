@@ -1,0 +1,15 @@
+[Unit]
+Description=Resume Coach daily backup, cleanup and quality operations
+After=network-online.target resume-coach-backend.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/www/wwwroot/resume-coach-app
+EnvironmentFile=/etc/resume-coach/resume-coach.env
+ExecStart=/www/wwwroot/resume-coach-app/.venv/bin/python scripts/run_public_beta_operations.py --mode daily --public-base https://resume.doran633.com --backups /var/backups/resume-coach --reports backend/reports
+TimeoutStartSec=45min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+

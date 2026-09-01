@@ -13,6 +13,7 @@ DEFAULT_TESTS = [
     "tests/test_golden_resume_regression.py",
     "tests/test_v04_quality_regression.py",
     "tests/test_v06_delivery_quality_gate.py",
+    "tests/test_v074_public_beta_operations.py",
 ]
 
 

@@ -124,6 +124,19 @@ def _redis_public_listener(port: int) -> bool | None:
     return any(any(marker in line for marker in public_markers) for line in listeners)
 
 
+def _systemd_timer_enabled(name: str) -> bool | None:
+    systemctl = shutil.which("systemctl")
+    if not systemctl:
+        return None
+    try:
+        result = subprocess.run(
+            [systemctl, "is-enabled", name], capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.returncode == 0 and result.stdout.strip() in {"enabled", "static"}
+
+
 def run_checks(
     *,
     env_path: Path,
@@ -323,6 +336,27 @@ def run_checks(
         "operational SLO", "passed" if slo_ok else "failed" if production else "warning",
         f"latest SLO is {slo.get('status')} and {slo_age:.1f} hours old" if slo_ok and slo_age is not None else "recent SLO report is missing, stale, or critical",
     ))
+    freshness = _read_json(reports_dir / "operations-freshness-latest.json")
+    freshness_age = _report_age_hours(freshness)
+    freshness_ok = bool(freshness) and freshness.get("status") != "critical" and freshness_age is not None and freshness_age <= 2
+    checks.append(Check(
+        "operations freshness", "passed" if freshness_ok else "failed" if production else "warning",
+        f"scheduled operations are {freshness.get('status')} and report is {freshness_age:.1f} hours old"
+        if freshness_ok and freshness_age is not None else "scheduled-operation freshness report is missing, stale, or critical",
+    ))
+    drift = _read_json(reports_dir / "output-quality-drift-latest.json")
+    drift_age = _report_age_hours(drift)
+    drift_ok = bool(drift) and drift.get("status") != "critical" and drift_age is not None and drift_age <= 36
+    checks.append(Check(
+        "output quality drift", "passed" if drift_ok else "failed" if production else "warning",
+        f"quality drift is {drift.get('status')} and report is {drift_age:.1f} hours old"
+        if drift_ok and drift_age is not None else "quality-drift report is missing, stale, or critical",
+    ))
+    for timer in ("resume-coach-hourly-operations.timer", "resume-coach-daily-operations.timer"):
+        enabled = _systemd_timer_enabled(timer)
+        status = "passed" if enabled else "failed" if production and enabled is False else "warning"
+        message = "enabled" if enabled else "not enabled" if enabled is False else "systemd status unavailable"
+        checks.append(Check(f"systemd timer {timer}", status, message))
     return checks
 
 

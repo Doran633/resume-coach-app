@@ -1,0 +1,8 @@
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "attempt-0", "elapsed_ms": 70000}
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "attempt-1", "elapsed_ms": 70000}
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "attempt-2", "elapsed_ms": 70000}
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "attempt-3", "elapsed_ms": 70000}
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "attempt-4", "elapsed_ms": 70000}
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "attempt-5", "elapsed_ms": 70000}
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "attempt-6", "elapsed_ms": 70000}
+{"created_at": "2099-08-31T12:00:00+08:00", "event_name": "generation_task_succeeded", "attempt_id": "smoke_ignore", "elapsed_ms": 1}

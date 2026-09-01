@@ -1,5 +1,27 @@
 # 公开测试运维手册
 
+## v0.7.4 自动运维
+
+服务器安装 `deploy/systemd/` 中的 hourly 和 daily service/timer 后，检查与报告会自动运行。日常只查看：
+
+```bash
+sed -n '1,240p' backend/reports/operations-status-latest.md
+systemctl list-timers 'resume-coach-*'
+```
+
+统一报告包含版本一致性、备份、烟测、SLO、质量漂移、限流评估、数据库审计和当前告警。若报告没有按时更新，`check_operations_freshness.py` 会将“任务未运行”识别为异常。
+
+部署后执行：
+
+```bash
+.venv/bin/python scripts/run_public_beta_operations.py \
+  --mode post-deploy \
+  --public-base https://resume.doran633.com \
+  --backups /var/backups/resume-coach
+```
+
+真实模型 full smoke 只有在明确设置 `ENABLE_FULL_SMOKE=true` 或传入 `--full-smoke` 时运行。质量漂移与限流评估只告警，不自动修改生成结果、模型或环境变量。
+
 ## 日常任务
 
 建议使用 systemd timer 或 cron，以服务账号执行。示例：

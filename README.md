@@ -1,5 +1,30 @@
 # Resume Coach App
 
+## v0.7.4 公开测试运维闭环
+
+- `run_public_beta_operations.py` 将小时检查、每日备份清理和部署后验证串成可继续执行的任务流，并用文件锁防止定时任务重叠。
+- `operations-status-latest.md` 汇总版本、备份、烟测、SLO、质量漂移、限流、数据库和告警，日常无需逐个导出报告。
+- `check_output_quality_drift.py` 比较高价值事实覆盖、Experience ID、Fallback、重复、污染、异常字符和 DOCX 修复率；少样本仅观察，不自动改变用户结果。
+- `evaluate_rate_limit_rollout.py` 使用匿名身份和哈希 IP 聚合评估校园共享 IP 误伤风险，不自动关闭 `RATE_LIMIT_DRY_RUN`。
+- `audit_database_portability.py` 审计 SQLite 迁移到 PostgreSQL 的阻塞项；当前仍使用 SQLite，不修改生产 schema。
+- systemd 模板位于 `deploy/systemd/`，数据库迁移判断见 [数据库迁移准备](docs/database-migration-readiness.md)。
+
+日常查看：
+
+```bash
+sed -n '1,240p' backend/reports/operations-status-latest.md
+```
+
+运维 dry-run：
+
+```bash
+.venv/bin/python scripts/run_public_beta_operations.py \
+  --mode daily \
+  --public-base https://resume.doran633.com \
+  --backups /var/backups/resume-coach \
+  --dry-run
+```
+
 ## v0.7.2 公开测试上线准备
 
 - 新增隐私政策、服务条款与 AI 辅助生成说明，全站页脚长期可访问；备案号和隐私联系邮箱由前端环境变量配置。
