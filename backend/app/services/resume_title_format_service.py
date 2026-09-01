@@ -73,6 +73,20 @@ def extract_company(local_raw_text: str) -> str:
     return company
 
 
+def _company_from_internship_title(title: str, position: str) -> str:
+    value = re.sub(r"\s+", " ", str(title or "")).strip(" ，,、；;：:|｜")
+    if not value or position == PLACEHOLDER:
+        return ""
+    position_core = re.sub(r"实习$", "", position).strip()
+    suffixes = [position, position_core + "实习生", position_core + "岗位实习"]
+    for suffix in suffixes:
+        if suffix and value.lower().endswith(suffix.lower()):
+            company = value[: len(value) - len(suffix)].strip(" ，,、；;：:|｜")
+            if company and not re.search(r"(?:项目|经历)$", company):
+                return company
+    return ""
+
+
 def resolve_project_display_type(local_raw_text: str, current_meta: str) -> str:
     if current_meta in SPECIFIC_PROJECT_TYPES:
         return current_meta
@@ -96,11 +110,15 @@ def resolve_resume_titles(payload: schemas.GenerationPayload, raw_input: str) ->
     for project in updated.resume_sections.projects:
         source_id = str(project.get("source_experience_id") or "")
         identity = identities.get(source_id)
-        local = identity.raw_text if identity else ""
+        local = "\n".join(filter(None, [identity.title, identity.raw_text])) if identity else ""
         meta = str(project.get("resolved_experience_type") or project.get("meta") or "项目经历")
         if meta == "实习经历":
             project["position"] = extract_internship_position(local, str(project.get("position") or ""))
-            company = extract_company(local) or extract_company(str(project.get("name") or ""))
+            company = (
+                extract_company(local)
+                or extract_company(str(project.get("name") or ""))
+                or _company_from_internship_title(identity.title if identity else "", project["position"])
+            )
             project["name"] = company or PLACEHOLDER
             project["meta"] = "实习经历"
         elif meta == "项目经历":

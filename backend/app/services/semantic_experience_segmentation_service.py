@@ -62,6 +62,15 @@ HEADING_ROLE_TERMS = (
     "个人项目", "课程项目", "独立开发者", "项目经历", "实习经历", "负责人", "核心成员",
 )
 
+EXPLICIT_HEADING_PATTERN = re.compile(
+    r"(?m)^\s*(?:#{1,6}\s*)?(?:"
+    r"(?P<label>项目经历|项目(?:名称|\s*[一二三四五六七八九十\dA-Za-z]+)?|经历\s*[一二三四五六七八九十\dA-Za-z]+|"
+    r"实习经历|科研经历|研究经历|竞赛经历|比赛经历|开源经历|校园经历|社团经历)"
+    r"\s*(?:[:：|｜\-—]\s*(?P<title>[^\n]{0,70}))?"
+    r"|(?P<ordinal>[A-Za-z]|[一二三四五六七八九十])[.、]\s*(?P<ordinal_title>[^\n]{2,60})"
+    r")\s*$"
+)
+
 
 @dataclass
 class SemanticExperienceSegment:
@@ -83,6 +92,8 @@ class SemanticExperienceSegment:
     parent_project_name: str = ""
     phase_name: str = ""
     relation_type: str = "independent"
+    declared_experience_type: str = ""
+    boundary_source: str = "semantic"
 
 
 @dataclass
@@ -93,6 +104,71 @@ class SemanticSegmentationResult:
     merged_segment_count: int = 0
     low_confidence_segment_count: int = 0
     clarification_questions: list[str] = field(default_factory=list)
+    explicit_boundary_count: int = 0
+    expected_experience_count: int = 0
+    boundary_loss_detected: bool = False
+
+
+@dataclass(frozen=True)
+class ExplicitExperienceBoundary:
+    start_offset: int
+    body_start_offset: int
+    label: str
+    title: str
+    declared_experience_type: str
+    boundary_source: str
+
+
+def declared_type_for_label(label: str) -> str:
+    value = re.sub(r"\s+", "", str(label or ""))
+    if value.startswith("实习"):
+        return "实习经历"
+    if value.startswith(("科研", "研究")):
+        return "科研经历"
+    if value.startswith(("竞赛", "比赛")):
+        return "竞赛经历"
+    if value.startswith("开源"):
+        return "开源经历"
+    if value.startswith(("校园", "社团")):
+        return "校园 / 社团经历"
+    if value.startswith("经历"):
+        return ""
+    return "项目经历"
+
+
+def find_explicit_experience_boundaries(text: str) -> list[ExplicitExperienceBoundary]:
+    boundaries: list[ExplicitExperienceBoundary] = []
+    for match in EXPLICIT_HEADING_PATTERN.finditer(str(text or "")):
+        label = (match.group("label") or match.group("ordinal") or "项目").strip()
+        title = (match.group("title") or match.group("ordinal_title") or "").strip(" #：:|｜-—")
+        # Chinese ordinal list items are accepted only when they look like a compact title,
+        # not a sentence-shaped detail.
+        if match.group("ordinal") and (
+            len(title) > 42
+            or re.search(r"(?:负责|实现|完成|使用|通过|提升|降低|参与).{4,}", title)
+        ):
+            continue
+        body_start_offset = match.end()
+        title_group = "title" if match.group("title") is not None else "ordinal_title"
+        # "项目一：我负责……" is a boundary followed by an inline fact, not
+        # a project title. Keep the fact inside this slot so semantic-role and
+        # Fact Ledger processing can still see it.
+        if title and re.match(
+            r"^(?:我|本人)?(?:负责|参与|独立|主导|开发|设计|实现|完成|优化|测试|部署|组织|协调|搭建|建设|使用|通过|写|调)",
+            title,
+            re.IGNORECASE,
+        ):
+            body_start_offset = match.start(title_group)
+            title = ""
+        boundaries.append(ExplicitExperienceBoundary(
+            start_offset=match.start(),
+            body_start_offset=body_start_offset,
+            label=label,
+            title=title,
+            declared_experience_type=declared_type_for_label(label),
+            boundary_source="explicit_heading",
+        ))
+    return boundaries
 
 
 def _normalize(text: str) -> str:
@@ -378,6 +454,73 @@ def _merge_or_discard_heading_residues(segments: list[dict]) -> tuple[list[dict]
 
 def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage: str = "unknown") -> SemanticSegmentationResult:
     source = raw_input or ""
+    explicit_boundaries = find_explicit_experience_boundaries(source)
+    if explicit_boundaries:
+        segments: list[SemanticExperienceSegment] = []
+        first_boundary_start = explicit_boundaries[0].start_offset
+        preamble = source[:first_boundary_start]
+        preamble_segment_count = 0
+        if preamble.strip() and not is_heading_only_text(preamble):
+            # A user may describe the first experience in prose and label only
+            # the following experiences. Preserve those leading facts instead
+            # of shifting every explicit experience_id by one slot.
+            preamble_result = segment_semantic_experiences(preamble)
+            for item in preamble_result.segments:
+                segments.append(SemanticExperienceSegment(
+                    experience_id=f"EXP-{len(segments) + 1:03d}",
+                    experience_type=item.experience_type,
+                    declared_experience_type=item.declared_experience_type,
+                    boundary_source="implicit_preamble",
+                    title=item.title,
+                    raw_text=item.raw_text,
+                    start_offset=item.start_offset,
+                    end_offset=item.end_offset,
+                    segmentation_confidence=item.segmentation_confidence,
+                    segmentation_reasons=[*item.segmentation_reasons, "显式边界前的有效经历"],
+                    canonical_project_name=item.canonical_project_name,
+                    project_aliases=list(item.project_aliases),
+                    parent_project_name=item.parent_project_name,
+                    phase_name=item.phase_name,
+                    relation_type=item.relation_type,
+                ))
+                preamble_segment_count += 1
+        for index, boundary in enumerate(explicit_boundaries):
+            end = explicit_boundaries[index + 1].start_offset if index + 1 < len(explicit_boundaries) else len(source)
+            body = source[boundary.body_start_offset:end].strip()
+            if not body or is_heading_only_text(body):
+                continue
+            title = boundary.title or _infer_title(body, boundary.declared_experience_type)
+            hierarchy = infer_project_hierarchy_metadata(title, body)
+            segments.append(SemanticExperienceSegment(
+                experience_id=f"EXP-{len(segments) + 1:03d}",
+                experience_type=boundary.declared_experience_type,
+                declared_experience_type=boundary.declared_experience_type,
+                boundary_source=boundary.boundary_source,
+                title=title,
+                raw_text=body,
+                start_offset=boundary.start_offset,
+                end_offset=end,
+                segmentation_confidence=1.0,
+                segmentation_reasons=["用户显式经历边界"],
+                canonical_project_name=str(hierarchy["canonical_project_name"]),
+                project_aliases=list(hierarchy["project_aliases"]),
+                parent_project_name=str(hierarchy["parent_project_name"]),
+                phase_name=str(hierarchy["phase_name"]),
+                relation_type=str(hierarchy["relation_type"]),
+            ))
+        result = SemanticSegmentationResult(
+            segments=segments,
+            explicit_boundary_count=len(explicit_boundaries),
+            expected_experience_count=len(explicit_boundaries) + preamble_segment_count,
+            boundary_loss_detected=(
+                len([item for item in segments if item.boundary_source != "implicit_preamble"])
+                < len(explicit_boundaries)
+            ),
+        )
+        if write_log:
+            write_segmentation_log(result, len(source), stage=stage)
+        return result
+
     cleaned, discarded = _strip_context(source)
     if not cleaned:
         return SemanticSegmentationResult(segments=[], discarded_context_count=discarded)
@@ -457,6 +600,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
         merged_segment_count=merged_count,
         low_confidence_segment_count=low_confidence,
         clarification_questions=list(dict.fromkeys(questions))[:4],
+        expected_experience_count=len(segments),
     )
     if write_log:
         write_segmentation_log(result, len(source), stage=stage)
@@ -469,7 +613,12 @@ def write_segmentation_log(result: SemanticSegmentationResult, raw_input_length:
         entry = {
             "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
             "raw_input_length": raw_input_length,
-            "explicit_boundary_count": 0,
+            "explicit_boundary_count": result.explicit_boundary_count,
+            "expected_experience_count": result.expected_experience_count,
+            "actual_experience_count": len(result.segments),
+            "boundary_loss_detected": result.boundary_loss_detected,
+            "issue_codes": ["EXPLICIT_BOUNDARY_LOST"] if result.boundary_loss_detected else [],
+            "severity": "critical" if result.boundary_loss_detected else "observe",
             "semantic_boundary_count": result.semantic_boundary_count,
             "total_segments": len(result.segments),
             "discarded_context_count": result.discarded_context_count,
@@ -484,6 +633,8 @@ def write_segmentation_log(result: SemanticSegmentationResult, raw_input_length:
                     "reasons": item.segmentation_reasons,
                     "raw_text_length": len(item.raw_text),
                     "relation_type": item.relation_type,
+                    "declared_experience_type": item.declared_experience_type,
+                    "boundary_source": item.boundary_source,
                 }
                 for item in result.segments
             ],

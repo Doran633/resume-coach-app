@@ -21,6 +21,25 @@ v0.5.8 在现有质量管线之外增加两层验证：
 
 Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance 的结构化生成系统。管线必须同时保证：经历不串通、明确事实不丢失、硬事实不编造、文案专业、DOCX 可直接进入投递前核对。
 
+v0.8.1 的输入与来源链路为：
+
+```text
+显式边界 / 语义分段
+  -> Input Semantic Role
+  -> Experience Identity + immutable source span
+  -> Experience Fact Ledger
+  -> Fixed Experience Slots
+  -> LLM / per-slot Stable Fallback
+  -> Slot Binding
+  -> Local Section Fallback
+  -> Reconciliation (high confidence only)
+  -> Fact Coverage + Boundary owner validation
+  -> Entity Dedup provenance conflict protection
+  -> Delivery Quality Gate
+  -> strip internal provenance metadata
+  -> save / DOCX render
+```
+
 ```text
 原始输入
   -> 输入分类 / 语义分段
@@ -188,6 +207,16 @@ Quality Gate 记录：`fact_coverage_score`、`experience_boundary_score`、`dup
 6. 如果只检测，不应修改 Payload。
 7. 必须提供真实失败案例回归测试。
 8. 日志不得包含完整用户输入或简历正文。
+
+## v0.8.1 Provenance 规则
+
+- `declared_experience_type` 的优先级高于局部内容关键词和 LLM `meta`。
+- `immutable_experience_id` 与 Fact ID 前缀共同表达原始所有者；二者冲突时停止恢复并记录 critical。
+- Prompt 只提供各 Slot 的可生成事实及内部约束，不提供跨 Experience 的恢复池。
+- Fallback 只补当前 Slot；没有局部事实时留空或追问，不创建通用项目。
+- Reconciliation 只有在标题、局部事实和候选分差同时满足阈值时绑定；共享框架不构成主要证据。
+- Dedup 只有在实体关系和事实重叠均得到支持时合并；相同推断 ID 但项目名和事实不同视为 provenance 冲突。
+- Fact Coverage 是召回指标，不能证明归属正确；所有恢复内容必须再次通过 Fact owner 与 Experience Boundary 校验。
 
 ## v0.5.7 信息分层与招聘者表达
 

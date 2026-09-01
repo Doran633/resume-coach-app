@@ -48,6 +48,8 @@ class EntityDedupStats:
     removed_duplicate_detail_count: int = 0
     affected_experience_ids: list[str] = field(default_factory=list)
     decisions: list[dict] = field(default_factory=list)
+    provenance_conflict_count: int = 0
+    inferred_id_collision_count: int = 0
 
 
 @dataclass
@@ -165,13 +167,21 @@ def _duplicate_decision(left: dict, right: dict) -> DuplicateDecision:
     if _is_comprehensive_project(left) != _is_comprehensive_project(right):
         return DuplicateDecision(False, "defer_comprehensive_reconciliation", 1.0)
     left_sources, right_sources = _source_ids(left), _source_ids(right)
-    if left_sources and right_sources:
-        if left_sources & right_sources:
-            return DuplicateDecision(True, "exact_source_duplicate", 1.0)
-        return DuplicateDecision(False, "distinct_source_experience_id", 1.0)
-
     left_facts, right_facts = _fact_ids(left), _fact_ids(right)
     fact_overlap = _overlap(left_facts, right_facts) if left_facts and right_facts else 0.0
+    if left_sources and right_sources:
+        if left_sources & right_sources:
+            title_score = _title_similarity(left, right)
+            detail_anchors = _overlap(_anchors(_detail_text(left)), _anchors(_detail_text(right)))
+            trusted = bool(left.get("source_binding_locked") and right.get("source_binding_locked"))
+            if fact_overlap >= 0.5:
+                return DuplicateDecision(True, "fact_fingerprint_duplicate", 0.99)
+            if title_score >= 0.88 and (trusted or detail_anchors >= 0.25):
+                return DuplicateDecision(True, "exact_source_duplicate", 0.98)
+            if title_score >= 0.88 and not left.get("source_binding_origin") and not right.get("source_binding_origin"):
+                return DuplicateDecision(True, "exact_source_duplicate", 0.94)
+            return DuplicateDecision(False, "provenance_conflict", 0.96, possible=True)
+        return DuplicateDecision(False, "distinct_source_experience_id", 1.0)
     if fact_overlap >= 0.5:
         return DuplicateDecision(True, "fact_fingerprint_duplicate", 0.98)
 
@@ -352,6 +362,10 @@ def deduplicate_resume_experience_entities(
             matched_id = _identity_title_match(project, identities)
             if matched_id:
                 project["source_experience_id"] = matched_id
+                project["immutable_source_experience_id"] = matched_id
+                project["source_binding_origin"] = "entity_dedup_title_inference"
+                project["source_binding_confidence"] = 0.9
+                project["source_binding_locked"] = False
 
     unique: list[dict] = []
     for incoming_index, project in enumerate(projects):
@@ -361,6 +375,9 @@ def deduplicate_resume_experience_entities(
             decision = _duplicate_decision(existing, project)
             if decision.possible:
                 stats.possible_duplicate_count += 1
+                if decision.reason == "provenance_conflict":
+                    stats.provenance_conflict_count += 1
+                    stats.inferred_id_collision_count += 1
                 stats.decisions.append({
                     "left_index": index, "right_index": incoming_index,
                     "source_experience_id": str(project.get("source_experience_id") or ""),

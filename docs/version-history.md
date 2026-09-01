@@ -1,5 +1,15 @@
 # 版本历史
 
+## v0.8.1：Experience Provenance 与输入语义角色
+
+- 增强显式经历边界：保留标题同行事实和显式标题前的有效经历，明确项目标签不再被“论文”等内容词覆盖。
+- 新增输入语义角色分类，用户指令、否定约束、不确定信息、岗位上下文和结构标记不进入可输出 Fact Ledger。
+- 建立固定 Experience Slot 和不可变来源绑定，验证并纠正 LLM 返回 ID，未知或低置信 ID 不做全局猜测。
+- Fallback 改为逐 Experience 局部恢复；Coverage、Boundary 和 Delivery Gate 使用原始 Fact owner 校验恢复目标。
+- Reconciliation 记录候选分数与分差；Entity Dedup 不再因相同推断 ID 自动合并不同项目。
+- 增加显式边界丢失、指令泄露、否定约束泄露、不确定事实断言和 provenance 冲突质量事件。
+- Golden、metamorphic、既有 v0.4/v0.6 与 DOCX 回归共同验证事实归属和高价值事实覆盖。
+
 ## v0.7.4：公开测试运维闭环与质量漂移
 
 - 将 shallow smoke、SLO、备份、恢复验证、数据清理、质量事件、限流和数据库审计编排为 hourly、daily 与 post-deploy 三种任务。

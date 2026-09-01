@@ -2,6 +2,11 @@ import re
 from dataclasses import dataclass, field
 
 from .experience_identity_service import build_experience_identities
+from .input_semantic_role_service import (
+    InputSemanticUnit,
+    RESUME_FACT,
+    analyze_experience_semantics,
+)
 
 
 HIGH_VALUE_TERMS = [
@@ -41,11 +46,19 @@ class ExperienceFact:
     related_fact_ids: list[str] = field(default_factory=list)
     clause_role: str = "action"
     completeness: str = "complete"
+    immutable_experience_id: str = ""
+    semantic_role: str = RESUME_FACT
+    polarity: str = "positive"
+    certainty: str = "certain"
+    resume_eligible: bool = True
 
 
 @dataclass
 class ExperienceFactLedger:
     facts: list[ExperienceFact] = field(default_factory=list)
+    constraints: list[InputSemanticUnit] = field(default_factory=list)
+    uncertain_facts: list[InputSemanticUnit] = field(default_factory=list)
+    excluded_units: list[InputSemanticUnit] = field(default_factory=list)
 
     def for_experience(self, experience_id: str) -> list[ExperienceFact]:
         return [fact for fact in self.facts if fact.experience_id == experience_id]
@@ -141,28 +154,45 @@ def _resume_ready(text: str) -> str:
 
 def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
     facts: list[ExperienceFact] = []
+    constraints: list[InputSemanticUnit] = []
+    uncertain_facts: list[InputSemanticUnit] = []
+    excluded_units: list[InputSemanticUnit] = []
     for identity in build_experience_identities(raw_input):
-        offset = raw_input.find(identity.raw_text)
-        cursor = max(0, offset)
-        for index, text in enumerate(split_atomic_facts(identity.raw_text), start=1):
-            local = raw_input.find(text, cursor)
-            if local < 0:
-                local = cursor
-            fact_type = _fact_type(text)
-            facts.append(ExperienceFact(
-                experience_id=identity.experience_id,
-                fact_id=f"{identity.experience_id}-F{index:03d}",
-                fact_type=fact_type,
-                fact_text=text,
-                importance=_importance(text, fact_type),
-                explicit=True,
-                resume_ready_text=_resume_ready(text),
-                source_span=(local, local + len(text)),
-                semantic_unit_id=f"{identity.experience_id}-S{index:03d}",
-                clause_role=_clause_role(text),
-                completeness=_completeness(text),
-            ))
-            cursor = local + len(text)
+        analysis = analyze_experience_semantics(
+            identity.experience_id, identity.raw_text, identity.source_span[0],
+        )
+        constraints.extend(analysis.constraints)
+        uncertain_facts.extend(analysis.uncertain_facts)
+        excluded_units.extend(unit for unit in analysis.units if not unit.resume_eligible)
+        fact_index = 0
+        for unit in analysis.resume_facts:
+            for text in split_atomic_facts(unit.text):
+                fact_index += 1
+                local = raw_input.find(text, unit.source_span[0], unit.source_span[1] + 1)
+                if local < 0:
+                    local = unit.source_span[0]
+                fact_type = _fact_type(text)
+                resume_ready = _resume_ready(text)
+                if not resume_ready:
+                    continue
+                facts.append(ExperienceFact(
+                    experience_id=identity.experience_id,
+                    immutable_experience_id=identity.immutable_experience_id or identity.experience_id,
+                    fact_id=f"{identity.experience_id}-F{fact_index:03d}",
+                    fact_type=fact_type,
+                    fact_text=text,
+                    importance=_importance(text, fact_type),
+                    explicit=True,
+                    resume_ready_text=resume_ready,
+                    source_span=(local, local + len(text)),
+                    semantic_unit_id=unit.semantic_unit_id,
+                    clause_role=_clause_role(text),
+                    completeness=_completeness(text),
+                    semantic_role=unit.role,
+                    polarity=unit.polarity,
+                    certainty=unit.certainty,
+                    resume_eligible=unit.resume_eligible,
+                ))
     grouped: dict[str, list[ExperienceFact]] = {}
     for fact in facts:
         grouped.setdefault(fact.experience_id, []).append(fact)
@@ -174,7 +204,12 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
             if fact.clause_role in {"result", "action"} and index and rows[index - 1].clause_role == "problem":
                 related.append(rows[index - 1].fact_id)
             fact.related_fact_ids = related
-    return ExperienceFactLedger(facts=facts)
+    return ExperienceFactLedger(
+        facts=facts,
+        constraints=constraints,
+        uncertain_facts=uncertain_facts,
+        excluded_units=excluded_units,
+    )
 
 
 def build_fact_ledger_context(raw_input: str) -> str:

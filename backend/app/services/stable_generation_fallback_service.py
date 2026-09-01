@@ -2,6 +2,7 @@ import re
 
 from .. import schemas
 from .experience_identity_service import build_segmentation_questions
+from .experience_fact_ledger_service import build_experience_fact_ledger
 from .long_input_service import EVIDENCE_TERMS, RISK_TERMS, TECH_TERMS, LongInputContext, compact_text, extract_terms
 from .resume_role_resolution_service import resolve_role_for_experience
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
@@ -91,6 +92,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     projects: list[dict] = []
     used_supported_wordings: set[str] = set()
     rejected_candidates = 0
+    ledger = build_experience_fact_ledger(request.raw_input)
 
     for segment in context.segments[:5]:
         tech_terms = segment.tech_terms
@@ -103,24 +105,32 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
         for value in segment.supported_interview_terms:
             if value not in all_interview_terms:
                 all_interview_terms.append(value)
-        meta = _infer_meta(segment.label, segment.content)
-        details = _split_details(segment.content, limit=4)
-        for wording in segment.supported_wordings[:2]:
-            wording_key = _wording_key(wording)
-            if wording_key and wording_key not in used_supported_wordings and wording not in details:
-                details.append(wording)
-                used_supported_wordings.add(wording_key)
+        meta = segment.declared_experience_type or _infer_meta(segment.label, segment.content)
+        local_facts = [
+            fact for fact in ledger.for_experience(segment.experience_id)
+            if fact.resume_eligible and fact.resume_ready_text
+        ]
+        details = [fact.resume_ready_text for fact in local_facts[:5]]
+        if not details:
+            rejected_candidates += 1
+            continue
         role, role_fact_ids = resolve_role_for_experience(
-            request.raw_input, segment.experience_id, details=details, intro=_intro_from_content(segment.content),
+            request.raw_input, segment.experience_id, details=details, intro=details[0], ledger=ledger,
         )
         candidate = {
                 "name": segment.title,
                 "meta": meta,
                 "time": "[待填写]",
-                "intro": _intro_from_content(segment.content),
+                "intro": details[0],
                 "role": role,
                 "details": details[:5],
                 "source_experience_id": segment.experience_id,
+                "immutable_source_experience_id": segment.experience_id,
+                "source_binding_origin": "stable_local_fact_fallback",
+                "source_binding_confidence": 1.0,
+                "source_binding_locked": True,
+                "source_fact_ids": [fact.fact_id for fact in local_facts[:5]],
+                "detail_fact_ids": [[fact.fact_id] for fact in local_facts[:5]],
                 "role_source_fact_ids": role_fact_ids,
             }
         if is_valid_fallback_candidate(candidate, request.raw_input):

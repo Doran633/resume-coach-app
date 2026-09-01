@@ -1,5 +1,16 @@
 # 生产可观测性
 
+## v0.8.1 来源质量事件
+
+- `backend/logs/experience_segmentation.jsonl`：显式边界数、预期/实际经历数和 `EXPLICIT_BOUNDARY_LOST`。
+- `backend/logs/input_semantic_role.jsonl`：各语义角色数量及被排除的指令、否定约束和不确定项数量。
+- `backend/logs/experience_slot_binding.jsonl`：Slot 绑定来源、置信度、候选分数和拒绝数量。
+- `backend/logs/resume_project_reconciliation.jsonl`：候选 Experience 分数、分差、拒绝及 provenance 冲突。
+- `backend/logs/resume_section_fallback.jsonl`：Fallback 的 source/target Experience、恢复 Fact ID 和拒绝原因。
+- `backend/logs/experience_boundary.jsonl` 与 `resume_delivery_quality_gate.jsonl`：跨经历修复和未解决来源质量事件。
+
+日志只记录 ID、计数、置信度和问题码，不记录完整输入或简历正文。按用户问题编号定位后，应先确定“首次出现错误的阶段”，不能只根据最终 DOCX 推断根因。
+
 ## 三个关联标识
 
 - `request_id`：HTTP 请求的问题编号，格式为 `req_...`。用户可以在错误区域或结果页复制。

@@ -1,7 +1,11 @@
 import re
 from dataclasses import dataclass
 
-from .semantic_experience_segmentation_service import is_heading_only_text, segment_semantic_experiences
+from .semantic_experience_segmentation_service import (
+    find_explicit_experience_boundaries,
+    is_heading_only_text,
+    segment_semantic_experiences,
+)
 
 
 SEGMENT_PATTERN = re.compile(
@@ -17,6 +21,9 @@ class ExperienceSegment:
     label: str
     title: str
     content: str
+    declared_experience_type: str = ""
+    boundary_source: str = "semantic"
+    source_span: tuple[int, int] = (0, 0)
 
 
 def _clean_line(text: str) -> str:
@@ -75,11 +82,38 @@ def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[Exp
     if not text:
         return []
 
+    explicit_boundaries = find_explicit_experience_boundaries(text)
+    if explicit_boundaries:
+        semantic = segment_semantic_experiences(text)
+        boundary_labels = {
+            boundary.start_offset: boundary.label
+            for boundary in explicit_boundaries
+        }
+        segments = [
+            ExperienceSegment(
+                label=boundary_labels.get(item.start_offset, item.declared_experience_type or item.experience_type),
+                title=item.title,
+                content=item.raw_text,
+                declared_experience_type=item.declared_experience_type,
+                boundary_source=item.boundary_source,
+                source_span=(item.start_offset, item.end_offset),
+            )
+            for item in semantic.segments[:max_segments]
+        ]
+        return _remove_heading_only_segments(_redistribute_explicit_title_mentions(segments))
+
     matches = list(SEGMENT_PATTERN.finditer(text))
     if not matches:
         semantic = segment_semantic_experiences(text)
         return [
-            ExperienceSegment(label=item.experience_type, title=item.title, content=item.raw_text)
+            ExperienceSegment(
+                label=item.experience_type,
+                title=item.title,
+                content=item.raw_text,
+                declared_experience_type=item.declared_experience_type,
+                boundary_source=item.boundary_source,
+                source_span=(item.start_offset, item.end_offset),
+            )
             for item in semantic.segments[:max_segments]
         ]
 
@@ -92,7 +126,14 @@ def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[Exp
         if not content:
             continue
         title = _infer_title(content, label)
-        segments.append(ExperienceSegment(label=label, title=title, content=content))
+        segments.append(ExperienceSegment(
+            label=label,
+            title=title,
+            content=content,
+            declared_experience_type="项目经历",
+            boundary_source="legacy_explicit_heading",
+            source_span=(match.start(), end),
+        ))
     return _remove_heading_only_segments(_redistribute_explicit_title_mentions(segments))
 
 

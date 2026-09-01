@@ -13,6 +13,7 @@ from .experience_fact_ledger_service import (
     is_generic_detail,
 )
 from .experience_identity_service import build_experience_identities
+from .experience_slot_service import fact_owner_id
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "fact_coverage.jsonl"
@@ -33,6 +34,7 @@ class CoverageStats:
     coverage_by_experience_id: dict[str, float] = field(default_factory=dict)
     missing_fact_ids: list[str] = field(default_factory=list)
     removed_generic_detail_count: int = 0
+    provenance_conflict_count: int = 0
 
 
 def _project_text(project: dict) -> str:
@@ -42,7 +44,7 @@ def _project_text(project: dict) -> str:
 
 def _project_source_ids(project: dict) -> list[str]:
     values: list[str] = []
-    for key in ["source_experience_id", "merged_source_experience_ids", "source_experience_ids"]:
+    for key in ["immutable_source_experience_id", "source_experience_id", "merged_source_experience_ids", "source_experience_ids"]:
         raw = project.get(key)
         rows = raw if isinstance(raw, list) else [raw]
         for item in rows:
@@ -83,6 +85,7 @@ def _write_log(stats: CoverageStats) -> None:
             "coverage_by_experience_id": stats.coverage_by_experience_id,
             "missing_fact_ids": stats.missing_fact_ids,
             "removed_generic_detail_count": stats.removed_generic_detail_count,
+            "provenance_conflict_count": stats.provenance_conflict_count,
         }
         with LOG_PATH.open("a", encoding="utf-8") as file:
             file.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -113,16 +116,27 @@ def guard_fact_coverage(
 
     moves: list[tuple[str, str, str]] = []
     for project in projects:
-        source_id = str(project.get("source_experience_id") or "")
+        source_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
         source_ids = set(_project_source_ids(project))
         kept: list[str] = []
         detail_fact_ids: list[list[str]] = []
-        for raw_detail in project.get("details", []) or []:
+        existing_fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
+        for detail_index, raw_detail in enumerate(project.get("details", []) or []):
             detail = str(raw_detail).strip()
             if not detail:
                 continue
             if is_generic_detail(detail):
                 stats.removed_generic_detail_count += 1
+                continue
+            bound_fact_ids = (
+                [str(item) for item in existing_fact_rows[detail_index]]
+                if detail_index < len(existing_fact_rows) and isinstance(existing_fact_rows[detail_index], list)
+                else []
+            )
+            owners = {fact_owner_id(fact_id) for fact_id in bound_fact_ids if fact_owner_id(fact_id)}
+            if owners and source_id and owners != {source_id}:
+                stats.provenance_conflict_count += 1
+                stats.cross_experience_fact_count += 1
                 continue
             best, best_score = _best_fact(detail, ledger.facts)
             current_facts = [
@@ -141,7 +155,8 @@ def guard_fact_coverage(
 
     for target_id, detail, fact_id in moves:
         target = project_by_source.get(target_id)
-        if target is not None and detail not in target.get("details", []):
+        target_owner = str(target.get("immutable_source_experience_id") or target.get("source_experience_id") or "") if target else ""
+        if target is not None and target_owner == target_id and detail not in target.get("details", []):
             target.setdefault("details", []).append(detail)
             target.setdefault("detail_fact_ids", []).append([fact_id])
             if fact_id not in target.setdefault("source_fact_ids", []):
@@ -150,6 +165,9 @@ def guard_fact_coverage(
     total_details = sum(len(project.get("details", [])) for project in projects)
     for identity in identities:
         project = project_by_source.get(identity.experience_id)
+        if project and str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "") != identity.experience_id:
+            project = None
+            stats.provenance_conflict_count += 1
         facts = [fact for fact in ledger.for_experience(identity.experience_id) if fact.resume_ready_text]
         if not project or not facts:
             stats.missing_fact_ids.extend(fact.fact_id for fact in facts if fact.importance == "high")

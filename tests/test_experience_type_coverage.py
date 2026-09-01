@@ -172,7 +172,7 @@ def test_docx_contains_separated_experience_headings_and_non_project_content():
             assert "项目经历" in text
             assert "实习经历" in text
             assert "竞赛经历" in text
-            assert "字节跳动前端开发实习" in text
+            assert "字节跳动｜前端开发实习｜[待填写]" in text
             assert "大学生创新创业训练项目" in text
         finally:
             docx_service.OUTPUT_DIR = original_output_dir

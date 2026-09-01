@@ -57,6 +57,7 @@ from .resume_experience_entity_dedup_service import deduplicate_resume_experienc
 from .resume_experience_validity_service import ensure_resume_experience_validity
 from .resume_delivery_quality_gate_service import ensure_resume_delivery_quality
 from .project_hierarchy_service import strip_project_hierarchy_metadata
+from .experience_slot_service import bind_projects_to_experience_slots, strip_experience_slot_metadata
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -187,6 +188,12 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     raw_input = experience.raw_input if experience else ""
     target_role = experience.target_role if experience else ""
     payload = normalize_resume_section_schema(payload)
+    payload = bind_projects_to_experience_slots(
+        payload,
+        raw_input,
+        stage="docx_export_start",
+        generation_result_id=request.generation_result_id,
+    )
     payload = sanitize_resume_body(payload, raw_input)
     payload = guard_hard_facts(payload, raw_input)
     payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
@@ -361,6 +368,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     )
     log_generation_stage(payload, "before_docx_render", request.generation_result_id)
     payload = strip_project_hierarchy_metadata(payload)
+    payload = strip_experience_slot_metadata(payload)
 
     doc = Document()
     _setup(doc)

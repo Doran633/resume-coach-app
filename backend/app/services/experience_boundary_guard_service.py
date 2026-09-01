@@ -10,6 +10,7 @@ from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 from .resume_role_resolution_service import resolve_role_for_experience
+from .experience_slot_service import fact_owner_id
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -43,6 +44,7 @@ class BoundaryStats:
         self.unmatched_project_count = 0
         self.contamination_fixed_count = 0
         self.fixed_fields: list[str] = []
+        self.provenance_conflict_count = 0
 
     def fixed(self, field: str):
         self.contamination_fixed_count += 1
@@ -63,6 +65,7 @@ def _write_boundary_log(stats: BoundaryStats):
             "unmatched_project_count": stats.unmatched_project_count,
             "contamination_fixed_count": stats.contamination_fixed_count,
             "fixed_fields": stats.fixed_fields,
+            "provenance_conflict_count": stats.provenance_conflict_count,
             "stage": stats.stage,
         }
         with LOG_PATH.open("a", encoding="utf-8") as file:
@@ -77,7 +80,7 @@ def _project_text(project: dict[str, Any]) -> str:
 
 def _project_source_ids(project: dict[str, Any]) -> list[str]:
     values: list[str] = []
-    for key in ["source_experience_id", "merged_source_experience_ids", "source_experience_ids"]:
+    for key in ["immutable_source_experience_id", "source_experience_id", "merged_source_experience_ids", "source_experience_ids"]:
         raw = project.get(key)
         rows = raw if isinstance(raw, list) else [raw]
         for item in rows:
@@ -102,10 +105,27 @@ def _score_project_identity(project: dict[str, Any], identity: ExperienceIdentit
 
 
 def _match_project_to_segment(project: dict[str, Any], segments: list[ExperienceIdentity], index: int):
-    source_id = str(project.get("source_experience_id") or "").strip()
-    if source_id:
+    source_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "").strip()
+    if source_id and project.get("source_binding_locked"):
         for segment in segments:
             if segment.experience_id == source_id:
+                return segment
+    fact_ids = [
+        str(fact_id)
+        for row in project.get("detail_fact_ids", []) or []
+        if isinstance(row, list)
+        for fact_id in row
+        if fact_id
+    ]
+    fact_ids.extend(str(item) for item in project.get("source_fact_ids", []) or [] if item)
+    fact_owners = {fact_owner_id(fact_id) for fact_id in fact_ids if fact_owner_id(fact_id)}
+    if source_id and fact_owners == {source_id}:
+        for segment in segments:
+            if segment.experience_id == source_id:
+                project["source_binding_origin"] = "fact_owner_validated"
+                project["source_binding_confidence"] = 1.0
+                project["source_binding_locked"] = True
+                project["immutable_source_experience_id"] = source_id
                 return segment
 
     project_text = _normalize(" ".join(str(project.get(key, "")) for key in ["name", "meta", "intro", "role"]))
@@ -116,7 +136,9 @@ def _match_project_to_segment(project: dict[str, Any], segments: list[Experience
         if segment.experience_type != "项目经历" and segment.experience_type in _project_text(project):
             return segment
     ranked = sorted(segments, key=lambda item: _score_project_identity(project, item), reverse=True)
-    if ranked and _score_project_identity(project, ranked[0]) > 0:
+    best_score = _score_project_identity(project, ranked[0]) if ranked else 0
+    runner_score = _score_project_identity(project, ranked[1]) if len(ranked) > 1 else 0
+    if ranked and best_score >= 14 and best_score - runner_score >= 6:
         return ranked[0]
     return None
 
@@ -200,6 +222,7 @@ def guard_experience_boundaries(
             guarded_projects.append(guarded)
             continue
         guarded["source_experience_id"] = segment.experience_id
+        guarded["immutable_source_experience_id"] = segment.experience_id
 
         related_ids = set(_project_source_ids(guarded)) or {segment.experience_id}
         related_segments = [item for item in segments if item.experience_id in related_ids] or [segment]
@@ -219,7 +242,8 @@ def guard_experience_boundaries(
             if cleaned:
                 guarded[key] = cleaned
             elif key == "intro":
-                guarded[key] = segment.raw_text[:180].strip()
+                local_facts = [fact.resume_ready_text for fact in ledger.for_experience(segment.experience_id) if fact.resume_ready_text]
+                guarded[key] = local_facts[0] if local_facts else ""
             else:
                 guarded[key], role_fact_ids = resolve_role_for_experience(
                     raw_input,
@@ -232,8 +256,20 @@ def guard_experience_boundaries(
                     guarded["role_source_fact_ids"] = role_fact_ids
         details = []
         original_details = guarded.get("details", []) or []
-        for detail in original_details:
+        existing_fact_rows = guarded.get("detail_fact_ids") if isinstance(guarded.get("detail_fact_ids"), list) else []
+        kept_fact_rows: list[list[str]] = []
+        for detail_index, detail in enumerate(original_details):
             detail_text = str(detail)
+            fact_ids = (
+                [str(item) for item in existing_fact_rows[detail_index]]
+                if detail_index < len(existing_fact_rows) and isinstance(existing_fact_rows[detail_index], list)
+                else []
+            )
+            owners = {fact_owner_id(fact_id) for fact_id in fact_ids if fact_owner_id(fact_id)}
+            if owners and not owners.issubset(related_ids):
+                stats.provenance_conflict_count += 1
+                stats.fixed(f"projects[{index}].details")
+                continue
             if any(_contains_term(detail_text, term) for term in blocked_terms):
                 stats.fixed(f"projects[{index}].details")
                 continue
@@ -252,7 +288,9 @@ def guard_experience_boundaries(
                 pending_moves.append((best_fact.experience_id, detail_text, best_fact.fact_id))
                 continue
             details.append(detail_text)
-        guarded["details"] = _dedupe(details) or guarded.get("details", [])[:1]
+            kept_fact_rows.append(fact_ids)
+        guarded["details"] = _dedupe(details)
+        guarded["detail_fact_ids"] = kept_fact_rows[:len(guarded["details"])]
         guarded_projects.append(guarded)
 
     by_source = {

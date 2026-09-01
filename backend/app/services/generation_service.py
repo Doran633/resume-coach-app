@@ -65,6 +65,9 @@ from .resume_delivery_quality_gate_service import (
     measure_high_value_fact_coverage,
 )
 from .project_hierarchy_service import strip_project_hierarchy_metadata
+from .experience_slot_service import bind_projects_to_experience_slots, strip_experience_slot_metadata
+from .experience_identity_service import build_experience_identities
+from .input_semantic_role_service import analyze_experience_semantics, write_semantic_role_log
 from .resource_protection_service import resource_protection
 
 
@@ -419,6 +422,14 @@ def build_llm_generation(request: schemas.GenerateRequest, long_input_context: L
 def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.GenerateResponse:
     started_at = time.perf_counter()
     long_input_context = analyze_long_input(request.raw_input, write_segmentation_log=True, stage="generation")
+    identities_for_roles = build_experience_identities(request.raw_input)
+    write_semantic_role_log(
+        [
+            analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
+            for identity in identities_for_roles
+        ],
+        stage="generation",
+    )
     user = get_or_create_anonymous_user(db, request.anonymous_user_id)
     ensure_session(db, user, request.session_id)
 
@@ -496,6 +507,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     log_generation_stage(payload, "after_llm")
     payload = normalize_resume_section_schema(payload)
     payload = cleanup_generation_payload(payload, source=mode)
+    payload = bind_projects_to_experience_slots(payload, request.raw_input, stage="after_llm")
     log_generation_stage(payload, "after_normalize")
     payload = guard_hard_facts(payload, request.raw_input)
     payload, resume_fallback_stats = fill_resume_sections(
@@ -589,6 +601,7 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     evaluate_resume_output_quality(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "before_save")
     payload = strip_project_hierarchy_metadata(payload)
+    payload = strip_experience_slot_metadata(payload)
 
     result = models.GenerationResult(
         experience_input_id=experience.id,

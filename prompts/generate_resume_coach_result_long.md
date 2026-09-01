@@ -168,3 +168,12 @@ risk_level 只能是 green、yellow、red、black。
 - 用户粘贴的 `#` 标题、`-`、`*`、`+`、`•`、`` 和编号列表仅用于输入结构识别，不得进入 summary、skills、intro、role 或 details。
 - projects.details 的每个字符串直接以正文开头，DOCX 会自动添加列表样式，不得重复输出 Markdown/List 前缀。
 - 清理结构符时必须保留 C#、C++、BAAI/bge-m3、no-answer policy、负数指标、URL、版本号和代码标识。
+
+## v0.8.1 长输入 Experience Slot 与语义角色规则
+
+- Experience Slot 的数量、顺序和 `experience_id` 由后端固定；不得自行创建、交换、重排或复制 Slot。
+- 用户显式标题声明的类型高于内容关键词；项目中包含“论文、研究、实验”等业务对象，不得因此改成科研经历。
+- 只有“可生成事实”可进入正式简历。用户指令、结构标记、目标岗位上下文、否定约束和不确定项不得作为项目正文。
+- 否定约束既不能原样进入正文，也不能被反向包装为已完成事实；不确定技术只能进入 missing_questions。
+- 每个 Slot 只能消费本 Slot 的 fact IDs。缺项时保持为空或追问，不得从其他 Slot 或全局摘要恢复。
+- source ID 缺失或冲突时不得低置信猜测；共享 RAG、React、FastAPI 等技术栈不能证明事实属于同一经历。

@@ -104,6 +104,7 @@ class FallbackStats:
         self.role_source_experience_ids: list[str] = []
         self.role_source_fact_ids: list[str] = []
         self.fallback_candidate_rejected_count = 0
+        self.fallback_bindings: list[dict] = []
 
     @property
     def changed(self) -> bool:
@@ -157,6 +158,7 @@ def _write_fallback_log(stats: FallbackStats):
             "role_source_experience_ids": sorted(set(stats.role_source_experience_ids)),
             "role_source_fact_ids": sorted(set(stats.role_source_fact_ids)),
             "fallback_candidate_rejected_count": stats.fallback_candidate_rejected_count,
+            "fallback_bindings": stats.fallback_bindings,
             "generation_result_id": stats.generation_result_id,
             "stage": stats.stage,
         }
@@ -436,7 +438,20 @@ def _assign_source_experience_ids(projects: list, raw_input: str, stats: Fallbac
             assigned.append(project)
             continue
         source_id = _text(project.get("source_experience_id"))
-        if source_id and any(source_id == item.experience_id for item in identities):
+        valid_ids = {item.experience_id for item in identities}
+        if source_id in valid_ids and project.get("source_binding_locked"):
+            assigned.append(project)
+            used_ids.add(source_id)
+            stats.used_experience_id = True
+            continue
+        if len(identities) == 1 and source_id == identities[0].experience_id:
+            # Historical payloads predate binding metadata. A matching ID is
+            # unambiguous only in the singleton case; multi-experience payloads
+            # still require strong local evidence below.
+            project["immutable_source_experience_id"] = source_id
+            project["source_binding_origin"] = "singleton_existing_id"
+            project["source_binding_confidence"] = 1.0
+            project["source_binding_locked"] = True
             assigned.append(project)
             used_ids.add(source_id)
             stats.used_experience_id = True
@@ -446,10 +461,38 @@ def _assign_source_experience_ids(projects: list, raw_input: str, stats: Fallbac
         chosen = ranked[0] if ranked else None
         best_score = _score_project_identity(project, chosen) if chosen else 0
         second_score = _score_project_identity(project, ranked[1]) if len(ranked) > 1 else -1
-        if chosen and best_score >= 3 and best_score > second_score:
+        # Fallback may only bind on strong local identity evidence. Shared
+        # frameworks and a merely unique low score are not sufficient.
+        if chosen and best_score >= 14 and best_score - second_score >= 6 and chosen.experience_id not in used_ids:
             project["source_experience_id"] = chosen.experience_id
+            project["immutable_source_experience_id"] = chosen.experience_id
+            project["source_binding_origin"] = "fallback_strong_local_match"
+            project["source_binding_confidence"] = min(1.0, best_score / 20)
+            project["source_binding_locked"] = True
             used_ids.add(chosen.experience_id)
             stats.used_experience_id = True
+            stats.fallback_bindings.append({
+                "fallback_source_experience_id": chosen.experience_id,
+                "fallback_target_experience_id": chosen.experience_id,
+                "slot_binding_confidence": project["source_binding_confidence"],
+                "restored_fact_ids": [],
+                "rejected": False,
+            })
+        else:
+            project.pop("source_experience_id", None)
+            project.pop("immutable_source_experience_id", None)
+            project["source_binding_origin"] = "fallback_rejected"
+            project["source_binding_confidence"] = 0.0
+            project["source_binding_locked"] = False
+            stats.fallback_candidate_rejected_count += 1
+            stats.fallback_bindings.append({
+                "fallback_source_experience_id": "",
+                "fallback_target_experience_id": "",
+                "slot_binding_confidence": 0.0,
+                "restored_fact_ids": [],
+                "rejected": True,
+                "reason": "low_confidence_or_ambiguous",
+            })
         assigned.append(project)
     return assigned
 
@@ -458,8 +501,21 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
     projects = []
     ledger = build_experience_fact_ledger(raw_input)
     for identity in build_experience_identities(raw_input)[:5]:
-        details = _details_from_text(identity.raw_text, limit=6)
+        local_facts = [
+            fact for fact in ledger.for_experience(identity.experience_id)
+            if fact.resume_eligible and fact.resume_ready_text
+        ]
+        details = [fact.resume_ready_text for fact in local_facts[:6]]
         if not details:
+            stats.fallback_candidate_rejected_count += 1
+            stats.fallback_bindings.append({
+                "fallback_source_experience_id": identity.experience_id,
+                "fallback_target_experience_id": identity.experience_id,
+                "slot_binding_confidence": 1.0,
+                "restored_fact_ids": [],
+                "rejected": True,
+                "reason": "no_local_resume_eligible_fact",
+            })
             continue
         role, role_fact_ids = resolve_role_for_experience(
             raw_input, identity.experience_id, details=details, intro=details[0], ledger=ledger,
@@ -479,12 +535,25 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
                 "role": role,
                 "details": details,
                 "source_experience_id": identity.experience_id,
+                "immutable_source_experience_id": identity.experience_id,
+                "source_binding_origin": "local_fact_fallback",
+                "source_binding_confidence": 1.0,
+                "source_binding_locked": True,
+                "source_fact_ids": [fact.fact_id for fact in local_facts[:6]],
+                "detail_fact_ids": [[fact.fact_id] for fact in local_facts[:6]],
                 "role_source_fact_ids": role_fact_ids,
             }
         if not is_valid_fallback_candidate(candidate, raw_input):
             stats.fallback_candidate_rejected_count += 1
             continue
         stats.used_experience_id = True
+        stats.fallback_bindings.append({
+            "fallback_source_experience_id": identity.experience_id,
+            "fallback_target_experience_id": identity.experience_id,
+            "slot_binding_confidence": 1.0,
+            "restored_fact_ids": [fact.fact_id for fact in local_facts[:6]],
+            "rejected": False,
+        })
         projects.append(candidate)
     return projects
 

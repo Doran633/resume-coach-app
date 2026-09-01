@@ -9,7 +9,7 @@ from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "experience_type_resolution.jsonl"
-RESOLVER_VERSION = "v0.4.8"
+RESOLVER_VERSION = "v0.8.1"
 STANDARD_TYPES = ["项目经历", "实习经历", "科研经历", "竞赛获奖", "竞赛经历", "开源经历", "校园 / 社团经历"]
 EXCLUDED_INTERNSHIP_CONTEXTS = [
     r"面向[^。；\n]{0,30}实习(?:生|求职者|用户)", r"服务[^。；\n]{0,20}实习用户", r"帮助用户[^。；\n]{0,30}实习",
@@ -51,6 +51,27 @@ def resolve_identity_type(identity: ExperienceIdentity) -> TypeResolution:
     scores = {key: 0 for key in STANDARD_TYPES}
     positive: list[str] = []
     excluded = [hit for pattern in EXCLUDED_INTERNSHIP_CONTEXTS for hit in _hits(pattern, text)]
+
+    if identity.declared_experience_type in STANDARD_TYPES:
+        declared = identity.declared_experience_type
+        scores[declared] = 100
+        return TypeResolution(
+            experience_id=identity.experience_id,
+            resolved_type=declared,
+            confidence=1.0,
+            positive_signals=[f"用户显式类型:{declared}"],
+            negative_signals=[f"排除实习语境:{item[:50]}" for item in excluded],
+            source_title=title,
+            local_raw_text=local,
+            resolution_method="declared_experience_type",
+            conflict_detected=identity.experience_type != declared,
+            evidence_scores=scores,
+            excluded_context_signals=excluded,
+            runner_up_type="",
+            score_margin=100,
+            inherited_identity_type=identity.experience_type,
+            inherited_type_used=True,
+        )
 
     explicit_rules = [
         ("实习经历", r"(?:^|\n)\s*实习经历(?:\s|$|[:：|｜])", 10),
@@ -99,7 +120,7 @@ def resolve_identity_type(identity: ExperienceIdentity) -> TypeResolution:
         positive.extend(f"项目关系:{hit[:40]}" for hit in ownership_hits[:6])
 
     semantic_rules = [
-        ("科研经历", r"课题|论文|实验研究|研究方向", 6),
+        ("科研经历", r"(?:参与|负责|开展|承担).{0,24}(?:课题|实验研究)|课题组|实验室|研究职责|论文(?:发表|投稿)", 6),
         ("竞赛获奖", r"一等奖|二等奖|三等奖|金奖|银奖|铜奖", 8),
         ("竞赛经历", r"参加[^。；\n]{0,40}(?:竞赛|比赛)|赛题|路演|答辩", 5),
         ("开源经历", r"开源贡献|Pull Request|\bPR\b|maintainer", 6),

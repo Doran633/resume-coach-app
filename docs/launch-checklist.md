@@ -390,3 +390,15 @@ tail -n 20 backend/logs/resume_delivery_quality_gate.jsonl
 - [ ] 数据库完整性为 ok，最近备份可以恢复。
 - [ ] 数据库可迁移性报告已生成；当前未修改 schema 或生产 `DATABASE_URL`。
 - [ ] 回滚准备报告能识别上一稳定 commit，但没有执行自动回滚。
+
+# v0.8.1 经历来源与复杂输入回归
+
+- [ ] `tests/test_v081_experience_provenance.py`、Golden、v0.4 和 v0.6 真实案例全部通过。
+- [ ] “项目二：论文阅读助手”保持项目经历，显式边界数量与最终 Slot 数一致。
+- [ ] 用户指令、否定约束和不确定技术均不进入正式正文或技能栏。
+- [ ] 每个保存项目都有经过验证的 `source_experience_id`，Fact owner 与项目 Slot 不冲突。
+- [ ] Fallback 日志中的 source/target Experience 相同，低置信候选被拒绝。
+- [ ] Entity Dedup 没有因相同推断 ID 合并两个真实项目。
+- [ ] `EXPLICIT_BOUNDARY_LOST`、`PROVENANCE_CONFLICT`、`INSTRUCTION_LEAK` 等未解决 critical 为 0。
+- [ ] Golden 高价值事实覆盖率不低于 90%，且跨经历事实串用为 0。
+- [ ] DOCX 与保存 Payload 的经历数量、类型和事实归属一致，内部 provenance 字段不可见。

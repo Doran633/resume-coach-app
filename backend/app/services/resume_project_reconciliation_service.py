@@ -55,6 +55,9 @@ class ReconciliationStats:
     unmatched_details: int = 0
     uncovered_experience_ids: list[str] = field(default_factory=list)
     project_names: list[str] = field(default_factory=list)
+    reconciliation_candidate_scores: list[dict] = field(default_factory=list)
+    rejected_binding_count: int = 0
+    provenance_conflict_count: int = 0
 
 
 def _normalize(value: object) -> str:
@@ -120,9 +123,9 @@ def _identity_score(text: str, identity: ExperienceIdentity) -> int:
 
 def _match_identity(text: str, identities: list[ExperienceIdentity]) -> ExperienceIdentity | None:
     ranked = sorted(((item, _identity_score(text, item)) for item in identities), key=lambda pair: pair[1], reverse=True)
-    if not ranked or ranked[0][1] < 4:
+    if not ranked or ranked[0][1] < 14:
         return None
-    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+    if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < 6:
         return None
     return ranked[0][0]
 
@@ -145,16 +148,67 @@ def _contains_equivalent(project: dict, detail: str) -> bool:
     return any(_similar(detail, item) >= 0.92 for item in existing)
 
 
-def _assign_project_sources(projects: list[dict], identities: list[ExperienceIdentity]) -> dict[str, int]:
+def _match_detail_fact_owner(detail: str, raw_input: str) -> tuple[str, float, str]:
+    ledger = build_experience_fact_ledger(raw_input)
+    ranked = sorted(
+        ((fact, fact_match_score(detail, fact)) for fact in ledger.facts),
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
+    if not ranked:
+        return "", 0.0, ""
+    best_fact, best_score = ranked[0]
+    runner_score = ranked[1][1] if len(ranked) > 1 else 0.0
+    if best_score >= 0.62 and best_score - runner_score >= 0.12:
+        return best_fact.experience_id, best_score, best_fact.fact_id
+    return "", best_score, ""
+
+
+def _assign_project_sources(
+    projects: list[dict], identities: list[ExperienceIdentity], stats: ReconciliationStats | None = None,
+) -> dict[str, int]:
     coverage: dict[str, int] = {}
     for index, project in enumerate(projects):
         source_id = str(project.get("source_experience_id") or "").strip()
         identity = next((item for item in identities if item.experience_id == source_id), None)
-        if not identity:
-            identity = _match_identity(_project_text(project), identities)
-        if identity:
-            project["source_experience_id"] = identity.experience_id
+        if identity and project.get("source_binding_locked"):
+            project["immutable_source_experience_id"] = identity.experience_id
             coverage.setdefault(identity.experience_id, index)
+            continue
+
+        ranked = sorted(
+            ((item, _identity_score(_project_text(project), item)) for item in identities),
+            key=lambda pair: pair[1], reverse=True,
+        )
+        best_score = ranked[0][1] if ranked else 0
+        runner_score = ranked[1][1] if len(ranked) > 1 else 0
+        if stats is not None:
+            stats.reconciliation_candidate_scores.append({
+                "project_index": index,
+                "existing_source_experience_id": source_id,
+                "candidates": [
+                    {"experience_id": item.experience_id, "score": score}
+                    for item, score in ranked[:3]
+                ],
+            })
+        identity = ranked[0][0] if ranked and best_score >= 14 and best_score - runner_score >= 6 else None
+        if identity:
+            if source_id and source_id != identity.experience_id and stats is not None:
+                stats.provenance_conflict_count += 1
+            project["source_experience_id"] = identity.experience_id
+            project["immutable_source_experience_id"] = identity.experience_id
+            project["source_binding_origin"] = "reconciliation_strong_local_match"
+            project["source_binding_confidence"] = min(1.0, best_score / 24)
+            project["source_binding_locked"] = True
+            coverage.setdefault(identity.experience_id, index)
+        else:
+            project.pop("source_experience_id", None)
+            project.pop("immutable_source_experience_id", None)
+            project["source_binding_origin"] = "reconciliation_rejected"
+            project["source_binding_confidence"] = 0.0
+            project["source_binding_locked"] = False
+            if stats is not None:
+                stats.rejected_binding_count += 1
     return coverage
 
 
@@ -220,6 +274,9 @@ def _write_log(stats: ReconciliationStats) -> None:
             "unmatched_details": stats.unmatched_details,
             "uncovered_experience_ids": stats.uncovered_experience_ids,
             "project_names": [name[:40] for name in stats.project_names],
+            "reconciliation_candidate_scores": stats.reconciliation_candidate_scores,
+            "rejected_binding_count": stats.rejected_binding_count,
+            "provenance_conflict_count": stats.provenance_conflict_count,
         }
         with LOG_PATH.open("a", encoding="utf-8") as file:
             file.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -254,11 +311,19 @@ def reconcile_resume_projects(
         concrete = [project]
         comprehensive = []
 
-    coverage = _assign_project_sources(concrete, identities)
+    coverage = _assign_project_sources(concrete, identities, stats)
     for generic_project in comprehensive:
         for detail in generic_project.get("details", []) or []:
             detail_text = str(detail).strip()
-            identity = _match_identity(detail_text, identities)
+            owner_id, owner_score, owner_fact_id = _match_detail_fact_owner(detail_text, raw_input)
+            identity = next((item for item in identities if item.experience_id == owner_id), None)
+            if identity is None:
+                identity = _match_identity(detail_text, identities)
+            stats.reconciliation_candidate_scores.append({
+                "project_index": -1,
+                "existing_source_experience_id": "comprehensive_detail",
+                "candidates": [{"experience_id": owner_id, "score": round(owner_score, 3), "fact_id": owner_fact_id}] if owner_id else [],
+            })
             if not identity or identity.experience_id not in coverage:
                 stats.unmatched_details += 1
                 continue
@@ -283,7 +348,7 @@ def reconcile_resume_projects(
         write_log=write_log,
     )
     _apply_detail_budget(concrete, raw_input)
-    coverage = _assign_project_sources(concrete, identities)
+    coverage = _assign_project_sources(concrete, identities, stats)
     stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in coverage]
     stats.projects_after = len(concrete)
     stats.project_names = [str(item.get("name") or "") for item in concrete]

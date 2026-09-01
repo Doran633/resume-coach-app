@@ -68,6 +68,9 @@ class LongInputSegment:
     supported_resume_terms: list[str]
     supported_interview_terms: list[str]
     supported_wordings: list[str]
+    declared_experience_type: str = ""
+    boundary_source: str = "semantic"
+    source_span: tuple[int, int] = (0, 0)
 
 
 @dataclass
@@ -118,6 +121,9 @@ def enrich_segments(segments: list[ExperienceSegment]) -> list[LongInputSegment]
                 supported_resume_terms=inference.resume_terms,
                 supported_interview_terms=inference.interview_terms,
                 supported_wordings=inference.wordings,
+                declared_experience_type=segment.declared_experience_type,
+                boundary_source=segment.boundary_source,
+                source_span=segment.source_span,
             )
         )
     return enriched
@@ -129,7 +135,8 @@ def build_compact_context(segments: list[LongInputSegment]) -> str:
     for segment in segments:
         lines.extend(
             [
-                f"{segment.experience_id}. 类型/标题：{segment.label}｜{segment.title}",
+                f"{segment.experience_id}. 类型/标题：{segment.declared_experience_type or segment.label}｜{segment.title}",
+                f"   边界来源：{segment.boundary_source}",
                 f"   摘要：{segment.summary}",
                 f"   本段明确技术词：{'、'.join(segment.tech_terms) if segment.tech_terms else '未识别'}",
                 f"   本段结果/证据词：{'、'.join(segment.evidence_terms) if segment.evidence_terms else '未识别'}",

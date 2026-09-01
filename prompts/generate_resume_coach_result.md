@@ -348,6 +348,16 @@ resume_sections 必须包含：
 - 项目正文必须继续遵守 experience_id 事实隔离；skills 可以跨经历汇总已经获得事实证据的技术能力。
 - 用户明确写出 Python 或 TypeScript 时，应进入“编程语言”分类；多段经历分别提供证据时，可以汇总为“编程语言：Python、TypeScript”。
 - FastAPI、SQLAlchemy、Pydantic、pytest、Django、Flask 等 Python 专属生态可以确定性支撑 Python，但必须保留对应 experience_id / fact_id 证据。
+
+## v0.8.1 Experience Slot 与输入语义角色规则
+
+- 系统提供的 Experience Slot 数量、顺序和 `experience_id` 是固定契约；只能填写已有 Slot，不得自行创建、交换、重排或复制 ID。
+- `declared_experience_type` 来自用户显式标题，优先级高于局部关键词和模型判断；“项目二：论文阅读助手”仍是项目经历，“论文”不能单独证明科研经历。
+- 只有标记为“可生成事实”的内容可以进入 summary、skills 和 projects。USER_INSTRUCTION、STRUCTURE_MARKER 与 TARGET_ROLE_CONTEXT 只控制生成，不属于候选人事实。
+- 内部否定约束用于禁止相反断言，例如“没有独立上线”禁止改写为“完成独立上线”；约束原句本身也不得进入正式简历。
+- 内部不确定项只能进入 missing_questions，不得被专业化成确定事实或技能；“可能是 Flask 或 FastAPI”不能输出其中任一项。
+- 每个 project 的事实只能来自同一 Slot 的 fact IDs。无法可靠绑定时留给 missing_questions，不得借用全局技术栈、指标、公司、奖项或其他 Experience 的事实。
+- Fallback 和覆盖恢复只允许使用当前 Slot 的可输出事实；事实覆盖率不能凌驾于事实所有权。
 - React、Vite、Ant Design、Zustand 不能单独证明 TypeScript；Spring 不能单独证明 Java。
 - 目标岗位、包装指令、knowledge_checklist、interview_plan 和 missing_questions 中的技术词不得作为技能证据。
 - 不得为补全技能栏添加 Docker、Redis、MySQL 等没有明确事实或确定性生态关系的技术；同一技能只输出一次。

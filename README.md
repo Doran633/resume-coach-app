@@ -1,5 +1,15 @@
 # Resume Coach App
 
+## v0.8.1 经历来源契约
+
+- 显式的“项目一 / 项目二 / 实习经历”等边界优先于“论文、研究、实习”等局部关键词，标题同行事实和标题前的有效经历都不会被丢弃。
+- 输入先按事实、用户指令、否定约束、不确定信息、目标岗位和结构标记分类；只有可生成事实进入 Experience Fact Ledger。
+- 固定 Experience Slot 将 `experience_id`、局部 `source_span` 和 Fact 所有权绑定，后续服务不能仅凭共享技术栈重写来源。
+- Resume Section Fallback 和 Stable Fallback 只读取当前 Experience 的事实；低置信 Reconciliation 拒绝绑定，Dedup 遇到 provenance 冲突时保留独立实体。
+- 生成和 DOCX 投递前检查边界丢失、指令泄露、否定反向包装、不确定事实断言与来源冲突。
+
+完整约束见 [Experience Provenance Contract](docs/experience-provenance-contract.md)。
+
 ## v0.7.4 公开测试运维闭环
 
 - `run_public_beta_operations.py` 将小时检查、每日备份清理和部署后验证串成可继续执行的任务流，并用文件锁防止定时任务重叠。

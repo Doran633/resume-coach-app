@@ -11,6 +11,12 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 from .experience_identity_service import build_experience_identities
+from .experience_slot_service import fact_owner_id
+from .input_semantic_role_service import (
+    NEGATIVE_CONSTRAINT,
+    UNCERTAIN_FACT,
+    USER_INSTRUCTION,
+)
 from .fact_coverage_guard_service import guard_fact_coverage
 from .fact_guard_service import guard_hard_facts
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity, has_unbalanced_symbols
@@ -45,6 +51,12 @@ ISSUE_CODES = (
     "COACH_LANGUAGE_LEAK",
     "SKILL_WITHOUT_EVIDENCE",
     "LOW_HIGH_VALUE_FACT_COVERAGE",
+    "EXPLICIT_BOUNDARY_LOST",
+    "INSTRUCTION_LEAK",
+    "NEGATIVE_CONSTRAINT_LEAK",
+    "UNCERTAIN_FACT_ASSERTED",
+    "PROVENANCE_CONFLICT",
+    "INFERRED_ID_COLLISION",
 )
 
 INTERNAL_FIELD_REPLACEMENTS = {
@@ -117,7 +129,7 @@ def _normalized(value: object) -> str:
 
 def _source_ids(project: dict) -> set[str]:
     values: set[str] = set()
-    for key in ("source_experience_id", "source_experience_ids", "merged_source_experience_ids"):
+    for key in ("immutable_source_experience_id", "source_experience_id", "source_experience_ids", "merged_source_experience_ids"):
         raw = project.get(key)
         rows = raw if isinstance(raw, list) else [raw]
         values.update(_text(item) for item in rows if _text(item))
@@ -148,6 +160,129 @@ def _project_text(project: dict) -> str:
         _text(project.get("intro")), _text(project.get("role")),
         *[_text(item) for item in project.get("details", []) or []],
     ])
+
+
+def _semantic_role_leaks(payload: schemas.GenerationPayload, raw_input: str) -> list[ResumeQualityIssue]:
+    issues: list[ResumeQualityIssue] = []
+    ledger = build_experience_fact_ledger(raw_input)
+    visible = _normalized(_visible_text(payload))
+    local_visible = {
+        source_id: _normalized(_project_text(project))
+        for project in payload.resume_sections.projects
+        for source_id in _source_ids(project)
+    }
+    for unit in ledger.excluded_units:
+        unit_key = _normalized(unit.text)
+        leaked = len(unit_key) >= 6 and unit_key in visible
+        if USER_INSTRUCTION in unit.roles and leaked:
+            _add_issue(issues, "INSTRUCTION_LEAK", "critical", "resume_sections", {"source_experience_id": unit.experience_id})
+        if NEGATIVE_CONSTRAINT in unit.roles:
+            assertion = re.sub(r"^(?:没有|未|并未|不曾|并没有|不负责|未负责|不是我负责)", "", unit.text).strip(" ，,。；;")
+            assertion_key = _normalized(assertion)
+            if leaked or (len(assertion_key) >= 5 and assertion_key in local_visible.get(unit.experience_id, "")):
+                _add_issue(issues, "NEGATIVE_CONSTRAINT_LEAK", "critical", "resume_sections", {"source_experience_id": unit.experience_id})
+        if UNCERTAIN_FACT in unit.roles:
+            uncertain_terms = re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", unit.text)
+            asserted = any(term.lower() in local_visible.get(unit.experience_id, "") for term in uncertain_terms)
+            if leaked or asserted:
+                _add_issue(issues, "UNCERTAIN_FACT_ASSERTED", "critical", "resume_sections", {"source_experience_id": unit.experience_id})
+    return issues
+
+
+def _provenance_issues(payload: schemas.GenerationPayload, raw_input: str) -> list[ResumeQualityIssue]:
+    issues: list[ResumeQualityIssue] = []
+    identities = build_experience_identities(raw_input)
+    valid_ids = {identity.experience_id for identity in identities}
+    bound_ids: set[str] = set()
+    for index, project in enumerate(payload.resume_sections.projects):
+        source_id = _text(project.get("source_experience_id"))
+        immutable_id = _text(project.get("immutable_source_experience_id"))
+        owner = immutable_id or source_id
+        if source_id and immutable_id and source_id != immutable_id:
+            _add_issue(issues, "PROVENANCE_CONFLICT", "critical", f"resume_sections.projects.{index}", project)
+        if owner:
+            if owner in bound_ids and not project.get("source_binding_locked"):
+                _add_issue(issues, "INFERRED_ID_COLLISION", "critical", f"resume_sections.projects.{index}", project)
+            bound_ids.add(owner)
+        for fact_id in _fact_ids(project):
+            fact_owner = fact_owner_id(fact_id)
+            if owner and fact_owner and fact_owner != owner:
+                _add_issue(
+                    issues, "PROVENANCE_CONFLICT", "critical", f"resume_sections.projects.{index}", project,
+                    fact_ids=[fact_id],
+                )
+    explicit_ids = {identity.experience_id for identity in identities if identity.declared_experience_type}
+    if explicit_ids and not explicit_ids.issubset(bound_ids & valid_ids):
+        _add_issue(issues, "EXPLICIT_BOUNDARY_LOST", "critical", "resume_sections.projects")
+    return issues
+
+
+def _remove_semantic_role_leaks(
+    payload: schemas.GenerationPayload,
+    raw_input: str,
+    issues: list[ResumeQualityIssue],
+) -> schemas.GenerationPayload:
+    updated = payload.model_copy(deep=True)
+    excluded = build_experience_fact_ledger(raw_input).excluded_units
+
+    eligible_by_experience = {
+        experience_id: "\n".join(fact.fact_text for fact in build_experience_fact_ledger(raw_input).for_experience(experience_id))
+        for experience_id in {unit.experience_id for unit in excluded}
+    }
+
+    def unsafe(value: str, experience_id: str = "") -> tuple[bool, str]:
+        key = _normalized(value)
+        for unit in excluded:
+            if experience_id and unit.experience_id != experience_id:
+                continue
+            unit_key = _normalized(unit.text)
+            if len(unit_key) >= 6 and (unit_key in key or key in unit_key):
+                code = (
+                    "INSTRUCTION_LEAK" if USER_INSTRUCTION in unit.roles
+                    else "UNCERTAIN_FACT_ASSERTED" if UNCERTAIN_FACT in unit.roles
+                    else "NEGATIVE_CONSTRAINT_LEAK"
+                )
+                return True, code
+            if NEGATIVE_CONSTRAINT in unit.roles:
+                assertion = re.sub(
+                    r"^(?:没有|未|并未|不曾|并没有|不负责|未负责|不是我负责)",
+                    "",
+                    unit.text,
+                ).strip(" ，,。；;")
+                if len(_normalized(assertion)) >= 5 and _normalized(assertion) in key:
+                    return True, "NEGATIVE_CONSTRAINT_LEAK"
+            if UNCERTAIN_FACT in unit.roles:
+                for term in re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", unit.text):
+                    if (
+                        term.lower() in value.lower()
+                        and term.lower() not in eligible_by_experience.get(unit.experience_id, "").lower()
+                    ):
+                        return True, "UNCERTAIN_FACT_ASSERTED"
+        return False, ""
+
+    updated.resume_sections.summary = [
+        value for value in updated.resume_sections.summary if not unsafe(str(value))[0]
+    ]
+    updated.resume_sections.skills = [
+        value for value in updated.resume_sections.skills if not unsafe(str(value))[0]
+    ]
+    for project_index, project in enumerate(updated.resume_sections.projects):
+        experience_id = _text(project.get("immutable_source_experience_id") or project.get("source_experience_id"))
+        for key in ("intro", "role"):
+            value = _text(project.get(key))
+            blocked, code = unsafe(value, experience_id)
+            if blocked:
+                _add_issue(issues, code, "critical", f"resume_sections.projects.{project_index}.{key}", project, repair_action="remove_non_resume_semantic_role")
+                project[key] = ""
+        kept: list[str] = []
+        for detail_index, detail in enumerate(project.get("details", []) or []):
+            blocked, code = unsafe(str(detail), experience_id)
+            if blocked:
+                _add_issue(issues, code, "critical", f"resume_sections.projects.{project_index}.details.{detail_index}", project, repair_action="remove_non_resume_semantic_role")
+                continue
+            kept.append(str(detail))
+        project["details"] = kept
+    return updated
 
 
 def _high_value_coverage(payload: schemas.GenerationPayload, raw_input: str) -> tuple[float, set[str]]:
@@ -515,6 +650,8 @@ def evaluate_delivery_quality_issues(payload: schemas.GenerationPayload, raw_inp
     coverage, _ = _high_value_coverage(payload, raw_input)
     if coverage < 0.8:
         _add_issue(issues, "LOW_HIGH_VALUE_FACT_COVERAGE", "warning", "resume_sections.projects", confidence=1.0 - coverage)
+    issues.extend(_semantic_role_leaks(payload, raw_input))
+    issues.extend(_provenance_issues(payload, raw_input))
     return issues
 
 
@@ -570,6 +707,7 @@ def ensure_resume_delivery_quality(
                 )
 
     updated = _clean_visible_fields(updated, issues)
+    updated = _remove_semantic_role_leaks(updated, raw_input, issues)
     updated = guard_resume_output(updated, raw_input, stage=stage, generation_result_id=generation_result_id, write_log=False)
 
     updated, cross_repaired = _repair_strong_cross_experience_terms(updated, raw_input, issues)

@@ -60,7 +60,7 @@ def _is_duplicate(left: str, right: str) -> bool:
 def _fallback_detail(project: dict[str, Any], segment) -> str:
     meta = str(project.get("meta", ""))
     name = str(project.get("name", "") or (segment.title if segment else ""))
-    content = segment.content if segment else ""
+    content = "\n".join(filter(None, [segment.title, segment.content])) if segment else ""
     if _contains(content, "RAG") or _contains(content, "检索") or _contains(content, "文档问答") or _contains(content, "知识库"):
         if any(_contains(content, keyword) for keyword in ["测试集", "评测", "Benchmark", "Recall", "Groundedness"]):
             return "围绕测试样例、Top-K、Recall 和 Groundedness 指标整理 RAG 效果验证思路。"

@@ -80,7 +80,7 @@ def test_resolution_log_contains_relation_evidence():
             entries = [json.loads(line) for line in service.LOG_PATH.read_text(encoding="utf-8").splitlines()]
             resume_entry = next(item for item in entries if item["experience_id"] == "EXP-002")
             assert resume_entry["excluded_context_signals"]
-            assert resume_entry["resolver_version"] == "v0.4.8"
+            assert resume_entry["resolver_version"] == "v0.8.1"
             assert resume_entry["type_locked"] is True
         finally:
             service.LOG_PATH = old_path
