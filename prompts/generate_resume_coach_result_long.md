@@ -105,6 +105,15 @@ risk_level 只能是 green、yellow、red、black。
 - 每段 role 必须绑定对应 experience_id 的职责或动作事实；不得输出“相关任务、以用户原文为准、根据用户输入整理”等内部兜底说明。职责不明确时留空并进入 missing_questions，不得跨经历借用或编造。
 - 不确定技术不得使用“如掌握、如有、建议学习、待确认”等括号说明保留在正式简历中。
 - 不直接输出 raw_text、experience_type、explicit_tech_terms、explicit_metrics、evidence_terms、risk_terms、source_fact_ids 等内部字段枚举。
+
+## v0.8.2 Claim Resolution 约束
+
+- 只允许使用 eligible fact；constraint 仅限制生成，uncertain/planned claim 仅用于提出确认问题。
+- 不得将 probable 或 uncertain 提升为 confirmed，不得将 planned 写成 completed。
+- historical 与 current Claim 可以共同描述真实演进，但不得互相覆盖，也不得被当作重复事实删除。
+- 不得自行选择互相冲突的技术、指标、岗位或公司；证据不足时保留 missing_questions。
+- 专业化表达不能改变 polarity、certainty、temporal_status、source_experience_id、fact_id 或 claim_id。
+- 复杂输入优先保持事实归属和断言边界，不得用更流畅的文案掩盖冲突。
 - Experience ID 和 Fact Ledger 可以保留，但必须用于解释多经历事实边界、事实覆盖或污染治理价值。
 - 每条 detail 必须包含新的问题、动作、机制、证据或结果；不写文件新增记录、服务清单和无价值字段流转。
 - 输出前验证所有成对符号完整，不产生空引号、错位引号、未闭合括号或调试标记。

@@ -68,6 +68,11 @@ from .project_hierarchy_service import strip_project_hierarchy_metadata
 from .experience_slot_service import bind_projects_to_experience_slots, strip_experience_slot_metadata
 from .experience_identity_service import build_experience_identities
 from .input_semantic_role_service import analyze_experience_semantics, write_semantic_role_log
+from .input_claim_resolution_service import (
+    build_claim_missing_questions,
+    resolve_experience_claims,
+    write_claim_resolution_log,
+)
 from .resource_protection_service import resource_protection
 
 
@@ -430,6 +435,11 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
         ],
         stage="generation",
     )
+    claim_resolutions = [
+        resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities_for_roles
+    ]
+    write_claim_resolution_log(claim_resolutions, stage="generation")
     user = get_or_create_anonymous_user(db, request.anonymous_user_id)
     ensure_session(db, user, request.session_id)
 
@@ -503,6 +513,11 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
             }
     else:
         raise GenerationServiceError(f"Unsupported LLM_MODE: {mode}. Use mock or openai.")
+
+    for question in build_claim_missing_questions(claim_resolutions):
+        if question not in payload.missing_questions:
+            payload.missing_questions.append(question)
+    payload.missing_questions = payload.missing_questions[:8]
 
     log_generation_stage(payload, "after_llm")
     payload = normalize_resume_section_schema(payload)
@@ -611,6 +626,11 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     db.add(result)
     db.commit()
     db.refresh(result)
+    write_claim_resolution_log(
+        claim_resolutions,
+        stage="generation_saved",
+        generation_result_id=result.id,
+    )
 
     for claim in payload.claims:
         db.add(

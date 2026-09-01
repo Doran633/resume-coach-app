@@ -8,6 +8,7 @@ from .semantic_experience_segmentation_service import (
     segment_semantic_experiences,
 )
 from .input_semantic_role_service import analyze_experience_semantics
+from .input_claim_resolution_service import resolve_experience_claims
 
 
 @dataclass
@@ -114,9 +115,9 @@ def build_experience_identity_context(raw_input: str) -> str:
         "以下为系统内部检索摘要，长度裁剪不代表用户原文缺失。不得将省略号或截断提示写入正式简历。",
     ]
     for item in identities:
-        semantic = analyze_experience_semantics(item.experience_id, item.raw_text, item.source_span[0])
-        fact_preview = "；".join(unit.text for unit in semantic.resume_facts)
-        constraints = [unit.role for unit in semantic.units if not unit.resume_eligible]
+        semantic = resolve_experience_claims(item.experience_id, item.raw_text, item.source_span[0])
+        fact_preview = "；".join(claim.text for claim in semantic.eligible_claims)
+        constraints = [claim.semantic_role for claim in [*semantic.excluded_claims, *semantic.withheld_claims]]
         lines.extend(
             [
                 f"{item.experience_id}｜{item.declared_experience_type or item.experience_type}｜{item.title}",

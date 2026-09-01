@@ -2,6 +2,8 @@ import re
 
 from .. import schemas
 from .experience_identity_service import build_experience_identities
+from .experience_fact_ledger_service import build_experience_fact_ledger
+from .input_claim_resolution_service import ELIGIBLE, resolve_experience_claims
 
 
 PLACEHOLDER = "[待填写]"
@@ -107,10 +109,22 @@ def resolve_project_display_type(local_raw_text: str, current_meta: str) -> str:
 def resolve_resume_titles(payload: schemas.GenerationPayload, raw_input: str) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     identities = {item.experience_id: item for item in build_experience_identities(raw_input)}
+    ledger = build_experience_fact_ledger(raw_input)
     for project in updated.resume_sections.projects:
         source_id = str(project.get("source_experience_id") or "")
         identity = identities.get(source_id)
-        local = "\n".join(filter(None, [identity.title, identity.raw_text])) if identity else ""
+        eligible_body = "\n".join(fact.fact_text for fact in ledger.for_experience(source_id))
+        title_claims = (
+            resolve_experience_claims(source_id, identity.title).claims
+            if identity and identity.title else []
+        )
+        trusted_title = (
+            identity.title
+            if identity and identity.declared_experience_type
+            and title_claims and all(claim.eligibility == ELIGIBLE for claim in title_claims)
+            else ""
+        )
+        local = "\n".join(filter(None, [trusted_title, eligible_body]))
         meta = str(project.get("resolved_experience_type") or project.get("meta") or "项目经历")
         if meta == "实习经历":
             project["position"] = extract_internship_position(local, str(project.get("position") or ""))

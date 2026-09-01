@@ -21,13 +21,14 @@ v0.5.8 在现有质量管线之外增加两层验证：
 
 Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance 的结构化生成系统。管线必须同时保证：经历不串通、明确事实不丢失、硬事实不编造、文案专业、DOCX 可直接进入投递前核对。
 
-v0.8.1 的输入与来源链路为：
+v0.8.2 的输入、主张与来源链路为：
 
 ```text
 显式边界 / 语义分段
   -> Input Semantic Role
+  -> Atomic Claim Resolution (polarity / certainty / temporal / eligibility)
   -> Experience Identity + immutable source span
-  -> Experience Fact Ledger
+  -> Experience Fact Ledger (eligible Claim only)
   -> Fixed Experience Slots
   -> LLM / per-slot Stable Fallback
   -> Slot Binding
@@ -39,6 +40,8 @@ v0.8.1 的输入与来源链路为：
   -> strip internal provenance metadata
   -> save / DOCX render
 ```
+
+`Semantic Role` 判断一段话是什么性质，`Claim Resolution` 判断其中每个原子主张能否被断言，`Fact Ledger` 只保存可用于简历的事实。否定、指令和结构信息为 excluded；不确定和计划事项为 withheld；只有 confirmed 且非 planned 的正向 Claim 为 eligible。
 
 ```text
 原始输入
@@ -61,8 +64,9 @@ v0.8.1 的输入与来源链路为：
 |---|---|---:|---|
 | 输入分类 | `input_content_classification_service` | 否 | 区分经历事实、求职意图、包装指令和噪声 |
 | 语义分段 | `semantic_experience_segmentation_service` | 否 | 在无标题或混合段落中识别经历边界 |
+| Claim 裁决 | `input_claim_resolution_service` | 否 | 拆分混合句，解析否定、确定性、时间状态和正文可用性 |
 | Experience Identity | `experience_identity_service` | 否 | 生成 `EXP-001` 等内部身份和局部事实范围 |
-| Fact Ledger | `experience_fact_ledger_service` | 否 | 提取原子事实并生成 `fact_id`、类型和重要度 |
+| Fact Ledger | `experience_fact_ledger_service` | 否 | 只接收 eligible Claim，生成 `fact_id` 并保留 `claim_id` 与 owner |
 | 模型生成 | `llm_service` / `stable_generation_fallback_service` | 是 | 生成结构化 Payload；异常时提供可控安全网 |
 | Schema 清理 | `resume_section_schema_service` / `result_cleanup_service` | 是 | 标准化 key、修复缺失字段和内部字段泄露 |
 | 硬事实检查 | `fact_guard_service` | 是 | 删除或降级未被原文支持的硬事实 |

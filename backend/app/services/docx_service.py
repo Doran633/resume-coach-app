@@ -58,6 +58,8 @@ from .resume_experience_validity_service import ensure_resume_experience_validit
 from .resume_delivery_quality_gate_service import ensure_resume_delivery_quality
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 from .experience_slot_service import bind_projects_to_experience_slots, strip_experience_slot_metadata
+from .experience_identity_service import build_experience_identities
+from .input_claim_resolution_service import resolve_experience_claims, write_claim_resolution_log
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -187,6 +189,14 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     experience = db.query(models.ExperienceInput).filter_by(id=result_row.experience_input_id).first() if result_row else None
     raw_input = experience.raw_input if experience else ""
     target_role = experience.target_role if experience else ""
+    write_claim_resolution_log(
+        [
+            resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
+            for identity in build_experience_identities(raw_input)
+        ],
+        stage="docx_export",
+        generation_result_id=request.generation_result_id,
+    )
     payload = normalize_resume_section_schema(payload)
     payload = bind_projects_to_experience_slots(
         payload,

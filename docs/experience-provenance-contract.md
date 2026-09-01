@@ -23,6 +23,8 @@ Experience provenance 用来回答两个问题：一条简历内容来自哪段�
 
 一个单元包含转折关系时应按语义拆分。例如“目标岗位需要 Redis，但项目使用 SQLite”中，Redis 是岗位上下文，SQLite 是项目事实。
 
+从 v0.8.2 起，语义角色之后还必须经过 Claim Resolution。Experience ID 回答“属于哪段经历”，Claim 的 polarity、certainty、temporal status 与 eligibility 回答“这项主张能否被确定地写入”。Fact Ledger 只接受 eligible Claim，并保留对应 `claim_id`；详细契约见 `docs/claim-resolution-contract.md`。
+
 ## 不可变所有权
 
 分段后创建固定 Experience Slot。每个 Slot 包含不可变 `experience_id`、声明类型、局部 `source_span` 和本段 Fact ID。Fact ID 的 Experience 前缀是原始所有者，后续服务不能只根据当前 project 的可变字段改变它。

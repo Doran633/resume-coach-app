@@ -9,12 +9,13 @@ from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "experience_type_resolution.jsonl"
-RESOLVER_VERSION = "v0.8.1"
+RESOLVER_VERSION = "v0.8.2"
 STANDARD_TYPES = ["项目经历", "实习经历", "科研经历", "竞赛获奖", "竞赛经历", "开源经历", "校园 / 社团经历"]
 EXCLUDED_INTERNSHIP_CONTEXTS = [
     r"面向[^。；\n]{0,30}实习(?:生|求职者|用户)", r"服务[^。；\n]{0,20}实习用户", r"帮助用户[^。；\n]{0,30}实习",
     r"应届生和实习生", r"实习(?:招聘|岗位推荐|简历|求职平台|面试准备|经历分析|用户反馈)",
     r"(?:没有|缺少|无)实习", r"想(?:找|投)实习", r"适合实习岗位",
+    r"不是实习",
 ]
 
 

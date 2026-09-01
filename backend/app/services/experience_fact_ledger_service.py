@@ -7,6 +7,11 @@ from .input_semantic_role_service import (
     RESUME_FACT,
     analyze_experience_semantics,
 )
+from .input_claim_resolution_service import (
+    ELIGIBLE,
+    InputClaim,
+    resolve_experience_claims,
+)
 
 
 HIGH_VALUE_TERMS = [
@@ -51,6 +56,10 @@ class ExperienceFact:
     polarity: str = "positive"
     certainty: str = "certain"
     resume_eligible: bool = True
+    claim_id: str = ""
+    eligibility: str = ELIGIBLE
+    temporal_status: str = "unknown"
+    evidence_type: str = "explicit"
 
 
 @dataclass
@@ -59,6 +68,9 @@ class ExperienceFactLedger:
     constraints: list[InputSemanticUnit] = field(default_factory=list)
     uncertain_facts: list[InputSemanticUnit] = field(default_factory=list)
     excluded_units: list[InputSemanticUnit] = field(default_factory=list)
+    claims: list[InputClaim] = field(default_factory=list)
+    withheld_claims: list[InputClaim] = field(default_factory=list)
+    excluded_claims: list[InputClaim] = field(default_factory=list)
 
     def for_experience(self, experience_id: str) -> list[ExperienceFact]:
         return [fact for fact in self.facts if fact.experience_id == experience_id]
@@ -89,7 +101,9 @@ def split_atomic_facts(text: str) -> list[str]:
                     cursor += 1
             parts.append(current)
             cursor += 1
-    return [part.strip(" \t\r\n，、；;。") for part in parts if len(normalize_fact_text(part)) >= 8]
+    # Claim Resolution has already removed headings, instructions and other
+    # non-resume roles. Keep short but complete facts such as “参与接口测试”.
+    return [part.strip(" \t\r\n，、；;。") for part in parts if len(normalize_fact_text(part)) >= 4]
 
 
 def _clause_role(text: str) -> str:
@@ -157,6 +171,9 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
     constraints: list[InputSemanticUnit] = []
     uncertain_facts: list[InputSemanticUnit] = []
     excluded_units: list[InputSemanticUnit] = []
+    claims: list[InputClaim] = []
+    withheld_claims: list[InputClaim] = []
+    excluded_claims: list[InputClaim] = []
     for identity in build_experience_identities(raw_input):
         analysis = analyze_experience_semantics(
             identity.experience_id, identity.raw_text, identity.source_span[0],
@@ -164,13 +181,19 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
         constraints.extend(analysis.constraints)
         uncertain_facts.extend(analysis.uncertain_facts)
         excluded_units.extend(unit for unit in analysis.units if not unit.resume_eligible)
+        resolution = resolve_experience_claims(
+            identity.experience_id, identity.raw_text, identity.source_span[0],
+        )
+        claims.extend(resolution.claims)
+        withheld_claims.extend(resolution.withheld_claims)
+        excluded_claims.extend(resolution.excluded_claims)
         fact_index = 0
-        for unit in analysis.resume_facts:
-            for text in split_atomic_facts(unit.text):
+        for claim in resolution.eligible_claims:
+            for text in split_atomic_facts(claim.text):
                 fact_index += 1
-                local = raw_input.find(text, unit.source_span[0], unit.source_span[1] + 1)
+                local = raw_input.find(text, claim.source_span[0], claim.source_span[1] + 1)
                 if local < 0:
-                    local = unit.source_span[0]
+                    local = claim.source_span[0]
                 fact_type = _fact_type(text)
                 resume_ready = _resume_ready(text)
                 if not resume_ready:
@@ -185,13 +208,17 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
                     explicit=True,
                     resume_ready_text=resume_ready,
                     source_span=(local, local + len(text)),
-                    semantic_unit_id=unit.semantic_unit_id,
+                    semantic_unit_id=claim.claim_id,
                     clause_role=_clause_role(text),
                     completeness=_completeness(text),
-                    semantic_role=unit.role,
-                    polarity=unit.polarity,
-                    certainty=unit.certainty,
-                    resume_eligible=unit.resume_eligible,
+                    semantic_role=claim.semantic_role,
+                    polarity=claim.polarity,
+                    certainty=claim.certainty,
+                    resume_eligible=claim.resume_eligible,
+                    claim_id=claim.claim_id,
+                    eligibility=claim.eligibility,
+                    temporal_status=claim.temporal_status,
+                    evidence_type=claim.evidence_type,
                 ))
     grouped: dict[str, list[ExperienceFact]] = {}
     for fact in facts:
@@ -209,6 +236,9 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
         constraints=constraints,
         uncertain_facts=uncertain_facts,
         excluded_units=excluded_units,
+        claims=claims,
+        withheld_claims=withheld_claims,
+        excluded_claims=excluded_claims,
     )
 
 
@@ -222,7 +252,8 @@ def build_fact_ledger_context(raw_input: str) -> str:
         ranked = sorted(facts, key=lambda fact: {"high": 0, "medium": 1, "low": 2}[fact.importance])[:8]
         lines.append(experience_id + "：")
         lines.extend(
-            f"- {fact.fact_id}｜{fact.importance}｜{fact.fact_type}｜{fact.resume_ready_text[:140]}"
+            f"- {fact.fact_id}｜claim:{fact.claim_id}｜{fact.importance}｜{fact.fact_type}｜"
+            f"{fact.temporal_status}｜{fact.resume_ready_text[:140]}"
             for fact in ranked
         )
     return "\n".join(lines)

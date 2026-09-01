@@ -16,21 +16,33 @@ def build_semantic_role_context(raw_input: str, *, include_exact_fact_input: boo
     segments = split_experience_segments(raw_input)
     ledger = build_experience_fact_ledger(raw_input)
     lines = [
-        "以下是按固定 Experience Slot 整理的可生成事实和内部约束。只能将可生成事实写入正式简历。",
+        "以下是按固定 Experience Slot 整理的 Claim Resolution 结果。只能将 eligible facts 写入正式简历。",
     ]
     for index, identity in enumerate(identities):
         lines.append(f"{identity.experience_id}｜{identity.declared_experience_type or identity.experience_type}｜{identity.title}")
         if index < len(segments):
             lines.append(f"输入边界标题：{segments[index].label}｜{segments[index].title}")
         for fact in ledger.for_experience(identity.experience_id):
-            lines.append(f"- 可生成事实 {fact.fact_id}：{fact.resume_ready_text}")
-        constraints = [unit for unit in ledger.constraints if unit.experience_id == identity.experience_id]
-        uncertain = [unit for unit in ledger.uncertain_facts if unit.experience_id == identity.experience_id]
-        for unit in constraints:
-            lines.append(f"- 内部否定约束（禁止写入正文，也禁止反向改写）：{unit.text}")
-        for unit in uncertain:
-            lines.append(f"- 内部不确定项（只能追问，不得确定性输出）：{unit.text}")
-    if include_exact_fact_input and raw_input.strip() and not ledger.excluded_units:
+            lines.append(
+                f"- eligible fact {fact.fact_id}｜claim {fact.claim_id}｜{fact.temporal_status}："
+                f"{fact.resume_ready_text}"
+            )
+        excluded = [claim for claim in ledger.excluded_claims if claim.source_experience_id == identity.experience_id]
+        withheld = [claim for claim in ledger.withheld_claims if claim.source_experience_id == identity.experience_id]
+        for claim in excluded:
+            lines.append(
+                f"- internal constraint {claim.claim_id}｜{claim.polarity}｜{claim.exclusion_reason}："
+                f"{claim.text}（禁止写入正文，也禁止反向改写）"
+            )
+        for claim in withheld:
+            lines.append(
+                f"- uncertain/planned claim {claim.claim_id}｜{claim.certainty}｜{claim.temporal_status}："
+                f"{claim.text}（只能追问，不得确定性输出）"
+            )
+    if (
+        include_exact_fact_input and raw_input.strip()
+        and not ledger.excluded_claims and not ledger.withheld_claims
+    ):
         # Preserve the exact source for ordinary fact-only short inputs. Mixed
         # instructions, constraints and uncertain statements are never copied
         # through this compatibility path.

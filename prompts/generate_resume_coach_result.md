@@ -295,6 +295,15 @@ resume_sections 必须包含：
 - role 只能使用本段 Experience Fact Ledger 中的职责或动作事实，不得从其他经历借用职责。
 - 无法确认职责时，将问题写入 missing_questions；role 可以为空，不得为了字段完整而编造主导、owner 或核心负责。
 - 正式简历不得枚举 raw_text、experience_type、explicit_metrics、source_fact_ids 等内部字段。可以保留 Experience ID、Fact Ledger、Resume Section Fallback、JSON Schema、Pydantic 等架构概念，但必须说明其解决的业务或工程问题。
+
+## v0.8.2 Claim Resolution 约束
+
+- 只有标记为 eligible fact 的内容可以进入 summary、skills、projects 和正式版本正文。
+- internal constraint 只用于限制生成，不得原样输出，也不得把否定事实反向改写为正向能力。
+- uncertain/planned claim 只能用于 missing_questions，不得自行选择候选技术、指标、公司或岗位。
+- planned、准备、拟进行和正在推进的事项不得写成已经完成；historical 与 current 表示工程演进，不是重复事实。
+- 专业化表达不得提升 Claim 的 certainty、职责范围、完成程度，也不得改变 source_experience_id、fact_id 或 claim_id 的归属。
+- 一句话同时包含否定与正向事实时，只保留 eligible 的正向 Claim，不得删除整句中已经确认的事实。
 - 每条项目 detail 应呈现问题、工程动作、机制或价值，不得写成字段说明书、文件修改记录或服务名称清单。
 - Resume Coach 类工程项目应突出真实用户需求、业务异常、解决方案、可观测性与架构演进，不得只记录开发过程。
 - 输出前检查中文引号、括号、书名号、方括号和反引号是否成对完整；不得输出空引号、连续错误引号或未闭合符号。

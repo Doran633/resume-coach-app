@@ -1,5 +1,14 @@
 # 版本历史
 
+## v0.8.2：事实主张裁决与复杂语义保真
+
+- 新增 Claim Resolution 层，将混合句拆成带 polarity、certainty、temporal status 与 eligibility 的原子主张。
+- Fact Ledger 只接收 eligible Claim，并保留 claim_id 与不可变 Experience owner；withheld / excluded 不计入覆盖率缺失。
+- 正确区分否定约束、正向事实、不确定候选、计划事项和历史到当前的技术演进。
+- Fallback、技能证据、标题和事实恢复只消费已确认 Claim，避免把目标岗位、计划技术和不确定框架写成既有能力。
+- Delivery Quality Gate 增加不确定断言、否定反转、计划完成化、Claim owner 变化和目标岗位技能泄露检查。
+- 新增确定性 Claim Golden 评测，不依赖真实模型逐字输出，也不记录完整输入或简历正文。
+
 ## v0.8.1：Experience Provenance 与输入语义角色
 
 - 增强显式经历边界：保留标题同行事实和显式标题前的有效经历，明确项目标签不再被“论文”等内容词覆盖。

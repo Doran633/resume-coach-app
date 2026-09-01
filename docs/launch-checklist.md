@@ -402,3 +402,14 @@ tail -n 20 backend/logs/resume_delivery_quality_gate.jsonl
 - [ ] `EXPLICIT_BOUNDARY_LOST`、`PROVENANCE_CONFLICT`、`INSTRUCTION_LEAK` 等未解决 critical 为 0。
 - [ ] Golden 高价值事实覆盖率不低于 90%，且跨经历事实串用为 0。
 - [ ] DOCX 与保存 Payload 的经历数量、类型和事实归属一致，内部 provenance 字段不可见。
+
+# v0.8.2 Claim Resolution 回归
+
+- [ ] `tests/test_v082_claim_resolution.py`、v0.8.1 provenance 和 Golden 回归全部通过。
+- [ ] 混合否定句中的正向事实仍进入 Fact Ledger，否定内容不被反向包装。
+- [ ] uncertain / probable 技术、指标、岗位和公司不进入正文或技能栏，并产生确认问题。
+- [ ] planned 事项没有被写成 completed，historical/current 演进事实均得到保留。
+- [ ] Fallback、Coverage 和技能聚合只读取 eligible Claim。
+- [ ] `UNCERTAIN_CLAIM_ASSERTED`、`DENIED_CLAIM_ASSERTED`、`PLANNED_WORK_PRESENTED_AS_COMPLETED` 和 `CLAIM_OWNER_CHANGED` 未解决 critical 为 0。
+- [ ] `python scripts/evaluate_claim_resolution_golden.py --mode mock` 通过，高价值事实覆盖率不低于 90%。
+- [ ] DOCX 不显示 claim_id、eligibility、certainty、约束文本或不确定候选。

@@ -95,21 +95,24 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     ledger = build_experience_fact_ledger(request.raw_input)
 
     for segment in context.segments[:5]:
-        tech_terms = segment.tech_terms
-        evidence_terms = segment.evidence_terms
-        risk_terms = segment.risk_terms
+        local_facts = [
+            fact for fact in ledger.for_experience(segment.experience_id)
+            if fact.resume_eligible and fact.resume_ready_text
+        ]
+        eligible_text = "\n".join(fact.fact_text for fact in local_facts)
+        tech_terms = extract_terms(eligible_text, TECH_TERMS)
+        evidence_terms = extract_terms(eligible_text, EVIDENCE_TERMS)
+        risk_terms = extract_terms(eligible_text, RISK_TERMS)
         for target, values in [(all_tech, tech_terms), (all_evidence, evidence_terms), (all_risks, risk_terms)]:
             for value in values:
                 if value not in target:
                     target.append(value)
         for value in segment.supported_interview_terms:
+            if value.lower() not in eligible_text.lower():
+                continue
             if value not in all_interview_terms:
                 all_interview_terms.append(value)
         meta = segment.declared_experience_type or _infer_meta(segment.label, segment.content)
-        local_facts = [
-            fact for fact in ledger.for_experience(segment.experience_id)
-            if fact.resume_eligible and fact.resume_ready_text
-        ]
         details = [fact.resume_ready_text for fact in local_facts[:5]]
         if not details:
             rejected_candidates += 1

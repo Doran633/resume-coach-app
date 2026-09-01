@@ -1,5 +1,19 @@
 # Resume Coach App
 
+## v0.8.2 Claim Resolution
+
+- 在 Experience Slot 与 Fact Ledger 之间增加原子 Claim 裁决，分别记录 polarity、certainty、temporal status 和 eligibility。
+- 混合句不再整句删除：“没有负责架构，只参与测试”会排除架构断言，同时保留测试事实。
+- probable / uncertain 技术、指标、岗位和公司只进入确认问题；planned 工作不得改写为 completed。
+- historical/current 用于保留真实技术演进，Fallback、技能聚合、Coverage 和 DOCX 只消费 eligible Claim。
+- 最终质量门检查否定反向断言、不确定事实断言、计划完成化、Claim owner 变化和目标岗位技能泄露。
+
+完整约束见 [Claim Resolution Contract](docs/claim-resolution-contract.md)，评测示例：
+
+```bash
+python scripts/evaluate_claim_resolution_golden.py --mode mock
+```
+
 ## v0.8.1 经历来源契约
 
 - 显式的“项目一 / 项目二 / 实习经历”等边界优先于“论文、研究、实习”等局部关键词，标题同行事实和标题前的有效经历都不会被丢弃。

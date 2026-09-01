@@ -12,10 +12,12 @@ from .. import schemas
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 from .experience_identity_service import build_experience_identities
 from .experience_slot_service import fact_owner_id
-from .input_semantic_role_service import (
-    NEGATIVE_CONSTRAINT,
-    UNCERTAIN_FACT,
-    USER_INSTRUCTION,
+from .input_semantic_role_service import TARGET_ROLE_CONTEXT, USER_INSTRUCTION
+from .input_claim_resolution_service import (
+    DENIED,
+    PLANNED,
+    PROBABLE,
+    UNCERTAIN,
 )
 from .fact_coverage_guard_service import guard_fact_coverage
 from .fact_guard_service import guard_hard_facts
@@ -57,6 +59,13 @@ ISSUE_CODES = (
     "UNCERTAIN_FACT_ASSERTED",
     "PROVENANCE_CONFLICT",
     "INFERRED_ID_COLLISION",
+    "UNCERTAIN_CLAIM_ASSERTED",
+    "DENIED_CLAIM_ASSERTED",
+    "PLANNED_WORK_PRESENTED_AS_COMPLETED",
+    "CLAIM_OWNER_CHANGED",
+    "CLAIM_CONFLICT_UNRESOLVED",
+    "USER_CONSTRAINT_RENDERED",
+    "TARGET_ROLE_SKILL_LEAK",
 )
 
 INTERNAL_FIELD_REPLACEMENTS = {
@@ -171,21 +180,66 @@ def _semantic_role_leaks(payload: schemas.GenerationPayload, raw_input: str) -> 
         for project in payload.resume_sections.projects
         for source_id in _source_ids(project)
     }
-    for unit in ledger.excluded_units:
-        unit_key = _normalized(unit.text)
-        leaked = len(unit_key) >= 6 and unit_key in visible
-        if USER_INSTRUCTION in unit.roles and leaked:
-            _add_issue(issues, "INSTRUCTION_LEAK", "critical", "resume_sections", {"source_experience_id": unit.experience_id})
-        if NEGATIVE_CONSTRAINT in unit.roles:
-            assertion = re.sub(r"^(?:没有|未|并未|不曾|并没有|不负责|未负责|不是我负责)", "", unit.text).strip(" ，,。；;")
+    eligible_by_experience = {
+        experience_id: _normalized("\n".join(fact.fact_text for fact in ledger.for_experience(experience_id)))
+        for experience_id in {claim.source_experience_id for claim in ledger.claims}
+    }
+    for claim in [*ledger.excluded_claims, *ledger.withheld_claims]:
+        claim_key = _normalized(claim.text)
+        leaked = len(claim_key) >= 6 and claim_key in visible
+        project = {"source_experience_id": claim.source_experience_id}
+        if claim.semantic_role == USER_INSTRUCTION and leaked:
+            _add_issue(issues, "USER_CONSTRAINT_RENDERED", "critical", "resume_sections", project)
+        if claim.certainty == DENIED:
+            assertion = re.sub(r"^(?:没有|未|并未|不曾|并没有|不负责|未负责|不是我负责|不是)", "", claim.text).strip(" ，,。；;")
             assertion_key = _normalized(assertion)
-            if leaked or (len(assertion_key) >= 5 and assertion_key in local_visible.get(unit.experience_id, "")):
-                _add_issue(issues, "NEGATIVE_CONSTRAINT_LEAK", "critical", "resume_sections", {"source_experience_id": unit.experience_id})
-        if UNCERTAIN_FACT in unit.roles:
-            uncertain_terms = re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", unit.text)
-            asserted = any(term.lower() in local_visible.get(unit.experience_id, "") for term in uncertain_terms)
+            if leaked or (
+                len(assertion_key) >= 2
+                and assertion_key in local_visible.get(claim.source_experience_id, "")
+                and assertion_key not in eligible_by_experience.get(claim.source_experience_id, "")
+            ):
+                _add_issue(issues, "DENIED_CLAIM_ASSERTED", "critical", "resume_sections", project)
+        if claim.certainty in {UNCERTAIN, PROBABLE}:
+            uncertain_terms = re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", claim.text)
+            asserted = any(
+                term.lower() in local_visible.get(claim.source_experience_id, "")
+                and term.lower() not in eligible_by_experience.get(claim.source_experience_id, "")
+                for term in uncertain_terms
+            )
             if leaked or asserted:
-                _add_issue(issues, "UNCERTAIN_FACT_ASSERTED", "critical", "resume_sections", {"source_experience_id": unit.experience_id})
+                _add_issue(issues, "UNCERTAIN_CLAIM_ASSERTED", "critical", "resume_sections", project)
+        if claim.temporal_status == PLANNED:
+            planned_value = re.sub(r"^(?:计划|准备|拟|打算|后续将|下一步|正在推进|希望增加|考虑增加)", "", claim.object or claim.text).strip()
+            planned_key = _normalized(planned_value)
+            planned_terms = re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", claim.text)
+            asserted = any(
+                term.lower() in local_visible.get(claim.source_experience_id, "")
+                and term.lower() not in eligible_by_experience.get(claim.source_experience_id, "")
+                for term in planned_terms
+            )
+            if leaked or asserted or (
+                len(planned_key) >= 2
+                and planned_key in local_visible.get(claim.source_experience_id, "")
+                and planned_key not in eligible_by_experience.get(claim.source_experience_id, "")
+            ):
+                _add_issue(issues, "PLANNED_WORK_PRESENTED_AS_COMPLETED", "critical", "resume_sections", project)
+    unresolved = [claim for claim in ledger.withheld_claims if claim.certainty in {UNCERTAIN, PROBABLE}]
+    if unresolved and not payload.missing_questions:
+        _add_issue(issues, "CLAIM_CONFLICT_UNRESOLVED", "warning", "missing_questions", confidence=0.8)
+    eligible_text = "\n".join(fact.fact_text for fact in ledger.facts).lower()
+    skill_text = "\n".join(map(str, payload.resume_sections.skills)).lower()
+    for claim in ledger.excluded_claims:
+        if claim.semantic_role != TARGET_ROLE_CONTEXT:
+            continue
+        leaked_terms = [
+            term for term in _skill_terms(claim.text)
+            if term.lower() in skill_text and term.lower() not in eligible_text
+        ]
+        if leaked_terms:
+            _add_issue(
+                issues, "TARGET_ROLE_SKILL_LEAK", "critical", "resume_sections.skills",
+                {"source_experience_id": claim.source_experience_id},
+            )
     return issues
 
 
@@ -211,6 +265,10 @@ def _provenance_issues(payload: schemas.GenerationPayload, raw_input: str) -> li
                     issues, "PROVENANCE_CONFLICT", "critical", f"resume_sections.projects.{index}", project,
                     fact_ids=[fact_id],
                 )
+                _add_issue(
+                    issues, "CLAIM_OWNER_CHANGED", "critical", f"resume_sections.projects.{index}", project,
+                    fact_ids=[fact_id],
+                )
     explicit_ids = {identity.experience_id for identity in identities if identity.declared_experience_type}
     if explicit_ids and not explicit_ids.issubset(bound_ids & valid_ids):
         _add_issue(issues, "EXPLICIT_BOUNDARY_LOST", "critical", "resume_sections.projects")
@@ -223,41 +281,56 @@ def _remove_semantic_role_leaks(
     issues: list[ResumeQualityIssue],
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
-    excluded = build_experience_fact_ledger(raw_input).excluded_units
+    ledger = build_experience_fact_ledger(raw_input)
+    excluded = [*ledger.excluded_claims, *ledger.withheld_claims]
 
     eligible_by_experience = {
         experience_id: "\n".join(fact.fact_text for fact in build_experience_fact_ledger(raw_input).for_experience(experience_id))
-        for experience_id in {unit.experience_id for unit in excluded}
+        for experience_id in {claim.source_experience_id for claim in excluded}
     }
 
     def unsafe(value: str, experience_id: str = "") -> tuple[bool, str]:
         key = _normalized(value)
-        for unit in excluded:
-            if experience_id and unit.experience_id != experience_id:
+        for claim in excluded:
+            if experience_id and claim.source_experience_id != experience_id:
                 continue
-            unit_key = _normalized(unit.text)
-            if len(unit_key) >= 6 and (unit_key in key or key in unit_key):
+            claim_key = _normalized(claim.text)
+            if len(claim_key) >= 6 and (claim_key in key or key in claim_key):
                 code = (
-                    "INSTRUCTION_LEAK" if USER_INSTRUCTION in unit.roles
-                    else "UNCERTAIN_FACT_ASSERTED" if UNCERTAIN_FACT in unit.roles
-                    else "NEGATIVE_CONSTRAINT_LEAK"
+                    "USER_CONSTRAINT_RENDERED" if claim.semantic_role == USER_INSTRUCTION
+                    else "PLANNED_WORK_PRESENTED_AS_COMPLETED" if claim.temporal_status == PLANNED
+                    else "UNCERTAIN_CLAIM_ASSERTED" if claim.certainty in {UNCERTAIN, PROBABLE}
+                    else "DENIED_CLAIM_ASSERTED"
                 )
                 return True, code
-            if NEGATIVE_CONSTRAINT in unit.roles:
+            if claim.certainty == DENIED:
                 assertion = re.sub(
-                    r"^(?:没有|未|并未|不曾|并没有|不负责|未负责|不是我负责)",
+                    r"^(?:没有|未|并未|不曾|并没有|不负责|未负责|不是我负责|不是)",
                     "",
-                    unit.text,
+                    claim.text,
                 ).strip(" ，,。；;")
-                if len(_normalized(assertion)) >= 5 and _normalized(assertion) in key:
-                    return True, "NEGATIVE_CONSTRAINT_LEAK"
-            if UNCERTAIN_FACT in unit.roles:
-                for term in re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", unit.text):
+                assertion_key = _normalized(assertion)
+                if (
+                    len(assertion_key) >= 2 and assertion_key in key
+                    and assertion_key not in _normalized(eligible_by_experience.get(claim.source_experience_id, ""))
+                ):
+                    return True, "DENIED_CLAIM_ASSERTED"
+            if claim.certainty in {UNCERTAIN, PROBABLE}:
+                for term in re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", claim.text):
                     if (
                         term.lower() in value.lower()
-                        and term.lower() not in eligible_by_experience.get(unit.experience_id, "").lower()
+                        and term.lower() not in eligible_by_experience.get(claim.source_experience_id, "").lower()
                     ):
-                        return True, "UNCERTAIN_FACT_ASSERTED"
+                        return True, "UNCERTAIN_CLAIM_ASSERTED"
+            if claim.temporal_status == PLANNED:
+                planned_value = re.sub(r"^(?:计划|准备|拟|打算|后续将|下一步|正在推进|希望增加|考虑增加)", "", claim.object or claim.text).strip()
+                planned_key = _normalized(planned_value)
+                planned_terms = re.findall(r"[A-Za-z][A-Za-z0-9+./_-]{2,}", claim.text)
+                eligible_text = eligible_by_experience.get(claim.source_experience_id, "").lower()
+                if (
+                    len(planned_key) >= 2 and planned_key in key and planned_key not in _normalized(eligible_text)
+                ) or any(term.lower() in value.lower() and term.lower() not in eligible_text for term in planned_terms):
+                    return True, "PLANNED_WORK_PRESENTED_AS_COMPLETED"
         return False, ""
 
     updated.resume_sections.summary = [
