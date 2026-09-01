@@ -33,6 +33,12 @@ from .resume_typography_quality_service import (
     ensure_typography_quality,
     has_leading_structure_marker,
 )
+from .resume_visible_output_service import (
+    VISIBLE_VERSION_FIELDS,
+    find_internal_field_leaks,
+    sanitize_internal_field_text,
+    visible_output_text,
+)
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality, normalize_resume_whitespace
 
 
@@ -68,21 +74,6 @@ ISSUE_CODES = (
     "TARGET_ROLE_SKILL_LEAK",
 )
 
-INTERNAL_FIELD_REPLACEMENTS = {
-    "source_experience_id": "经历来源标识",
-    "source_fact_ids": "事实来源标识",
-    "detail_fact_ids": "详情事实来源",
-    "fact_id": "事实来源标识",
-    "raw_text": "原始经历文本",
-    "explicit_metrics": "明确指标事实",
-    "retrieved_count": "检索结果数量",
-}
-INTERNAL_MARKERS = tuple(INTERNAL_FIELD_REPLACEMENTS) + (
-    "section summary chunk", "section 个人优势 chunk", "debug payload", "traceback",
-)
-INTERNAL_DEBUG_MARKERS = (
-    "section summary chunk", "section 个人优势 chunk", "debug payload", "traceback",
-)
 COACH_MARKERS = (
     "如果被问到", "建议补充", "可面试承接", "准备降级表达", "面试时可以",
     "用户提供的真实经历", "根据用户原文", "具体职责以", "以用户原文为准",
@@ -156,12 +147,7 @@ def _fact_ids(project: dict, detail_index: int | None = None) -> list[str]:
 
 
 def _visible_text(payload: schemas.GenerationPayload) -> str:
-    sections = payload.resume_sections
-    rows = [*map(str, sections.summary), *map(str, sections.skills)]
-    for project in sections.projects:
-        rows.extend(_text(project.get(key)) for key in ("name", "position", "meta", "time", "intro", "role"))
-        rows.extend(_text(item) for item in project.get("details", []) or [])
-    return "\n".join(row for row in rows if row)
+    return visible_output_text(payload)
 
 
 def _project_text(project: dict) -> str:
@@ -419,12 +405,9 @@ def _clean_visible_text(value: object) -> tuple[str, set[str]]:
         reasons.add("markdown_residue")
     if has_leading_structure_marker(cleaned):
         reasons.add("markdown_residue")
-    for internal, replacement in INTERNAL_FIELD_REPLACEMENTS.items():
-        if re.search(re.escape(internal), cleaned, re.IGNORECASE):
-            cleaned = re.sub(re.escape(internal), replacement, cleaned, flags=re.IGNORECASE)
-            reasons.add("internal_field")
-    if any(marker.lower() in cleaned.lower() for marker in INTERNAL_DEBUG_MARKERS):
-        return "", reasons | {"internal_field"}
+    cleaned, internal_markers = sanitize_internal_field_text(cleaned)
+    if internal_markers:
+        reasons.add("internal_field")
     for marker in COACH_MARKERS:
         if marker not in cleaned:
             continue
@@ -456,6 +439,22 @@ def _fragment_severity(reasons: set[str]) -> str:
 
 def _clean_visible_fields(payload: schemas.GenerationPayload, issues: list[ResumeQualityIssue]) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
+    for field_name in VISIBLE_VERSION_FIELDS:
+        cleaned, reasons = _clean_visible_text(getattr(updated, field_name))
+        if reasons:
+            code = (
+                "COACH_LANGUAGE_LEAK" if "coach_language" in reasons
+                else "INTERNAL_FIELD_LEAK" if "internal_field" in reasons
+                else "INVALID_CHARACTER"
+            )
+            _add_issue(
+                issues,
+                code,
+                "critical",
+                field_name,
+                repair_action="normalize_visible_text",
+            )
+        setattr(updated, field_name, cleaned)
     sections = updated.resume_sections
     for field_name in ("summary", "skills"):
         cleaned_rows = []
@@ -706,9 +705,14 @@ def evaluate_delivery_quality_issues(payload: schemas.GenerationPayload, raw_inp
     invalid_count = len(INVALID_CHAR_PATTERN.findall(visible))
     for _ in range(invalid_count):
         _add_issue(issues, "INVALID_CHARACTER", "critical", "resume_sections")
-    for marker in INTERNAL_MARKERS:
-        if marker.lower() in visible.lower():
-            _add_issue(issues, "INTERNAL_FIELD_LEAK", "critical", "resume_sections")
+    for leak in find_internal_field_leaks(payload):
+        _add_issue(
+            issues,
+            "INTERNAL_FIELD_LEAK",
+            "critical",
+            leak.field_path,
+            confidence=1.0,
+        )
     for marker in COACH_MARKERS:
         if marker in visible:
             _add_issue(issues, "COACH_LANGUAGE_LEAK", "critical", "resume_sections")

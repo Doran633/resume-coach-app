@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.8.3：可见输出完整性与 Full Smoke 诊断
+
+- 抽取统一用户可见输出契约，覆盖 normal、bold、boundary、recommended 四档版本和正式简历 Section。
+- 修复 `recommended_version` 绕过招聘者语言转换、输出防火墙和最终投递质量门的检查范围缺口。
+- 最终质量门与 full smoke 共用内部标记检测规则，确定性转换代码字段，同时保留 Experience ID、Fact Ledger 等招聘者可理解的产品概念。
+- full smoke 失败后仍记录 attempt ID、request ID、result ID、file ID、清理状态、命中标记和字段路径，不记录完整正文。
+- 保持 smoke 数据在 `finally` 中删除，检查失败不能通过关闭规则、切换案例或跳过清理伪装为成功。
+
 ## v0.8.2：事实主张裁决与复杂语义保真
 
 - 新增 Claim Resolution 层，将混合句拆成带 polarity、certainty、temporal status 与 eligibility 的原子主张。

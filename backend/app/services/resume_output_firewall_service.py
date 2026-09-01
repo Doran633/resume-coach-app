@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .input_content_classification_service import strip_non_fact_fragments
+from .resume_visible_output_service import VISIBLE_VERSION_FIELDS
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_output_firewall.jsonl"
@@ -116,6 +117,8 @@ def guard_resume_output(
 ) -> schemas.GenerationPayload:
     data = deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
     stats = FirewallStats(stage=stage, generation_result_id=generation_result_id)
+    for field_name in VISIBLE_VERSION_FIELDS:
+        data[field_name] = _clean_text(data.get(field_name), stats, field_name)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
     sections["summary"] = _clean_list(sections.get("summary"), stats, "summary")
     sections["skills"] = _clean_list(sections.get("skills"), stats, "skills")

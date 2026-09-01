@@ -21,7 +21,7 @@ v0.5.8 在现有质量管线之外增加两层验证：
 
 Resume Coach 的生成链路不是“Prompt -> DOCX”，而是带 provenance 的结构化生成系统。管线必须同时保证：经历不串通、明确事实不丢失、硬事实不编造、文案专业、DOCX 可直接进入投递前核对。
 
-v0.8.2 的输入、主张与来源链路为：
+v0.8.3 在 v0.8.2 的输入、主张与来源链路后增加统一可见输出契约：
 
 ```text
 显式边界 / 语义分段
@@ -37,6 +37,7 @@ v0.8.2 的输入、主张与来源链路为：
   -> Fact Coverage + Boundary owner validation
   -> Entity Dedup provenance conflict protection
   -> Delivery Quality Gate
+  -> Visible Output Contract (all version fields + resume sections)
   -> strip internal provenance metadata
   -> save / DOCX render
 ```
@@ -99,6 +100,7 @@ v0.8.2 的输入、主张与来源链路为：
 | 最终类型与标题 | Type Resolver + `resume_title_format_service` | 修改类型/标题 | 固化类型；生成公司、岗位、项目类型和时间标题 |
 | 输出质量评分 | `resume_output_quality_gate_service` | 否 | 记录七项质量分数和告警，不修改正文或阻断交付 |
 | 最终投递质量门 | `resume_delivery_quality_gate_service` | 是 | 汇总严重输出问题、执行保守修复并验证高价值事实覆盖率 |
+| 可见输出契约 | `resume_visible_output_service` | 是 | 统一枚举四档版本与简历 Section 的可见字符串，检测并转换内部字段 |
 
 ## v0.6.10 最终投递顺序
 
@@ -128,6 +130,8 @@ Project Reconciliation
 ```
 
 `Resume Delivery Quality Gate` 是现有服务的终局编排器，不是新的内容生成器。它只从同一 `experience_id` / `fact_id` 恢复事实，并复用已有确定性清洗能力。质量门之后禁止运行 Fallback、Fact Coverage 或其他会新增 projects、skills、summary、role、intro、details 的服务。
+
+v0.8.3 起，`normal_version`、`bold_version`、`boundary_version`、`recommended_version` 与 `resume_sections` 使用同一可见字段定义。结构化 provenance metadata 可以在质量管线内部存在，但 `source_experience_id`、`source_fact_ids`、`fact_id`、`raw_text` 等变量名不得进入任何用户可见字符串。Full smoke 调用同一检测函数，并在失败报告中只记录命中标记、字段路径和关联 ID。
 
 自动修复仅用于高置信严重问题：空壳、明确跨经历事实、未支持硬事实、完全重复、确定性残句、异常字符和内部话术。低置信语义重复、完整的技术术语列表和难以判断的信息增量只记录为 warning / observe。自动删除普通详情不得超过项目详情的 25%，明确污染和标题空壳除外。
 

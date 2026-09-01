@@ -413,3 +413,12 @@ tail -n 20 backend/logs/resume_delivery_quality_gate.jsonl
 - [ ] `UNCERTAIN_CLAIM_ASSERTED`、`DENIED_CLAIM_ASSERTED`、`PLANNED_WORK_PRESENTED_AS_COMPLETED` 和 `CLAIM_OWNER_CHANGED` 未解决 critical 为 0。
 - [ ] `python scripts/evaluate_claim_resolution_golden.py --mode mock` 通过，高价值事实覆盖率不低于 90%。
 - [ ] DOCX 不显示 claim_id、eligibility、certainty、约束文本或不确定候选。
+
+# v0.8.3 可见输出与 Full Smoke 回归
+
+- [ ] `tests/test_v083_visible_output_integrity.py`、Golden 和既有 Delivery Quality Gate 回归全部通过。
+- [ ] normal、bold、boundary、recommended 与 resume_sections 的内部字段泄露数量均为 0。
+- [ ] Experience ID、Fact Ledger 等正常产品概念保留，代码变量 `source_fact_ids`、`fact_id` 等不可见。
+- [ ] full smoke 失败报告包含 attempt、request、result、cleanup 状态、命中标记和字段路径，但不包含正文。
+- [ ] full smoke 无论成功或失败都完成匿名测试数据清理。
+- [ ] 部署后 shallow smoke 与一次显式 full smoke 均为 `passed: true`。

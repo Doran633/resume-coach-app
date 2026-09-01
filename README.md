@@ -1,5 +1,13 @@
 # Resume Coach App
 
+## v0.8.3 可见输出完整性与 Full Smoke 诊断
+
+- 新增统一的用户可见输出遍历，覆盖四档版本文案以及 summary、skills 和项目全部可见字段。
+- 最终投递质量门、招聘者语言转换、输出防火墙与 full smoke 使用同一组内部字段定义，避免检查范围分叉。
+- `raw_text`、`fact_id`、`source_fact_ids`、`source_experience_id` 等内部变量在保存前确定性转换，不影响 Experience ID、Fact Ledger 等正常产品概念。
+- full smoke 失败报告保留 attempt、request、result、file 和 cleanup 状态，并只记录命中标记及字段路径，不保存用户输入或生成正文。
+- 失败清理仍在 `finally` 中执行；正式结果只有在全部可见字段不存在内部标记时才通过 smoke。
+
 ## v0.8.2 Claim Resolution
 
 - 在 Experience Slot 与 Fact Ledger 之间增加原子 Claim 裁决，分别记录 polarity、certainty、temporal status 和 eligibility。

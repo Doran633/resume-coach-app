@@ -116,3 +116,4 @@ VITE_BUILD_TIME=<相同构建时间>
 - 每次部署后：release quality gate、shallow、full、SLO、launch preflight。
 
 定时任务应使用服务账号、固定工作目录和同一生产环境文件，并将非零退出码交给 systemd/cron 日志。不要把 API Key 写入 unit 文件或命令行。
+- v0.8.3 的 full smoke 失败报告会保留 `attempt_id`、`request_id`、`generation_result_id`、`file_id`、`cleanup_passed`、`leaked_markers` 和 `affected_field_paths`。这些字段用于定位检查范围，不包含完整输入或生成正文。

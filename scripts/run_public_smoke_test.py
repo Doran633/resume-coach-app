@@ -19,6 +19,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.observability_common import BEIJING, load_jsonl, parse_time, safe_short_commit, write_json
+from backend.app.services.resume_visible_output_service import (
+    find_internal_field_leaks,
+    visible_output_text,
+)
 
 
 FORBIDDEN_TEXT = (
@@ -28,7 +32,10 @@ FORBIDDEN_TEXT = (
 
 
 class SmokeFailure(RuntimeError):
-    pass
+    def __init__(self, code: str, *, details: dict[str, Any] | None = None):
+        super().__init__(code)
+        self.code = code
+        self.details = dict(details or {})
 
 
 class HttpClient:
@@ -64,14 +71,6 @@ class HttpClient:
         return status, parsed, headers
 
 
-def _visible_text(value: Any) -> str:
-    if isinstance(value, dict):
-        return "\n".join(_visible_text(item) for item in value.values())
-    if isinstance(value, list):
-        return "\n".join(_visible_text(item) for item in value)
-    return str(value or "")
-
-
 def validate_generation(generation: dict) -> dict[str, Any]:
     payload = generation.get("result") if isinstance(generation, dict) else None
     sections = payload.get("resume_sections") if isinstance(payload, dict) else None
@@ -84,29 +83,27 @@ def validate_generation(generation: dict) -> dict[str, Any]:
         and not any(str(item).strip() for item in project.get("details", []) or [])
         for project in projects if isinstance(project, dict)
     )
-    visible_payload = {
-        "summary": sections.get("summary", []),
-        "skills": sections.get("skills", []),
-        "projects": [
-            {key: project.get(key) for key in ["name", "meta", "time", "intro", "role", "details"]}
-            for project in projects if isinstance(project, dict)
-        ],
-        "recommended_version": payload.get("recommended_version", ""),
-    }
-    text = _visible_text(visible_payload)
+    text = visible_output_text(payload)
     forbidden = [marker for marker in FORBIDDEN_TEXT if marker in text]
-    internal = sum(marker in text for marker in ["source_experience_id", "source_fact_ids", "fact_id", "raw_text"])
+    leaks = find_internal_field_leaks(payload)
     if empty_projects:
         raise SmokeFailure("empty_project_body")
     if forbidden:
         raise SmokeFailure("forbidden_output_marker")
-    if internal:
-        raise SmokeFailure("internal_field_leak")
+    if leaks:
+        raise SmokeFailure(
+            "internal_field_leak",
+            details={
+                "leaked_markers": sorted({leak.marker for leak in leaks}),
+                "affected_field_paths": sorted({leak.field_path for leak in leaks}),
+                "internal_field_leak_count": len(leaks),
+            },
+        )
     return {
         "project_count": len(projects),
         "empty_project_count": empty_projects,
         "forbidden_marker_count": len(forbidden),
-        "internal_field_leak_count": internal,
+        "internal_field_leak_count": len(leaks),
     }
 
 
@@ -256,18 +253,29 @@ def run_full(
             cleanup_passed = status == 200 and bool(deleted.get("ok"))
         except Exception:
             cleanup_passed = False
-    if not cleanup_passed:
-        raise SmokeFailure("cleanup_failed") from failure
-    if failure:
-        raise failure
-    return {
-        "passed": True,
+    context = {
         "attempt_id": attempt_id,
         "request_id": request_id,
         "generation_result_id": result_id,
         "file_id": file_id,
         "cleanup_attempted": cleanup_attempted,
         "cleanup_passed": cleanup_passed,
+    }
+    if not cleanup_passed:
+        details = dict(getattr(failure, "details", {}) or {})
+        if failure is not None:
+            details["original_error_code"] = str(failure)[:80]
+        raise SmokeFailure("cleanup_failed", details={**details, **context}) from failure
+    if failure:
+        if isinstance(failure, SmokeFailure):
+            raise SmokeFailure(failure.code, details={**failure.details, **context}) from failure
+        raise SmokeFailure(
+            "unexpected_full_smoke_error",
+            details={"original_error_type": type(failure).__name__, **context},
+        ) from failure
+    return {
+        "passed": True,
+        **context,
         **output,
     }
 
@@ -299,6 +307,8 @@ def main() -> None:
     except Exception as exc:
         report["error_type"] = type(exc).__name__
         report["error_code"] = str(exc)[:80]
+        if isinstance(exc, SmokeFailure):
+            report.update(exc.details)
     path = write_json(args.out / f"public-smoke-{args.mode}-latest.json", report)
     print(path)
     if not report["passed"]:

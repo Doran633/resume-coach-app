@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .resume_visible_output_service import VISIBLE_VERSION_FIELDS
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "recruiter_language.jsonl"
@@ -115,6 +116,8 @@ def ensure_recruiter_language(
                 stats.affected_experience_ids.append(source_id)
         return after
 
+    for field_name in VISIBLE_VERSION_FIELDS:
+        setattr(updated, field_name, clean(getattr(updated, field_name), field_name))
     updated.resume_sections.summary = [clean(item, f"summary.{i}") for i, item in enumerate(updated.resume_sections.summary)]
     updated.resume_sections.skills = [clean(item, f"skills.{i}") for i, item in enumerate(updated.resume_sections.skills)]
     for p_index, project in enumerate(updated.resume_sections.projects):
