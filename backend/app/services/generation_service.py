@@ -563,7 +563,11 @@ def create_generation(
     payload = reconcile_resume_projects(payload, request.raw_input, stage="generation")
     log_generation_stage(payload, "after_reconciliation")
     payload = deduplicate_resume_facts(payload, stage="generation_pre_coverage")
-    payload = resolve_project_types(payload, request.raw_input, stage="generation")
+    payload = resolve_project_types(
+        payload,
+        canonical_type_decisions=semantic_build.canonical_type_by_experience_id,
+        stage="generation_type_freeze",
+    )
     route_resume_projects(payload.resume_sections.projects)
     log_generation_stage(payload, "after_type_resolution")
     payload = guard_fact_coverage(payload, request.raw_input, stage="generation")
@@ -609,7 +613,12 @@ def create_generation(
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = guard_resume_output_relevance(payload, request.raw_input, stage="before_save")
-    payload = resolve_project_types(payload, request.raw_input, stage="before_save")
+    payload = resolve_project_types(
+        payload,
+        canonical_type_decisions=semantic_build.canonical_type_by_experience_id,
+        apply_canonical_types=False,
+        stage="before_save_type_validation",
+    )
     payload = resolve_resume_titles(payload, request.raw_input)
     payload = deduplicate_resume_experience_entities(
         payload, request.raw_input, stage="before_save",

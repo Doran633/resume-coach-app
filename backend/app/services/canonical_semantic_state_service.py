@@ -19,6 +19,15 @@ from .structured_log_service import stable_hash
 SEMANTIC_SCHEMA_VERSION = "canonical-semantic-state/v1"
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_semantic_state.jsonl"
 _NON_RESUME_ROLES = {"USER_INSTRUCTION", "NEGATIVE_CONSTRAINT", "UNCERTAIN_FACT"}
+CANONICAL_EXPERIENCE_TYPES = (
+    "项目经历",
+    "实习经历",
+    "科研经历",
+    "竞赛获奖",
+    "竞赛经历",
+    "开源经历",
+    "校园 / 社团经历",
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +43,10 @@ class CanonicalExperience:
     canonical_name: str
     aliases: tuple[str, ...]
     preliminary_experience_type: str
+    canonical_experience_type: str
+    type_source: str
+    type_explicit: bool
+    type_confidence: float
     source_span: tuple[int, int]
 
 
@@ -74,6 +87,15 @@ class CanonicalStateValidation:
 
 
 @dataclass(frozen=True)
+class CanonicalExperienceTypeDecision:
+    experience_id: str
+    canonical_experience_type: str
+    type_source: str
+    explicit: bool
+    confidence: float
+
+
+@dataclass(frozen=True)
 class CanonicalSemanticState:
     source: CanonicalSemanticSource
     experiences: tuple[CanonicalExperience, ...]
@@ -94,10 +116,15 @@ class CanonicalSemanticBuild:
     long_input_context: LongInputContext
     raw_input_hash: str
     identities: tuple[ExperienceIdentity, ...]
+    experience_type_decisions: tuple[CanonicalExperienceTypeDecision, ...]
     semantic_analyses: tuple[InputSemanticAnalysis, ...]
     claim_resolutions: tuple[ClaimResolution, ...]
     ledger: ExperienceFactLedger
     state: CanonicalSemanticState | None = None
+
+    @property
+    def canonical_type_by_experience_id(self) -> dict[str, CanonicalExperienceTypeDecision]:
+        return {item.experience_id: item for item in self.experience_type_decisions}
 
 
 def _fingerprint(
@@ -134,6 +161,9 @@ def _validate(
 
     experience_id_set = set(experience_ids)
     claims_by_id = {item.claim_id: item for item in claims}
+    for experience in experiences:
+        if experience.canonical_experience_type not in CANONICAL_EXPERIENCE_TYPES:
+            issues.add("INVALID_CANONICAL_EXPERIENCE_TYPE")
     for claim in claims:
         if claim.source_experience_id not in experience_id_set:
             issues.add("CLAIM_OWNER_MISSING")
@@ -156,6 +186,27 @@ def _validate(
     return CanonicalStateValidation(valid=not issues, issue_codes=tuple(sorted(issues)))
 
 
+def _build_experience_type_decision(identity: ExperienceIdentity) -> CanonicalExperienceTypeDecision:
+    declared = str(identity.declared_experience_type or "")
+    if declared in CANONICAL_EXPERIENCE_TYPES:
+        return CanonicalExperienceTypeDecision(
+            experience_id=identity.experience_id,
+            canonical_experience_type=declared,
+            type_source="declared_experience_type",
+            explicit=True,
+            confidence=1.0,
+        )
+    inherited = str(identity.experience_type or "")
+    resolved = inherited if inherited in CANONICAL_EXPERIENCE_TYPES else "项目经历"
+    return CanonicalExperienceTypeDecision(
+        experience_id=identity.experience_id,
+        canonical_experience_type=resolved,
+        type_source="experience_identity",
+        explicit=False,
+        confidence=0.9 if inherited in CANONICAL_EXPERIENCE_TYPES else 0.55,
+    )
+
+
 def build_canonical_semantic_build(
     raw_input: str,
     *,
@@ -164,6 +215,7 @@ def build_canonical_semantic_build(
     """Compile request semantics once before projecting the shadow state."""
     context = long_input_context or analyze_long_input(raw_input)
     identities = tuple(build_experience_identities(raw_input, long_input_context=context))
+    experience_type_decisions = tuple(_build_experience_type_decision(identity) for identity in identities)
     semantic_analyses = tuple(
         analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
         for identity in identities
@@ -182,6 +234,7 @@ def build_canonical_semantic_build(
         long_input_context=context,
         raw_input_hash=stable_hash(raw_input, purpose="canonical_semantic_state"),
         identities=identities,
+        experience_type_decisions=experience_type_decisions,
         semantic_analyses=semantic_analyses,
         claim_resolutions=claim_resolutions,
         ledger=ledger,
@@ -196,6 +249,7 @@ def build_canonical_semantic_state_from_build(
     """Project a safe state snapshot from an already-compiled semantic request."""
     identities = build.identities
     ledger = build.ledger
+    type_decisions = build.canonical_type_by_experience_id
     source = CanonicalSemanticSource(
         experience_input_id=experience_input_id,
         raw_input_hash=build.raw_input_hash,
@@ -206,6 +260,10 @@ def build_canonical_semantic_state_from_build(
             canonical_name=identity.canonical_project_name or identity.title,
             aliases=tuple(identity.project_aliases),
             preliminary_experience_type=identity.declared_experience_type or identity.experience_type,
+            canonical_experience_type=type_decisions[identity.experience_id].canonical_experience_type,
+            type_source=type_decisions[identity.experience_id].type_source,
+            type_explicit=type_decisions[identity.experience_id].explicit,
+            type_confidence=type_decisions[identity.experience_id].confidence,
             source_span=identity.source_span,
         )
         for identity in identities

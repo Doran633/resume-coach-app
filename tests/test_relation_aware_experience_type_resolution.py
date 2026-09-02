@@ -79,8 +79,9 @@ def test_resolution_log_contains_relation_evidence():
             resolve_project_types(make_payload(), RAW, stage="test", generation_result_id=808)
             entries = [json.loads(line) for line in service.LOG_PATH.read_text(encoding="utf-8").splitlines()]
             resume_entry = next(item for item in entries if item["experience_id"] == "EXP-002")
-            assert resume_entry["excluded_context_signals"]
-            assert resume_entry["resolver_version"] == "v0.8.2"
+            assert resume_entry["excluded_context_count"] > 0
+            assert resume_entry["resolver_version"] == "v0.9.2"
+            assert "Resume Coach" not in json.dumps(resume_entry, ensure_ascii=False)
             assert resume_entry["type_locked"] is True
         finally:
             service.LOG_PATH = old_path

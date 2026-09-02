@@ -3,13 +3,15 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Mapping
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .canonical_semantic_state_service import CanonicalExperienceTypeDecision
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "experience_type_resolution.jsonl"
-RESOLVER_VERSION = "v0.8.2"
+RESOLVER_VERSION = "v0.9.2"
 STANDARD_TYPES = ["项目经历", "实习经历", "科研经历", "竞赛获奖", "竞赛经历", "开源经历", "校园 / 社团经历"]
 EXCLUDED_INTERNSHIP_CONTEXTS = [
     r"面向[^。；\n]{0,30}实习(?:生|求职者|用户)", r"服务[^。；\n]{0,20}实习用户", r"帮助用户[^。；\n]{0,30}实习",
@@ -162,21 +164,57 @@ def build_type_resolutions(raw_input: str) -> dict[str, TypeResolution]:
     return {item.experience_id: resolve_identity_type(item) for item in build_experience_identities(raw_input)}
 
 
-def _write_log(resolution: TypeResolution, llm_meta: str, final_section: str, stage: str, generation_result_id: int | None) -> None:
+def _safe_type(value: str) -> str:
+    return value if value in STANDARD_TYPES else "unrecognized"
+
+
+def _signal_categories(signals: list[str]) -> list[str]:
+    return sorted({item.split(":", 1)[0] for item in signals if item})
+
+
+def _canonical_resolution(decision: CanonicalExperienceTypeDecision) -> TypeResolution:
+    return TypeResolution(
+        experience_id=decision.experience_id,
+        resolved_type=decision.canonical_experience_type,
+        confidence=decision.confidence,
+        positive_signals=[f"canonical_type_source:{decision.type_source}"],
+        resolution_method="canonical_semantic_build",
+        inherited_identity_type=decision.canonical_experience_type,
+        inherited_type_used=True,
+    )
+
+
+def _write_log(
+    resolution: TypeResolution,
+    llm_meta: str,
+    final_section: str,
+    stage: str,
+    generation_result_id: int | None,
+    *,
+    authority_mode: str = "legacy",
+    write_mode: str = "apply",
+    canonical_decision: CanonicalExperienceTypeDecision | None = None,
+) -> None:
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         entry = {
             "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(), "generation_result_id": generation_result_id,
-            "stage": stage, "experience_id": resolution.experience_id, "original_type": resolution.inherited_identity_type,
-            "llm_meta": llm_meta, "resolved_type": resolution.resolved_type, "confidence": resolution.confidence,
+            "stage": stage, "experience_id": resolution.experience_id, "original_type": _safe_type(resolution.inherited_identity_type),
+            "llm_meta": _safe_type(llm_meta), "resolved_type": resolution.resolved_type, "confidence": resolution.confidence,
             "type_scores": resolution.evidence_scores, "runner_up_type": resolution.runner_up_type, "score_margin": resolution.score_margin,
-            "positive_signal_types": resolution.positive_signals, "negative_signal_types": resolution.negative_signals,
-            "excluded_context_signals": resolution.excluded_context_signals,
+            "positive_signal_categories": _signal_categories(resolution.positive_signals),
+            "negative_signal_categories": _signal_categories(resolution.negative_signals),
+            "excluded_context_count": len(resolution.excluded_context_signals),
             "employment_relation_detected": resolution.employment_relation_detected,
             "project_ownership_detected": resolution.project_ownership_detected,
-            "inherited_identity_type": resolution.inherited_identity_type, "inherited_type_used": resolution.inherited_type_used,
+            "inherited_identity_type": _safe_type(resolution.inherited_identity_type), "inherited_type_used": resolution.inherited_type_used,
             "conflict_detected": resolution.conflict_detected or llm_meta != resolution.resolved_type,
-            "correction_applied": llm_meta != final_section, "final_section": final_section,
+            "correction_applied": write_mode == "apply" and llm_meta != final_section,
+            "final_section": _safe_type(final_section), "authority_mode": authority_mode,
+            "write_mode": write_mode,
+            "canonical_type_source": canonical_decision.type_source if canonical_decision else "",
+            "canonical_type_explicit": canonical_decision.explicit if canonical_decision else False,
+            "canonical_type_confidence": canonical_decision.confidence if canonical_decision else None,
             "type_locked": resolution.type_locked, "resolver_version": resolution.resolver_version,
         }
         with LOG_PATH.open("a", encoding="utf-8") as handle:
@@ -185,8 +223,76 @@ def _write_log(resolution: TypeResolution, llm_meta: str, final_section: str, st
         pass
 
 
-def resolve_project_types(payload: schemas.GenerationPayload, raw_input: str, *, stage: str = "unknown", generation_result_id: int | None = None, write_log: bool = True) -> schemas.GenerationPayload:
+def _write_unmapped_canonical_log(
+    source_id: str,
+    *,
+    stage: str,
+    generation_result_id: int | None,
+    write_mode: str,
+) -> None:
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "generation_result_id": generation_result_id,
+            "stage": stage,
+            "experience_id": source_id,
+            "authority_mode": "canonical",
+            "write_mode": write_mode,
+            "canonical_mapping_found": False,
+            "correction_applied": False,
+            "resolver_version": RESOLVER_VERSION,
+        }
+        with LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def resolve_project_types(
+    payload: schemas.GenerationPayload,
+    raw_input: str | None = None,
+    *,
+    canonical_type_decisions: Mapping[str, CanonicalExperienceTypeDecision] | None = None,
+    apply_canonical_types: bool = True,
+    stage: str = "unknown",
+    generation_result_id: int | None = None,
+    write_log: bool = True,
+) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
+    if canonical_type_decisions is not None:
+        write_mode = "apply" if apply_canonical_types else "validate"
+        for project in updated.resume_sections.projects:
+            source_id = str(project.get("source_experience_id") or "")
+            decision = canonical_type_decisions.get(source_id)
+            if decision is None:
+                if write_log:
+                    _write_unmapped_canonical_log(
+                        source_id,
+                        stage=stage,
+                        generation_result_id=generation_result_id,
+                        write_mode=write_mode,
+                    )
+                continue
+            llm_meta = str(project.get("meta") or "项目经历")
+            if apply_canonical_types:
+                project["meta"] = decision.canonical_experience_type
+                project["resolved_experience_type"] = decision.canonical_experience_type
+                project["type_resolution_version"] = RESOLVER_VERSION
+                project["type_locked"] = True
+            if write_log:
+                _write_log(
+                    _canonical_resolution(decision),
+                    llm_meta,
+                    str(project.get("meta") or "项目经历"),
+                    stage,
+                    generation_result_id,
+                    authority_mode="canonical",
+                    write_mode=write_mode,
+                    canonical_decision=decision,
+                )
+        return updated
+
     resolutions = build_type_resolutions(raw_input)
     for project in updated.resume_sections.projects:
         source_id = str(project.get("source_experience_id") or "")
