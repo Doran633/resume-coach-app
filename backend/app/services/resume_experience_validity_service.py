@@ -10,6 +10,14 @@ from .experience_fact_ledger_service import build_experience_fact_ledger
 from .experience_identity_service import build_experience_identities
 from .project_hierarchy_service import is_heading_detail
 from .semantic_experience_segmentation_service import clean_heading_title
+from .canonical_semantic_state_service import (
+    CanonicalFallbackRecoveryStats,
+    canonical_fact_scope_for_owner,
+)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalFactOwnershipIndex, CanonicalSemanticBuild
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_experience_validity.jsonl"
@@ -174,6 +182,9 @@ def ensure_resume_experience_validity(
     generation_result_id: int | None = None,
     fallback_candidate_rejected_count: int = 0,
     write_log: bool = True,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    ownership_index: "CanonicalFactOwnershipIndex | None" = None,
+    recovery_stats: CanonicalFallbackRecoveryStats | None = None,
 ) -> schemas.GenerationPayload:
     data = deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
@@ -181,6 +192,10 @@ def ensure_resume_experience_validity(
     valid_projects: list[dict] = []
     pending_shells: list[tuple[dict, str]] = []
     affected_ids: list[str] = []
+    canonical_mode = semantic_build is not None or ownership_index is not None
+    ownership = ownership_index or (semantic_build.ownership_index if semantic_build is not None else None)
+    if canonical_mode and recovery_stats is not None:
+        recovery_stats.raw_input_rebuild_blocked_count += 1
     stats = {
         "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
         "generation_result_id": generation_result_id,
@@ -195,8 +210,9 @@ def ensure_resume_experience_validity(
     }
 
     for project in projects:
-        kind = classify_experience_project(project, raw_input)
-        if kind == "generic_name" and _recover_generic_project(project, raw_input):
+        classification_input = "" if canonical_mode else raw_input
+        kind = classify_experience_project(project, classification_input)
+        if not canonical_mode and kind == "generic_name" and _recover_generic_project(project, raw_input):
             kind = "valid"
         if kind == "valid":
             valid_projects.append(project)
@@ -207,7 +223,11 @@ def ensure_resume_experience_validity(
             or is_forbidden_experience_name(project.get("meta"))
         )
         stats["heading_residue_project_count"] += int(kind == "heading_residue_shell")
-        source_id = _text(project.get("source_experience_id"))
+        source_id = _text(project.get("immutable_source_experience_id")) if canonical_mode else _text(project.get("source_experience_id"))
+        if canonical_mode and source_id:
+            scope = canonical_fact_scope_for_owner(ownership, source_id)
+            if scope is None:
+                kind = "empty_fact_shell"
         if source_id:
             affected_ids.append(source_id)
         pending_shells.append((project, kind))
@@ -215,17 +235,26 @@ def ensure_resume_experience_validity(
     unresolved_ids: list[str] = []
     for shell, _kind in pending_shells:
         match_index = _matching_project_index(shell, valid_projects)
+        if canonical_mode and match_index >= 0:
+            target_owner = _text(valid_projects[match_index].get("immutable_source_experience_id"))
+            shell_owner = _text(shell.get("immutable_source_experience_id"))
+            if not target_owner or target_owner != shell_owner:
+                match_index = -1
         if match_index >= 0:
-            _merge_internal_sources(valid_projects[match_index], shell)
+            if not canonical_mode:
+                _merge_internal_sources(valid_projects[match_index], shell)
             stats["absorbed_shell_count"] += 1
             continue
         stats["removed_shell_count"] += 1
-        source_id = _text(shell.get("source_experience_id"))
+        source_id = _text(shell.get("immutable_source_experience_id")) if canonical_mode else _text(shell.get("source_experience_id"))
         if source_id:
             unresolved_ids.append(source_id)
 
     if pending_shells and stats["absorbed_shell_count"] < len(pending_shells):
         _append_missing_question(data, unresolved_ids)
+        if canonical_mode and recovery_stats is not None:
+            recovery_stats.missing_question_count += 1
+            recovery_stats.candidate_rejected_count += stats["removed_shell_count"]
     sections["projects"] = valid_projects
     data["resume_sections"] = sections
     stats["affected_source_experience_ids"] = sorted(set(affected_ids))

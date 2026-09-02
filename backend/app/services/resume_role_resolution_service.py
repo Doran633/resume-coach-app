@@ -7,6 +7,14 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .experience_fact_ledger_service import ExperienceFactLedger, build_experience_fact_ledger, fact_match_score
+from .canonical_semantic_state_service import (
+    CanonicalFallbackRecoveryStats,
+    canonical_fact_scope_for_owner,
+)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalFactOwnershipIndex, CanonicalSemanticBuild
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_role_quality.jsonl"
@@ -56,8 +64,9 @@ def resolve_role_for_experience(
     details: list[str] | None = None,
     intro: str = "",
     ledger: ExperienceFactLedger | None = None,
+    facts: list | None = None,
 ) -> tuple[str, list[str]]:
-    facts = (ledger or build_experience_fact_ledger(raw_input)).for_experience(experience_id)
+    facts = facts if facts is not None else (ledger or build_experience_fact_ledger(raw_input)).for_experience(experience_id)
     ranked = sorted(
         [fact for fact in facts if fact.resume_ready_text and ACTION_PATTERN.search(fact.fact_text)],
         key=lambda fact: (fact.fact_type != "职责", fact.importance == "low"),
@@ -95,10 +104,17 @@ def resolve_resume_roles(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    ownership_index: "CanonicalFactOwnershipIndex | None" = None,
+    recovery_stats: CanonicalFallbackRecoveryStats | None = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     stats = RoleQualityStats(stage=stage, generation_result_id=generation_result_id)
-    ledger = build_experience_fact_ledger(raw_input)
+    canonical_mode = semantic_build is not None or ownership_index is not None
+    ownership = ownership_index or (semantic_build.ownership_index if semantic_build is not None else None)
+    ledger = semantic_build.ledger if semantic_build is not None else build_experience_fact_ledger(raw_input)
+    if canonical_mode and recovery_stats is not None:
+        recovery_stats.raw_input_rebuild_blocked_count += 1
     experience_ids = sorted({fact.experience_id for fact in ledger.facts})
     for project in updated.resume_sections.projects:
         role = str(project.get("role") or "").strip()
@@ -110,13 +126,26 @@ def resolve_resume_roles(
             project["role"] = role
             continue
         stats.role_fallback_triggered += 1
-        source_id = str(project.get("source_experience_id") or "")
-        if not source_id and len(experience_ids) == 1:
+        source_id = str(project.get("immutable_source_experience_id") or "") if canonical_mode else str(project.get("source_experience_id") or "")
+        if not canonical_mode and not source_id and len(experience_ids) == 1:
             source_id = experience_ids[0]
             project["source_experience_id"] = source_id
-        recovered, fact_ids = resolve_role_for_experience(
-            raw_input, source_id, details=project.get("details", []), intro=str(project.get("intro") or ""), ledger=ledger,
-        ) if source_id else ("", [])
+        scope = canonical_fact_scope_for_owner(ownership, source_id) if canonical_mode else None
+        if canonical_mode and scope is None:
+            if recovery_stats is not None:
+                recovery_stats.unowned_project_skipped_count += 1
+                recovery_stats.missing_question_count += 1
+            recovered, fact_ids = "", []
+        else:
+            local_facts = scope.eligible_facts(ledger) if scope is not None else None
+            recovered, fact_ids = resolve_role_for_experience(
+                "" if canonical_mode else raw_input,
+                source_id,
+                details=project.get("details", []),
+                intro=str(project.get("intro") or ""),
+                ledger=ledger,
+                facts=local_facts,
+            ) if source_id else ("", [])
         project["role"] = recovered
         if recovered:
             stats.role_recovered_from_fact_count += 1
@@ -124,6 +153,8 @@ def resolve_resume_roles(
             stats.role_source_fact_ids.extend(fact_ids)
             if fact_ids:
                 project["role_source_fact_ids"] = fact_ids
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.local_role_recovered_count += 1
         else:
             stats.role_left_empty_count += 1
             question = "你在这段经历中具体负责哪些工作？"

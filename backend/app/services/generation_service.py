@@ -72,11 +72,13 @@ from .input_claim_resolution_service import (
     write_claim_resolution_log,
 )
 from .canonical_semantic_state_service import (
+    CanonicalFallbackRecoveryStats,
     CanonicalScopedFactAccessStats,
     build_canonical_semantic_build,
     build_canonical_semantic_state_from_build,
     write_canonical_semantic_state_log,
     write_canonical_fact_ownership_log,
+    write_canonical_fallback_recovery_log,
     write_canonical_scoped_fact_access_log,
 )
 from .resource_protection_service import resource_protection
@@ -442,6 +444,7 @@ def create_generation(
         request.raw_input,
         long_input_context=long_input_context,
     )
+    fallback_recovery_stats = CanonicalFallbackRecoveryStats()
     write_semantic_role_log(
         semantic_build.semantic_analyses,
         stage="generation",
@@ -521,7 +524,12 @@ def create_generation(
                 stability_log["error_message"] = type(exc).__name__
                 _write_generation_stability_log(stability_log)
                 raise
-            payload = build_stable_generation_fallback(request, long_input_context)
+            payload = build_stable_generation_fallback(
+                request,
+                long_input_context,
+                semantic_build=semantic_build,
+                recovery_stats=fallback_recovery_stats,
+            )
             stability_log["model"] = get_openai_model()
             stability_log["llm_success"] = False
             stability_log["json_repair_failed"] = "JSON" in str(exc) or "schema" in str(exc).lower()
@@ -551,9 +559,15 @@ def create_generation(
     payload, resume_fallback_stats = fill_resume_sections(
         payload, stage="generation", raw_input=request.raw_input, return_stats=True,
         semantic_build=semantic_build,
+        recovery_stats=fallback_recovery_stats,
     )
     payload = ensure_resume_experience_validity(
-        payload, request.raw_input, stage="generation_after_fallback",
+        payload,
+        request.raw_input,
+        stage="generation_after_fallback",
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+        recovery_stats=fallback_recovery_stats,
     )
     payload, ownership_stats = bind_projects_to_experience_slots(
         payload,
@@ -582,7 +596,14 @@ def create_generation(
         ownership_index=semantic_build.ownership_index,
         scoped_access_stats=scoped_fact_access_stats,
     )
-    payload = resolve_resume_roles(payload, request.raw_input, stage="generation")
+    payload = resolve_resume_roles(
+        payload,
+        request.raw_input,
+        stage="generation",
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+        recovery_stats=fallback_recovery_stats,
+    )
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
     payload = guard_project_specificity(payload, request.raw_input)
     payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)
@@ -628,7 +649,14 @@ def create_generation(
     log_generation_stage(payload, "after_dedup")
     payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
-    payload = resolve_resume_roles(payload, request.raw_input, stage="before_save")
+    payload = resolve_resume_roles(
+        payload,
+        request.raw_input,
+        stage="before_save",
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+        recovery_stats=fallback_recovery_stats,
+    )
     payload = guard_resume_output(payload, request.raw_input, stage="before_save")
     payload = professionalize_resume_language(payload, stage="generation")
     skill_evidence = aggregate_skill_evidence(request.raw_input)
@@ -665,7 +693,12 @@ def create_generation(
         scoped_access_stats=scoped_fact_access_stats,
     )
     payload = ensure_resume_experience_validity(
-        payload, request.raw_input, stage="before_save",
+        payload,
+        request.raw_input,
+        stage="before_save",
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+        recovery_stats=fallback_recovery_stats,
     )
     payload = ensure_resume_delivery_quality(
         payload, request.raw_input, stage="before_save",
@@ -721,6 +754,14 @@ def create_generation(
         semantic_build.ownership_index,
         scoped_fact_access_stats,
         stage="generation_scoped_access_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
+    )
+    write_canonical_fallback_recovery_log(
+        semantic_build.ownership_index,
+        fallback_recovery_stats,
+        stage="generation_fallback_recovery_saved",
         request_id=request_id,
         attempt_id=request.attempt_id or "",
         generation_result_id=result.id,

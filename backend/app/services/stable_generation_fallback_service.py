@@ -7,6 +7,14 @@ from .long_input_service import EVIDENCE_TERMS, RISK_TERMS, TECH_TERMS, LongInpu
 from .resume_role_resolution_service import resolve_role_for_experience
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity, is_valid_fallback_candidate
+from .canonical_semantic_state_service import (
+    CanonicalFallbackRecoveryStats,
+    canonical_fact_scope_for_owner,
+)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalSemanticBuild
 
 
 NEGATIVE_INTERNSHIP_PATTERNS = ["没有实习", "无实习", "没实习", "没有实习经历", "没有实习经验"]
@@ -84,7 +92,13 @@ def _build_claims(risk_terms: list[str], evidence_terms: list[str]) -> list[sche
     return claims[:8]
 
 
-def build_stable_generation_fallback(request: schemas.GenerateRequest, context: LongInputContext) -> schemas.GenerationPayload:
+def build_stable_generation_fallback(
+    request: schemas.GenerateRequest,
+    context: LongInputContext,
+    *,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    recovery_stats: CanonicalFallbackRecoveryStats | None = None,
+) -> schemas.GenerationPayload:
     all_tech: list[str] = []
     all_evidence: list[str] = []
     all_risks: list[str] = []
@@ -92,11 +106,20 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     projects: list[dict] = []
     used_supported_wordings: set[str] = set()
     rejected_candidates = 0
-    ledger = build_experience_fact_ledger(request.raw_input)
+    canonical_mode = semantic_build is not None
+    ledger = semantic_build.ledger if semantic_build is not None else build_experience_fact_ledger(request.raw_input)
+    identities = list(semantic_build.identities) if semantic_build is not None else list(context.segments)
+    if canonical_mode and recovery_stats is not None:
+        recovery_stats.raw_input_rebuild_blocked_count += 1
 
-    for segment in context.segments[:5]:
+    for segment in identities[:5]:
+        experience_id = segment.experience_id
+        scope = canonical_fact_scope_for_owner(
+            semantic_build.ownership_index if semantic_build is not None else None,
+            experience_id,
+        ) if canonical_mode else None
         local_facts = [
-            fact for fact in ledger.for_experience(segment.experience_id)
+            fact for fact in (scope.eligible_facts(ledger) if scope is not None else ledger.for_experience(experience_id))
             if fact.resume_eligible and fact.resume_ready_text
         ]
         eligible_text = "\n".join(fact.fact_text for fact in local_facts)
@@ -107,18 +130,30 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
             for value in values:
                 if value not in target:
                     target.append(value)
-        for value in segment.supported_interview_terms:
-            if value.lower() not in eligible_text.lower():
-                continue
-            if value not in all_interview_terms:
-                all_interview_terms.append(value)
-        meta = segment.declared_experience_type or _infer_meta(segment.label, segment.content)
+        if not canonical_mode:
+            for value in segment.supported_interview_terms:
+                if value.lower() not in eligible_text.lower():
+                    continue
+                if value not in all_interview_terms:
+                    all_interview_terms.append(value)
+        meta = (
+            semantic_build.canonical_type_by_experience_id[experience_id].canonical_experience_type
+            if canonical_mode and experience_id in semantic_build.canonical_type_by_experience_id
+            else segment.declared_experience_type or _infer_meta(segment.label, segment.content)
+        )
         details = [fact.resume_ready_text for fact in local_facts[:5]]
         if not details:
             rejected_candidates += 1
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.candidate_rejected_count += 1
             continue
         role, role_fact_ids = resolve_role_for_experience(
-            request.raw_input, segment.experience_id, details=details, intro=details[0], ledger=ledger,
+            "" if canonical_mode else request.raw_input,
+            experience_id,
+            details=details,
+            intro=details[0],
+            ledger=ledger,
+            facts=local_facts if canonical_mode else None,
         )
         candidate = {
                 "name": segment.title,
@@ -127,7 +162,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "intro": details[0],
                 "role": role,
                 "details": details[:5],
-                "source_experience_id": segment.experience_id,
+                "source_experience_id": experience_id,
                 "source_binding_origin": "stable_local_fact_fallback_candidate",
                 "source_binding_confidence": 1.0,
                 "source_binding_locked": False,
@@ -135,10 +170,15 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
                 "detail_fact_ids": [[fact.fact_id] for fact in local_facts[:5]],
                 "role_source_fact_ids": role_fact_ids,
             }
-        if is_valid_fallback_candidate(candidate, request.raw_input):
+        if is_valid_fallback_candidate(candidate, "" if canonical_mode else request.raw_input):
             projects.append(candidate)
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.local_fact_detail_recovered_count += len(local_facts[:5])
+                recovery_stats.local_role_recovered_count += int(bool(role))
         else:
             rejected_candidates += 1
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.candidate_rejected_count += 1
 
     project_names = "、".join(project["name"] for project in projects[:3])
     normal = (
@@ -149,7 +189,7 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     boundary = "边界参考：未提供的学校、专业、用户数、并发、奖项、模型训练等硬事实不能补写；缺少证据的强表达应降级。"
     recommended = f"{normal}\n{bold}"
 
-    segmentation_questions = build_segmentation_questions(request.raw_input)
+    segmentation_questions = [] if canonical_mode else build_segmentation_questions(request.raw_input)
     payload = schemas.GenerationPayload(
         completeness_score=72 if context.long_input_mode else 64,
         confirmed_facts=["系统基于用户原文识别出主要经历", f"识别到 {context.segment_count} 段经历"],
@@ -180,12 +220,17 @@ def build_stable_generation_fallback(request: schemas.GenerateRequest, context: 
     )
     payload = deduplicate_resume_experience_entities(
         payload,
-        request.raw_input,
+        "" if canonical_mode else request.raw_input,
         stage="stable_fallback",
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index if semantic_build is not None else None,
     )
     return ensure_resume_experience_validity(
         payload,
-        request.raw_input,
+        "" if canonical_mode else request.raw_input,
         stage="stable_fallback",
         fallback_candidate_rejected_count=rejected_candidates,
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index if semantic_build is not None else None,
+        recovery_stats=recovery_stats,
     )

@@ -20,6 +20,7 @@ SEMANTIC_SCHEMA_VERSION = "canonical-semantic-state/v1"
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_semantic_state.jsonl"
 OWNERSHIP_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fact_ownership.jsonl"
 SCOPED_ACCESS_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_scoped_fact_access.jsonl"
+FALLBACK_RECOVERY_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fallback_recovery.jsonl"
 _NON_RESUME_ROLES = {"USER_INSTRUCTION", "NEGATIVE_CONSTRAINT", "UNCERTAIN_FACT"}
 CANONICAL_EXPERIENCE_TYPES = (
     "项目经历",
@@ -157,6 +158,18 @@ class CanonicalScopedFactAccessStats:
 
     def record_scope_read(self) -> None:
         self.scoped_read_count += 1
+
+
+@dataclass
+class CanonicalFallbackRecoveryStats:
+    """Aggregate-only diagnostics for the demoted fallback/recovery paths."""
+
+    local_fact_detail_recovered_count: int = 0
+    local_role_recovered_count: int = 0
+    candidate_rejected_count: int = 0
+    unowned_project_skipped_count: int = 0
+    raw_input_rebuild_blocked_count: int = 0
+    missing_question_count: int = 0
 
 
 def canonical_fact_scope_for_owner(
@@ -540,6 +553,39 @@ def write_canonical_scoped_fact_access_log(
     try:
         SCOPED_ACCESS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with SCOPED_ACCESS_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def write_canonical_fallback_recovery_log(
+    ownership_index: CanonicalFactOwnershipIndex,
+    recovery_stats: CanonicalFallbackRecoveryStats,
+    *,
+    stage: str,
+    request_id: str = "",
+    attempt_id: str = "",
+    generation_result_id: int | None = None,
+) -> None:
+    """Persist aggregate fallback diagnostics without user-provided text."""
+    entry = {
+        "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        "stage": stage,
+        "request_id": request_id,
+        "attempt_id": attempt_id,
+        "generation_result_id": generation_result_id,
+        "local_fact_detail_recovered_count": recovery_stats.local_fact_detail_recovered_count,
+        "local_role_recovered_count": recovery_stats.local_role_recovered_count,
+        "candidate_rejected_count": recovery_stats.candidate_rejected_count,
+        "unowned_project_skipped_count": recovery_stats.unowned_project_skipped_count,
+        "raw_input_rebuild_blocked_count": recovery_stats.raw_input_rebuild_blocked_count,
+        "missing_question_count": recovery_stats.missing_question_count,
+        "affected_source_experience_ids": list(ownership_index.source_experience_ids),
+        "ownership_fingerprint": ownership_index.ownership_fingerprint,
+    }
+    try:
+        FALLBACK_RECOVERY_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with FALLBACK_RECOVERY_LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         return

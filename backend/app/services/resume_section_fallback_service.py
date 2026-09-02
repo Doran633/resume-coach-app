@@ -15,6 +15,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .canonical_semantic_state_service import CanonicalSemanticBuild
 from .resume_experience_validity_service import ensure_resume_experience_validity, is_valid_fallback_candidate
+from .canonical_semantic_state_service import (
+    CanonicalFallbackRecoveryStats,
+    canonical_fact_scope_for_owner,
+)
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -499,12 +503,26 @@ def _assign_source_experience_ids(projects: list, raw_input: str, stats: Fallbac
     return assigned
 
 
-def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict]:
+def _projects_from_identities(
+    raw_input: str,
+    stats: FallbackStats,
+    *,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    recovery_stats: CanonicalFallbackRecoveryStats | None = None,
+) -> list[dict]:
     projects = []
-    ledger = build_experience_fact_ledger(raw_input)
-    for identity in build_experience_identities(raw_input)[:5]:
+    canonical_mode = semantic_build is not None
+    ledger = semantic_build.ledger if semantic_build is not None else build_experience_fact_ledger(raw_input)
+    identities = list(semantic_build.identities) if semantic_build is not None else build_experience_identities(raw_input)
+    if canonical_mode and recovery_stats is not None:
+        recovery_stats.raw_input_rebuild_blocked_count += 1
+    for identity in identities[:5]:
+        scope = canonical_fact_scope_for_owner(
+            semantic_build.ownership_index if semantic_build is not None else None,
+            identity.experience_id,
+        ) if canonical_mode else None
         local_facts = [
-            fact for fact in ledger.for_experience(identity.experience_id)
+            fact for fact in (scope.eligible_facts(ledger) if scope is not None else ledger.for_experience(identity.experience_id))
             if fact.resume_eligible and fact.resume_ready_text
         ]
         details = [fact.resume_ready_text for fact in local_facts[:6]]
@@ -518,20 +536,33 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
                 "rejected": True,
                 "reason": "no_local_resume_eligible_fact",
             })
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.candidate_rejected_count += 1
             continue
         role, role_fact_ids = resolve_role_for_experience(
-            raw_input, identity.experience_id, details=details, intro=details[0], ledger=ledger,
+            "" if canonical_mode else raw_input,
+            identity.experience_id,
+            details=details,
+            intro=details[0],
+            ledger=ledger,
+            facts=local_facts if canonical_mode else None,
         )
         stats.role_fallback_triggered += 1
         if role:
             stats.role_recovered_from_fact_count += 1
             stats.role_source_experience_ids.append(identity.experience_id)
             stats.role_source_fact_ids.extend(role_fact_ids)
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.local_role_recovered_count += 1
         else:
             stats.role_left_empty_count += 1
         candidate = {
                 "name": identity.title or identity.experience_type,
-                "meta": identity.experience_type,
+                "meta": (
+                    semantic_build.canonical_type_by_experience_id[identity.experience_id].canonical_experience_type
+                    if canonical_mode and identity.experience_id in semantic_build.canonical_type_by_experience_id
+                    else identity.experience_type
+                ),
                 "time": "[待填写]",
                 "intro": details[0],
                 "role": role,
@@ -544,8 +575,10 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
                 "detail_fact_ids": [[fact.fact_id] for fact in local_facts[:6]],
                 "role_source_fact_ids": role_fact_ids,
             }
-        if not is_valid_fallback_candidate(candidate, raw_input):
+        if not is_valid_fallback_candidate(candidate, "" if canonical_mode else raw_input):
             stats.fallback_candidate_rejected_count += 1
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.candidate_rejected_count += 1
             continue
         stats.used_experience_id = True
         stats.fallback_bindings.append({
@@ -556,6 +589,8 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
             "rejected": False,
         })
         projects.append(candidate)
+        if canonical_mode and recovery_stats is not None:
+            recovery_stats.local_fact_detail_recovered_count += len(local_facts[:6])
     return projects
 
 
@@ -636,10 +671,12 @@ def fill_resume_sections(
     write_log: bool = True,
     return_stats: bool = False,
     semantic_build: "CanonicalSemanticBuild | None" = None,
+    recovery_stats: CanonicalFallbackRecoveryStats | None = None,
 ) -> schemas.GenerationPayload | tuple[schemas.GenerationPayload, FallbackStats]:
     stats = FallbackStats(generation_result_id=generation_result_id, stage=stage)
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
+    canonical_mode = semantic_build is not None
     if semantic_build is not None:
         # This service may supply a candidate owner, never a frozen one.
         for project in sections.get("projects", []) if isinstance(sections.get("projects"), list) else []:
@@ -648,19 +685,23 @@ def fill_resume_sections(
                 project["source_binding_locked"] = False
 
     source, source_field = _source_text(data)
-    raw_source = _text(raw_input)
+    raw_source = "" if canonical_mode else _text(raw_input)
+    if canonical_mode and recovery_stats is not None:
+        recovery_stats.raw_input_rebuild_blocked_count += 1
 
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}
     sections["education"] = sections.get("education") if isinstance(sections.get("education"), dict) else {}
     stats.projects_before = len(sections.get("projects", [])) if isinstance(sections.get("projects"), list) else 0
 
-    identities = build_experience_identities(raw_source) if raw_source else []
+    identities = list(semantic_build.identities) if semantic_build is not None else (build_experience_identities(raw_source) if raw_source else [])
     existing_projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
     if len(identities) >= 2 and len(existing_projects) == 1 and isinstance(existing_projects[0], dict):
         project_name = _text(existing_projects[0].get("name"))
         project_meta = _text(existing_projects[0].get("meta"))
         if "综合经历" in project_name or "综合经历" in project_meta:
-            sections["projects"] = _projects_from_identities(raw_source, stats)
+            sections["projects"] = _projects_from_identities(
+                raw_source, stats, semantic_build=semantic_build, recovery_stats=recovery_stats,
+            )
             stats.fill("projects", "experience_id/raw_input")
             stats.add_reason("combined_project_replaced")
 
@@ -675,21 +716,31 @@ def fill_resume_sections(
     for section in empty_sections:
         stats.add_reason(f"{section}_empty")
 
-    if "summary" in empty_sections:
+    if "summary" in empty_sections and not canonical_mode:
         sections["summary"] = _build_summary(data, source, source_field, stats)
 
-    if "skills" in empty_sections:
+    if "skills" in empty_sections and not canonical_mode:
         sections["skills"] = _extract_skills(data, source, source_field, stats)
 
     if "projects" in empty_sections:
-        raw_projects = _projects_from_identities(raw_source, stats) if raw_source and identities else []
+        raw_projects = _projects_from_identities(
+            raw_source, stats, semantic_build=semantic_build, recovery_stats=recovery_stats,
+        ) if identities else []
         if not raw_projects and raw_source:
             raw_projects = _parse_projects(raw_source, "raw_input", stats)
         elif raw_projects:
             stats.fill("projects", "experience_id/raw_input")
-        candidates = raw_projects or _parse_projects(source, source_field, stats)
-        sections["projects"] = _valid_fallback_projects(candidates, raw_source, stats)
-        sections["projects"] = _assign_source_experience_ids(sections["projects"], raw_source, stats)
+        candidates = raw_projects or ([] if canonical_mode else _parse_projects(source, source_field, stats))
+        sections["projects"] = _valid_fallback_projects(candidates, "" if canonical_mode else raw_source, stats)
+        if not canonical_mode:
+            sections["projects"] = _assign_source_experience_ids(sections["projects"], raw_source, stats)
+    elif canonical_mode:
+        identity_projects = _projects_from_identities(
+            "", stats, semantic_build=semantic_build, recovery_stats=recovery_stats,
+        )
+        sections["projects"] = _merge_missing_projects(
+            sections.get("projects"), identity_projects, stats, "uncovered_experience_id", "",
+        )
     elif raw_source:
         sections["projects"] = _assign_source_experience_ids(sections.get("projects"), raw_source, stats)
         identity_projects = _projects_from_identities(raw_source, stats) if identities else []
@@ -701,28 +752,37 @@ def fill_resume_sections(
     if "interview_preparation" in empty_sections:
         sections["interview_preparation"] = _build_interview_preparation(data, stats)
 
-    ledger = build_experience_fact_ledger(raw_source) if raw_source else None
+    ledger = semantic_build.ledger if semantic_build is not None else (build_experience_fact_ledger(raw_source) if raw_source else None)
     for project in sections.get("projects", []):
         if not isinstance(project, dict) or not is_internal_or_generic_role(_text(project.get("role"))):
             continue
         stats.internal_fallback_text_removed_count += 1
         stats.role_fallback_triggered += 1
         source_id = _text(project.get("source_experience_id"))
+        scope = canonical_fact_scope_for_owner(
+            semantic_build.ownership_index if semantic_build is not None else None,
+            source_id,
+        ) if canonical_mode else None
         recovered, fact_ids = resolve_role_for_experience(
-            raw_source,
+            "" if canonical_mode else raw_source,
             source_id,
             details=project.get("details", []),
             intro=_text(project.get("intro")),
             ledger=ledger,
-        ) if raw_source and source_id and ledger else ("", [])
+            facts=scope.eligible_facts(ledger) if scope is not None and ledger is not None else None,
+        ) if source_id and ledger and (not canonical_mode or scope is not None) else ("", [])
         project["role"] = recovered
         if recovered:
             stats.role_recovered_from_fact_count += 1
             stats.role_source_experience_ids.append(source_id)
             stats.role_source_fact_ids.extend(fact_ids)
             project["role_source_fact_ids"] = fact_ids
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.local_role_recovered_count += 1
         else:
             stats.role_left_empty_count += 1
+            if canonical_mode and recovery_stats is not None:
+                recovery_stats.unowned_project_skipped_count += 1
 
     data["resume_sections"] = sections
     stats.projects_after = len(sections.get("projects", [])) if isinstance(sections.get("projects"), list) else 0
@@ -752,6 +812,9 @@ def fill_resume_sections(
             generation_result_id=generation_result_id,
             fallback_candidate_rejected_count=stats.fallback_candidate_rejected_count,
             write_log=write_log,
+            semantic_build=semantic_build,
+            ownership_index=semantic_build.ownership_index if semantic_build is not None else None,
+            recovery_stats=recovery_stats,
         )
     stats.projects_after = len(filled.resume_sections.projects)
     stats.projects_removed = max(0, stats.projects_before - stats.projects_after)
