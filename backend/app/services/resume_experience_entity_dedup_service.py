@@ -12,6 +12,10 @@ from .experience_identity_service import ExperienceIdentity, build_experience_id
 from .project_hierarchy_service import is_heading_detail, merge_parent_child_projects
 from .resume_fact_dedup_service import information_score, similarity
 from .resume_experience_validity_service import classify_experience_project, is_forbidden_experience_name
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalFactOwnershipIndex, CanonicalSemanticBuild
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_experience_entity_dedup.jsonl"
@@ -336,10 +340,14 @@ def deduplicate_resume_experience_entities(
     generation_result_id: int | None = None,
     write_log: bool = True,
     apply_hierarchy: bool = True,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    ownership_index: "CanonicalFactOwnershipIndex | None" = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     projects = [deepcopy(item) for item in updated.resume_sections.projects if isinstance(item, dict)]
-    identities = build_experience_identities(raw_input) if raw_input else []
+    canonical_mode = semantic_build is not None or ownership_index is not None
+    ownership = ownership_index or (semantic_build.ownership_index if semantic_build is not None else None)
+    identities = list(semantic_build.identities) if semantic_build is not None else (build_experience_identities(raw_input) if raw_input else [])
     stats = EntityDedupStats(
         created_at=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
         stage=stage,
@@ -358,7 +366,7 @@ def deduplicate_resume_experience_entities(
 
     for project in projects:
         project["name"] = clean_project_title(project.get("name")) or "项目经历"
-        if not project.get("source_experience_id"):
+        if not canonical_mode and not project.get("source_experience_id"):
             matched_id = _identity_title_match(project, identities)
             if matched_id:
                 project["source_experience_id"] = matched_id
@@ -372,7 +380,15 @@ def deduplicate_resume_experience_entities(
         matched_index = -1
         matched_decision = None
         for index, existing in enumerate(unique):
-            decision = _duplicate_decision(existing, project)
+            if canonical_mode:
+                left_owner = str(existing.get("immutable_source_experience_id") or "")
+                right_owner = str(project.get("immutable_source_experience_id") or "")
+                if left_owner and right_owner and left_owner != right_owner:
+                    decision = DuplicateDecision(False, "distinct_frozen_source_experience_id", 1.0)
+                else:
+                    decision = _duplicate_decision(existing, project)
+            else:
+                decision = _duplicate_decision(existing, project)
             if decision.possible:
                 stats.possible_duplicate_count += 1
                 if decision.reason == "provenance_conflict":

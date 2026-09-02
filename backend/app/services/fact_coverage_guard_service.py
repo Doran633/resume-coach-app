@@ -14,6 +14,10 @@ from .experience_fact_ledger_service import (
 )
 from .experience_identity_service import build_experience_identities
 from .experience_slot_service import fact_owner_id
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalFactOwnershipIndex, CanonicalSemanticBuild
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "fact_coverage.jsonl"
@@ -99,10 +103,14 @@ def guard_fact_coverage(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    ownership_index: "CanonicalFactOwnershipIndex | None" = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
-    ledger = build_experience_fact_ledger(raw_input)
-    identities = build_experience_identities(raw_input)
+    canonical_mode = semantic_build is not None or ownership_index is not None
+    ownership = ownership_index or (semantic_build.ownership_index if semantic_build is not None else None)
+    ledger = semantic_build.ledger if semantic_build is not None else build_experience_fact_ledger(raw_input)
+    identities = list(semantic_build.identities) if semantic_build is not None else build_experience_identities(raw_input)
     stats = CoverageStats(stage=stage, generation_result_id=generation_result_id)
     stats.total_experiences = len(identities)
     stats.explicit_fact_count = len(ledger.facts)
@@ -117,7 +125,7 @@ def guard_fact_coverage(
     moves: list[tuple[str, str, str]] = []
     for project in projects:
         source_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
-        source_ids = set(_project_source_ids(project))
+        source_ids = {source_id} if canonical_mode and source_id in (ownership.source_experience_ids if ownership else set()) else set(_project_source_ids(project))
         kept: list[str] = []
         detail_fact_ids: list[list[str]] = []
         existing_fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
@@ -145,7 +153,8 @@ def guard_fact_coverage(
             current_best, current_score = _best_fact(detail, current_facts)
             if best and best.experience_id not in source_ids and best_score >= 0.62 and current_score < 0.45:
                 stats.cross_experience_fact_count += 1
-                moves.append((best.experience_id, detail, best.fact_id))
+                if not canonical_mode:
+                    moves.append((best.experience_id, detail, best.fact_id))
                 continue
             kept.append(detail)
             detail_fact_ids.append([current_best.fact_id] if current_best and current_score >= 0.45 else [])
@@ -168,7 +177,11 @@ def guard_fact_coverage(
         if project and str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "") != identity.experience_id:
             project = None
             stats.provenance_conflict_count += 1
-        facts = [fact for fact in ledger.for_experience(identity.experience_id) if fact.resume_ready_text]
+        facts = [
+            fact for fact in ledger.for_experience(identity.experience_id)
+            if fact.resume_ready_text
+            and (not canonical_mode or ownership is None or fact.fact_id in ownership.eligible_fact_ids_by_experience.get(identity.experience_id, ()))
+        ]
         if not project or not facts:
             stats.missing_fact_ids.extend(fact.fact_id for fact in facts if fact.importance == "high")
             stats.coverage_by_experience_id[identity.experience_id] = 0.0

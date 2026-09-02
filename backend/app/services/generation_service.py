@@ -75,6 +75,7 @@ from .canonical_semantic_state_service import (
     build_canonical_semantic_build,
     build_canonical_semantic_state_from_build,
     write_canonical_semantic_state_log,
+    write_canonical_fact_ownership_log,
 )
 from .resource_protection_service import resource_protection
 
@@ -543,24 +544,49 @@ def create_generation(
     log_generation_stage(payload, "after_llm")
     payload = normalize_resume_section_schema(payload)
     payload = cleanup_generation_payload(payload, source=mode)
-    payload = bind_projects_to_experience_slots(payload, request.raw_input, stage="after_llm")
     log_generation_stage(payload, "after_normalize")
     payload = guard_hard_facts(payload, request.raw_input)
     payload, resume_fallback_stats = fill_resume_sections(
         payload, stage="generation", raw_input=request.raw_input, return_stats=True,
+        semantic_build=semantic_build,
     )
     payload = ensure_resume_experience_validity(
         payload, request.raw_input, stage="generation_after_fallback",
     )
+    payload, ownership_stats = bind_projects_to_experience_slots(
+        payload,
+        request.raw_input,
+        stage="generation_owner_freeze",
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+        return_stats=True,
+    )
+    write_canonical_fact_ownership_log(
+        semantic_build.ownership_index,
+        stage="generation_owner_frozen",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        frozen_project_count=ownership_stats.frozen_project_count,
+        provisional_owner_count=ownership_stats.provisional_owner_count,
+        rejected_owner_binding_count=ownership_stats.rejected_binding_count,
+        owner_mutation_blocked_count=ownership_stats.owner_mutation_blocked_count,
+        unresolved_owner_count=ownership_stats.unresolved_owner_count,
+    )
     log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
-    payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
+    payload = guard_experience_boundaries(
+        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+    )
     payload = resolve_resume_roles(payload, request.raw_input, stage="generation")
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
     payload = guard_project_specificity(payload, request.raw_input)
     payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)
     payload = sanitize_resume_body(payload, request.raw_input)
-    payload = reconcile_resume_projects(payload, request.raw_input, stage="generation")
+    payload = reconcile_resume_projects(
+        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+    )
     log_generation_stage(payload, "after_reconciliation")
     payload = deduplicate_resume_facts(payload, stage="generation_pre_coverage")
     payload = resolve_project_types(
@@ -570,9 +596,15 @@ def create_generation(
     )
     route_resume_projects(payload.resume_sections.projects)
     log_generation_stage(payload, "after_type_resolution")
-    payload = guard_fact_coverage(payload, request.raw_input, stage="generation")
+    payload = guard_fact_coverage(
+        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+    )
     log_generation_stage(payload, "after_fact_coverage")
-    payload = guard_experience_boundaries(payload, request.raw_input, stage="generation")
+    payload = guard_experience_boundaries(
+        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
+    )
     narrative_changes: dict[str, int] = {}
     payload = layer_resume_sections(payload, stage="generation")
     payload = ensure_resume_fact_increment(payload, narrative_changes)
@@ -621,7 +653,8 @@ def create_generation(
     )
     payload = resolve_resume_titles(payload, request.raw_input)
     payload = deduplicate_resume_experience_entities(
-        payload, request.raw_input, stage="before_save",
+        payload, request.raw_input, stage="before_save", semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index,
     )
     payload = ensure_resume_experience_validity(
         payload, request.raw_input, stage="before_save",
@@ -664,6 +697,18 @@ def create_generation(
             attempt_id=request.attempt_id or "",
             generation_result_id=result.id,
         )
+    write_canonical_fact_ownership_log(
+        semantic_build.ownership_index,
+        stage="generation_owner_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
+        frozen_project_count=ownership_stats.frozen_project_count,
+        provisional_owner_count=ownership_stats.provisional_owner_count,
+        rejected_owner_binding_count=ownership_stats.rejected_binding_count,
+        owner_mutation_blocked_count=ownership_stats.owner_mutation_blocked_count,
+        unresolved_owner_count=ownership_stats.unresolved_owner_count,
+    )
     write_claim_resolution_log(
         claim_resolutions,
         stage="generation_saved",

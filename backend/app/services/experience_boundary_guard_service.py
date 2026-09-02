@@ -11,6 +11,10 @@ from .experience_identity_service import ExperienceIdentity, build_experience_id
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 from .resume_role_resolution_service import resolve_role_for_experience
 from .experience_slot_service import fact_owner_id
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalFactOwnershipIndex, CanonicalSemanticBuild
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -188,8 +192,12 @@ def guard_experience_boundaries(
     generation_result_id: int | None = None,
     stage: str = "unknown",
     write_log: bool = True,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    ownership_index: "CanonicalFactOwnershipIndex | None" = None,
 ) -> schemas.GenerationPayload:
-    segments = build_experience_identities(raw_input)
+    canonical_mode = semantic_build is not None or ownership_index is not None
+    ownership = ownership_index or (semantic_build.ownership_index if semantic_build is not None else None)
+    segments = list(semantic_build.identities) if semantic_build is not None else build_experience_identities(raw_input)
     stats = BoundaryStats(generation_result_id=generation_result_id, stage=stage)
     stats.total_experiences = len(segments)
     stats.project_count = len(payload.resume_sections.projects)
@@ -205,7 +213,7 @@ def guard_experience_boundaries(
         return payload
 
     updated = payload.model_copy(deep=True)
-    ledger = build_experience_fact_ledger(raw_input)
+    ledger = semantic_build.ledger if semantic_build is not None else build_experience_fact_ledger(raw_input)
     all_terms = _global_terms(segments)
     guarded_projects: list[dict[str, Any]] = []
     pending_moves: list[tuple[str, str, str]] = []
@@ -216,15 +224,27 @@ def guard_experience_boundaries(
             stats.projects_with_source_id += 1
         else:
             stats.projects_missing_source_id += 1
-        segment = _match_project_to_segment(guarded, segments, index)
+        frozen_owner = str(guarded.get("immutable_source_experience_id") or "")
+        if canonical_mode:
+            segment = next((item for item in segments if item.experience_id == frozen_owner), None) if frozen_owner else None
+            if segment is None or (ownership is not None and frozen_owner not in ownership.source_experience_ids):
+                # Ownership is not evidence we may recreate here. Keep the
+                # project for later validity handling, but do not guess.
+                stats.unmatched_project_count += 1
+                guarded.pop("source_experience_id", None)
+                guarded_projects.append(guarded)
+                continue
+        else:
+            segment = _match_project_to_segment(guarded, segments, index)
         if not segment:
             stats.unmatched_project_count += 1
             guarded_projects.append(guarded)
             continue
-        guarded["source_experience_id"] = segment.experience_id
-        guarded["immutable_source_experience_id"] = segment.experience_id
+        if not canonical_mode:
+            guarded["source_experience_id"] = segment.experience_id
+            guarded["immutable_source_experience_id"] = segment.experience_id
 
-        related_ids = set(_project_source_ids(guarded)) or {segment.experience_id}
+        related_ids = {segment.experience_id} if canonical_mode else (set(_project_source_ids(guarded)) or {segment.experience_id})
         related_segments = [item for item in segments if item.experience_id in related_ids] or [segment]
         related_raw_text = "\n".join(item.raw_text for item in related_segments)
         related_allowed_terms: set[str] = set()
@@ -285,7 +305,8 @@ def guard_experience_boundaries(
             local_score = local_ranked[0][1] if local_ranked else 0.0
             if best_fact and best_fact.experience_id not in related_ids and best_score >= 0.62 and local_score < 0.45:
                 stats.fixed(f"projects[{index}].details")
-                pending_moves.append((best_fact.experience_id, detail_text, best_fact.fact_id))
+                if not canonical_mode:
+                    pending_moves.append((best_fact.experience_id, detail_text, best_fact.fact_id))
                 continue
             details.append(detail_text)
             kept_fact_rows.append(fact_ids)

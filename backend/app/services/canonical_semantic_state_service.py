@@ -18,6 +18,7 @@ from .structured_log_service import stable_hash
 
 SEMANTIC_SCHEMA_VERSION = "canonical-semantic-state/v1"
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_semantic_state.jsonl"
+OWNERSHIP_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fact_ownership.jsonl"
 _NON_RESUME_ROLES = {"USER_INSTRUCTION", "NEGATIVE_CONSTRAINT", "UNCERTAIN_FACT"}
 CANONICAL_EXPERIENCE_TYPES = (
     "项目经历",
@@ -96,6 +97,28 @@ class CanonicalExperienceTypeDecision:
 
 
 @dataclass(frozen=True)
+class CanonicalFactOwnershipIndex:
+    """Request-scoped owner index projected from the canonical ledger.
+
+    It deliberately contains identifiers only.  Presentation code may use it to
+    validate ownership, but never needs a second copy of user text to do so.
+    """
+
+    fact_owner_by_id: dict[str, str]
+    claim_owner_by_id: dict[str, str]
+    eligible_fact_ids_by_experience: dict[str, tuple[str, ...]]
+    eligible_claim_ids_by_experience: dict[str, tuple[str, ...]]
+    source_experience_ids: tuple[str, ...]
+    ownership_fingerprint: str
+
+    def fact_owner(self, fact_id: str) -> str:
+        return self.fact_owner_by_id.get(str(fact_id or ""), "")
+
+    def claim_owner(self, claim_id: str) -> str:
+        return self.claim_owner_by_id.get(str(claim_id or ""), "")
+
+
+@dataclass(frozen=True)
 class CanonicalSemanticState:
     source: CanonicalSemanticSource
     experiences: tuple[CanonicalExperience, ...]
@@ -120,6 +143,7 @@ class CanonicalSemanticBuild:
     semantic_analyses: tuple[InputSemanticAnalysis, ...]
     claim_resolutions: tuple[ClaimResolution, ...]
     ledger: ExperienceFactLedger
+    ownership_index: CanonicalFactOwnershipIndex
     state: CanonicalSemanticState | None = None
 
     @property
@@ -207,6 +231,44 @@ def _build_experience_type_decision(identity: ExperienceIdentity) -> CanonicalEx
     )
 
 
+def _build_ownership_index(ledger: ExperienceFactLedger) -> CanonicalFactOwnershipIndex:
+    fact_owner_by_id: dict[str, str] = {}
+    claim_owner_by_id: dict[str, str] = {}
+    eligible_fact_ids_by_experience: dict[str, list[str]] = {}
+    eligible_claim_ids_by_experience: dict[str, list[str]] = {}
+
+    for claim in ledger.claims:
+        owner = str(claim.source_experience_id or "")
+        if not owner:
+            continue
+        claim_owner_by_id[claim.claim_id] = owner
+        if claim.eligibility == ELIGIBLE:
+            eligible_claim_ids_by_experience.setdefault(owner, []).append(claim.claim_id)
+    for fact in ledger.facts:
+        owner = str(fact.experience_id or "")
+        if not owner:
+            continue
+        fact_owner_by_id[fact.fact_id] = owner
+        if fact.eligibility == ELIGIBLE:
+            eligible_fact_ids_by_experience.setdefault(owner, []).append(fact.fact_id)
+
+    serializable = {
+        "fact_owner_by_id": fact_owner_by_id,
+        "claim_owner_by_id": claim_owner_by_id,
+        "eligible_fact_ids_by_experience": eligible_fact_ids_by_experience,
+        "eligible_claim_ids_by_experience": eligible_claim_ids_by_experience,
+    }
+    encoded = json.dumps(serializable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return CanonicalFactOwnershipIndex(
+        fact_owner_by_id=fact_owner_by_id,
+        claim_owner_by_id=claim_owner_by_id,
+        eligible_fact_ids_by_experience={key: tuple(value) for key, value in eligible_fact_ids_by_experience.items()},
+        eligible_claim_ids_by_experience={key: tuple(value) for key, value in eligible_claim_ids_by_experience.items()},
+        source_experience_ids=tuple(sorted({*fact_owner_by_id.values(), *claim_owner_by_id.values()})),
+        ownership_fingerprint=hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:24],
+    )
+
+
 def build_canonical_semantic_build(
     raw_input: str,
     *,
@@ -230,6 +292,7 @@ def build_canonical_semantic_build(
         semantic_analyses=semantic_analyses,
         claim_resolutions=claim_resolutions,
     )
+    ownership_index = _build_ownership_index(ledger)
     return CanonicalSemanticBuild(
         long_input_context=context,
         raw_input_hash=stable_hash(raw_input, purpose="canonical_semantic_state"),
@@ -238,6 +301,7 @@ def build_canonical_semantic_build(
         semantic_analyses=semantic_analyses,
         claim_resolutions=claim_resolutions,
         ledger=ledger,
+        ownership_index=ownership_index,
     )
 
 
@@ -348,6 +412,46 @@ def write_canonical_semantic_state_log(
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def write_canonical_fact_ownership_log(
+    ownership_index: CanonicalFactOwnershipIndex,
+    *,
+    stage: str,
+    request_id: str = "",
+    attempt_id: str = "",
+    generation_result_id: int | None = None,
+    frozen_project_count: int = 0,
+    provisional_owner_count: int = 0,
+    rejected_owner_binding_count: int = 0,
+    owner_mutation_blocked_count: int = 0,
+    foreign_fact_removed_count: int = 0,
+    local_fact_recovered_count: int = 0,
+    unresolved_owner_count: int = 0,
+) -> None:
+    """Write aggregate ownership observability without resume text or titles."""
+    entry = {
+        "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        "stage": stage,
+        "request_id": request_id,
+        "attempt_id": attempt_id,
+        "generation_result_id": generation_result_id,
+        "frozen_project_count": frozen_project_count,
+        "provisional_owner_count": provisional_owner_count,
+        "rejected_owner_binding_count": rejected_owner_binding_count,
+        "owner_mutation_blocked_count": owner_mutation_blocked_count,
+        "foreign_fact_removed_count": foreign_fact_removed_count,
+        "local_fact_recovered_count": local_fact_recovered_count,
+        "unresolved_owner_count": unresolved_owner_count,
+        "affected_source_experience_ids": list(ownership_index.source_experience_ids),
+        "ownership_fingerprint": ownership_index.ownership_fingerprint,
+    }
+    try:
+        OWNERSHIP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with OWNERSHIP_LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         return

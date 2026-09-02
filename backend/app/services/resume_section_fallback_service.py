@@ -10,6 +10,10 @@ from .experience_identity_service import ExperienceIdentity, build_experience_id
 from .experience_fact_ledger_service import build_experience_fact_ledger
 from .resume_role_resolution_service import is_internal_or_generic_role, resolve_role_for_experience
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalSemanticBuild
 from .resume_experience_validity_service import ensure_resume_experience_validity, is_valid_fallback_candidate
 
 
@@ -448,10 +452,9 @@ def _assign_source_experience_ids(projects: list, raw_input: str, stats: Fallbac
             # Historical payloads predate binding metadata. A matching ID is
             # unambiguous only in the singleton case; multi-experience payloads
             # still require strong local evidence below.
-            project["immutable_source_experience_id"] = source_id
-            project["source_binding_origin"] = "singleton_existing_id"
+            project["source_binding_origin"] = "singleton_existing_id_candidate"
             project["source_binding_confidence"] = 1.0
-            project["source_binding_locked"] = True
+            project["source_binding_locked"] = False
             assigned.append(project)
             used_ids.add(source_id)
             stats.used_experience_id = True
@@ -465,10 +468,9 @@ def _assign_source_experience_ids(projects: list, raw_input: str, stats: Fallbac
         # frameworks and a merely unique low score are not sufficient.
         if chosen and best_score >= 14 and best_score - second_score >= 6 and chosen.experience_id not in used_ids:
             project["source_experience_id"] = chosen.experience_id
-            project["immutable_source_experience_id"] = chosen.experience_id
-            project["source_binding_origin"] = "fallback_strong_local_match"
+            project["source_binding_origin"] = "fallback_strong_local_match_candidate"
             project["source_binding_confidence"] = min(1.0, best_score / 20)
-            project["source_binding_locked"] = True
+            project["source_binding_locked"] = False
             used_ids.add(chosen.experience_id)
             stats.used_experience_id = True
             stats.fallback_bindings.append({
@@ -535,10 +537,9 @@ def _projects_from_identities(raw_input: str, stats: FallbackStats) -> list[dict
                 "role": role,
                 "details": details,
                 "source_experience_id": identity.experience_id,
-                "immutable_source_experience_id": identity.experience_id,
-                "source_binding_origin": "local_fact_fallback",
+                "source_binding_origin": "local_fact_fallback_candidate",
                 "source_binding_confidence": 1.0,
-                "source_binding_locked": True,
+                "source_binding_locked": False,
                 "source_fact_ids": [fact.fact_id for fact in local_facts[:6]],
                 "detail_fact_ids": [[fact.fact_id] for fact in local_facts[:6]],
                 "role_source_fact_ids": role_fact_ids,
@@ -634,10 +635,17 @@ def fill_resume_sections(
     raw_input: str = "",
     write_log: bool = True,
     return_stats: bool = False,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
 ) -> schemas.GenerationPayload | tuple[schemas.GenerationPayload, FallbackStats]:
     stats = FallbackStats(generation_result_id=generation_result_id, stage=stage)
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
+    if semantic_build is not None:
+        # This service may supply a candidate owner, never a frozen one.
+        for project in sections.get("projects", []) if isinstance(sections.get("projects"), list) else []:
+            if isinstance(project, dict):
+                project.pop("immutable_source_experience_id", None)
+                project["source_binding_locked"] = False
 
     source, source_field = _source_text(data)
     raw_source = _text(raw_input)
@@ -733,6 +741,8 @@ def fill_resume_sections(
         stage=f"{stage}_fallback",
         generation_result_id=generation_result_id,
         write_log=write_log,
+        semantic_build=semantic_build,
+        ownership_index=semantic_build.ownership_index if semantic_build is not None else None,
     )
     if stats.fallback_sections or stats.fallback_candidate_rejected_count:
         filled = ensure_resume_experience_validity(

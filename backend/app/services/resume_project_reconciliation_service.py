@@ -13,6 +13,10 @@ from .experience_fact_ledger_service import build_experience_fact_ledger, fact_m
 from .project_hierarchy_service import merge_parent_child_projects
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalFactOwnershipIndex, CanonicalSemanticBuild
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -212,8 +216,8 @@ def _assign_project_sources(
     return coverage
 
 
-def _apply_detail_budget(projects: list[dict], raw_input: str) -> None:
-    ledger = build_experience_fact_ledger(raw_input)
+def _apply_detail_budget(projects: list[dict], raw_input: str, ledger=None) -> None:
+    ledger = ledger or build_experience_fact_ledger(raw_input)
     prepared: list[list[str]] = []
     for project in projects:
         details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
@@ -290,9 +294,13 @@ def reconcile_resume_projects(
     stage: str = "generation",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    semantic_build: "CanonicalSemanticBuild | None" = None,
+    ownership_index: "CanonicalFactOwnershipIndex | None" = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
-    identities = build_experience_identities(raw_input)
+    canonical_mode = semantic_build is not None or ownership_index is not None
+    ownership = ownership_index or (semantic_build.ownership_index if semantic_build is not None else None)
+    identities = list(semantic_build.identities) if semantic_build is not None else build_experience_identities(raw_input)
     projects = [deepcopy(item) for item in updated.resume_sections.projects if isinstance(item, dict)]
     stats = ReconciliationStats(generation_result_id=generation_result_id, stage=stage)
     stats.total_experiences = len(identities)
@@ -302,7 +310,7 @@ def reconcile_resume_projects(
     concrete = [item for item in projects if not _is_comprehensive(item)]
     stats.comprehensive_projects_found = len(comprehensive)
 
-    if comprehensive and not concrete and len(identities) == 1:
+    if comprehensive and not concrete and len(identities) == 1 and not canonical_mode:
         project = comprehensive[0]
         identity = identities[0]
         project["name"] = identity.title or identity.experience_type
@@ -311,8 +319,15 @@ def reconcile_resume_projects(
         concrete = [project]
         comprehensive = []
 
-    coverage = _assign_project_sources(concrete, identities, stats)
-    for generic_project in comprehensive:
+    if canonical_mode:
+        coverage = {
+            str(project.get("immutable_source_experience_id") or ""): index
+            for index, project in enumerate(concrete)
+            if str(project.get("immutable_source_experience_id") or "") in (ownership.source_experience_ids if ownership else ())
+        }
+    else:
+        coverage = _assign_project_sources(concrete, identities, stats)
+    for generic_project in ([] if canonical_mode else comprehensive):
         for detail in generic_project.get("details", []) or []:
             detail_text = str(detail).strip()
             owner_id, owner_score, owner_fact_id = _match_detail_fact_owner(detail_text, raw_input)
@@ -347,8 +362,9 @@ def reconcile_resume_projects(
         generation_result_id=generation_result_id,
         write_log=write_log,
     )
-    _apply_detail_budget(concrete, raw_input)
-    coverage = _assign_project_sources(concrete, identities, stats)
+    _apply_detail_budget(concrete, raw_input, semantic_build.ledger if semantic_build is not None else None)
+    if not canonical_mode:
+        coverage = _assign_project_sources(concrete, identities, stats)
     stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in coverage]
     stats.projects_after = len(concrete)
     stats.project_names = [str(item.get("name") or "") for item in concrete]
@@ -360,6 +376,8 @@ def reconcile_resume_projects(
         generation_result_id=generation_result_id,
         write_log=write_log,
         apply_hierarchy=False,
+        semantic_build=semantic_build,
+        ownership_index=ownership,
     )
     updated = ensure_resume_experience_validity(
         updated,
