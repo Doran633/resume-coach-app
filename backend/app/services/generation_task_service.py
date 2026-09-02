@@ -156,7 +156,7 @@ class GenerationTaskManager:
         heartbeat.start()
         db = SessionLocal()
         try:
-            result = create_generation(db, request)
+            result = create_generation(db, request, request_id=state.request_id)
             state = self.get(attempt_id)
             if state:
                 state.status = "succeeded"

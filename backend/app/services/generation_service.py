@@ -73,6 +73,10 @@ from .input_claim_resolution_service import (
     resolve_experience_claims,
     write_claim_resolution_log,
 )
+from .canonical_semantic_state_service import (
+    build_canonical_semantic_state,
+    write_canonical_semantic_state_log,
+)
 from .resource_protection_service import resource_protection
 
 
@@ -424,7 +428,12 @@ def build_llm_generation(request: schemas.GenerateRequest, long_input_context: L
     raise GenerationServiceError(f"LLM JSON validation failed after retry: {last_error}")
 
 
-def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.GenerateResponse:
+def create_generation(
+    db: Session,
+    request: schemas.GenerateRequest,
+    *,
+    request_id: str = "",
+) -> schemas.GenerateResponse:
     started_at = time.perf_counter()
     long_input_context = analyze_long_input(request.raw_input, write_segmentation_log=True, stage="generation")
     identities_for_roles = build_experience_identities(request.raw_input)
@@ -455,6 +464,22 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     db.add(experience)
     db.commit()
     db.refresh(experience)
+
+    shadow_semantic_state = None
+    try:
+        shadow_semantic_state = build_canonical_semantic_state(
+            request.raw_input,
+            experience_input_id=experience.id,
+        )
+        write_canonical_semantic_state_log(
+            shadow_semantic_state,
+            stage="generation_shadow_built",
+            request_id=request_id,
+            attempt_id=request.attempt_id or "",
+        )
+    except Exception:
+        # Phase 1 observation must never turn a previously valid generation into a failure.
+        shadow_semantic_state = None
 
     mode = get_llm_mode()
     llm_log = {
@@ -626,6 +651,14 @@ def create_generation(db: Session, request: schemas.GenerateRequest) -> schemas.
     db.add(result)
     db.commit()
     db.refresh(result)
+    if shadow_semantic_state is not None:
+        write_canonical_semantic_state_log(
+            shadow_semantic_state,
+            stage="generation_shadow_saved",
+            request_id=request_id,
+            attempt_id=request.attempt_id or "",
+            generation_result_id=result.id,
+        )
     write_claim_resolution_log(
         claim_resolutions,
         stage="generation_saved",
