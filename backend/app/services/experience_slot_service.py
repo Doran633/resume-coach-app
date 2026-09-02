@@ -77,6 +77,33 @@ def _project_text(project: dict) -> str:
     ])
 
 
+def _bound_fact_owner_ids(project: dict) -> set[str]:
+    """Return only explicit Fact-ID owners already attached to a project."""
+    fact_ids: list[str] = []
+    for key in ("source_fact_ids", "role_source_fact_ids"):
+        values = project.get(key, [])
+        if isinstance(values, list):
+            fact_ids.extend(str(value) for value in values if value)
+    for row in project.get("detail_fact_ids", []) if isinstance(project.get("detail_fact_ids"), list) else []:
+        if isinstance(row, list):
+            fact_ids.extend(str(value) for value in row if value)
+    return {owner for owner in (fact_owner_id(value) for value in fact_ids) if owner}
+
+
+def _is_verified_singleton_candidate(
+    project: dict,
+    candidate_owner: str,
+    identities: list[ExperienceIdentity],
+    canonical_index: "CanonicalFactOwnershipIndex | None",
+) -> bool:
+    """Accept the sole canonical owner only when attached Fact provenance agrees."""
+    if canonical_index is None or len(identities) != 1:
+        return False
+    if canonical_index.source_experience_ids != (candidate_owner,):
+        return False
+    return _bound_fact_owner_ids(project).issubset({candidate_owner})
+
+
 def _candidate_score(project: dict, identity: ExperienceIdentity, raw_input: str, ledger=None) -> tuple[float, list[str]]:
     project_title = _normalize_title(project.get("name", ""))
     identity_titles = [_normalize_title(identity.title), _normalize_title(identity.canonical_project_name)]
@@ -173,18 +200,28 @@ def bind_projects_to_experience_slots(
         confidence = 0.0
 
         if existing in identity_by_id:
-            existing_score, existing_reasons = _candidate_score(project, identity_by_id[existing], raw_input, ledger)
-            if existing_score >= 0.62 and existing not in used:
+            if canonical_mode and existing not in used and _is_verified_singleton_candidate(
+                project, existing, identities, canonical_index,
+            ):
+                # A valid candidate for the only canonical experience has no
+                # competing owner. This is provenance validation, not a
+                # positional or keyword-based ownership inference.
                 chosen = identity_by_id[existing]
-                origin = "llm_id_validated"
-                confidence = existing_score
-            elif best and best[1] >= 0.72 and best[1] - runner_score >= 0.16:
-                chosen = best[0]
-                origin = "corrected_by_title_and_local_fact"
-                confidence = best[1]
-                stats.provenance_conflict_count += 1
+                origin = "canonical_singleton_candidate"
+                confidence = 1.0
             else:
-                stats.rejected_binding_count += 1
+                existing_score, existing_reasons = _candidate_score(project, identity_by_id[existing], raw_input, ledger)
+                if existing_score >= 0.62 and existing not in used:
+                    chosen = identity_by_id[existing]
+                    origin = "llm_id_validated"
+                    confidence = existing_score
+                elif best and best[1] >= 0.72 and best[1] - runner_score >= 0.16:
+                    chosen = best[0]
+                    origin = "corrected_by_title_and_local_fact"
+                    confidence = best[1]
+                    stats.provenance_conflict_count += 1
+                else:
+                    stats.rejected_binding_count += 1
         elif existing:
             stats.rejected_binding_count += 1
         elif best and best[1] >= 0.72 and best[1] - runner_score >= 0.16:

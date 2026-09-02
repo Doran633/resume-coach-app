@@ -28,6 +28,9 @@ RAW = """项目一：回归分析计算器
 校园经历：迎新志愿活动
 参加迎新志愿活动，负责引导新生和搬运物资，没有技术开发职责。"""
 
+SINGLE_RAW = """项目经历：课程资料助手
+独立完成课程资料助手，支持资料整理与检索问答。"""
+
 
 def _payload(projects: list[dict]) -> schemas.GenerationPayload:
     return schemas.GenerationPayload(
@@ -86,6 +89,54 @@ def test_unowned_project_is_not_positionally_bound_in_canonical_mode():
     assert "immutable_source_experience_id" not in result.resume_sections.projects[0]
     assert not result.resume_sections.projects[0].get("source_experience_id")
     assert stats.unresolved_owner_count == 1
+
+
+def test_singleton_valid_candidate_freezes_despite_low_text_similarity():
+    build = build_canonical_semantic_build(SINGLE_RAW)
+    owner = build.identities[0].experience_id
+    payload = _payload([{
+        "name": "展示页面", "meta": "项目经历", "time": "[待填写]", "intro": "", "role": "", "details": ["已完成"],
+        "source_experience_id": owner,
+    }])
+
+    result, stats = bind_projects_to_experience_slots(
+        payload, SINGLE_RAW, semantic_build=build, ownership_index=build.ownership_index, return_stats=True,
+    )
+    project = result.resume_sections.projects[0]
+    assert project["immutable_source_experience_id"] == owner
+    assert project["source_binding_origin"] == "canonical_singleton_candidate"
+    assert stats.frozen_project_count == 1
+
+
+def test_singleton_candidate_rejects_foreign_fact_owner():
+    build = build_canonical_semantic_build(SINGLE_RAW)
+    owner = build.identities[0].experience_id
+    payload = _payload([{
+        "name": "展示页面", "meta": "项目经历", "time": "[待填写]", "intro": "", "role": "", "details": ["已完成"],
+        "source_experience_id": owner,
+        "detail_fact_ids": [["EXP-999-F001"]],
+    }])
+
+    result, stats = bind_projects_to_experience_slots(
+        payload, SINGLE_RAW, semantic_build=build, ownership_index=build.ownership_index, return_stats=True,
+    )
+    assert "immutable_source_experience_id" not in result.resume_sections.projects[0]
+    assert stats.rejected_binding_count == 1
+
+
+def test_multi_experience_low_score_candidate_remains_rejected():
+    build = build_canonical_semantic_build(RAW)
+    candidate = build.identities[0].experience_id
+    payload = _payload([{
+        "name": "展示页面", "meta": "项目经历", "time": "[待填写]", "intro": "", "role": "", "details": ["已完成"],
+        "source_experience_id": candidate,
+    }])
+
+    result, stats = bind_projects_to_experience_slots(
+        payload, RAW, semantic_build=build, ownership_index=build.ownership_index, return_stats=True,
+    )
+    assert "immutable_source_experience_id" not in result.resume_sections.projects[0]
+    assert stats.rejected_binding_count == 1
 
 
 def test_boundary_and_coverage_remove_foreign_fact_without_moving_it():
