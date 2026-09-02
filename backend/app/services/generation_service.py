@@ -72,10 +72,12 @@ from .input_claim_resolution_service import (
     write_claim_resolution_log,
 )
 from .canonical_semantic_state_service import (
+    CanonicalScopedFactAccessStats,
     build_canonical_semantic_build,
     build_canonical_semantic_state_from_build,
     write_canonical_semantic_state_log,
     write_canonical_fact_ownership_log,
+    write_canonical_scoped_fact_access_log,
 )
 from .resource_protection_service import resource_protection
 
@@ -572,11 +574,13 @@ def create_generation(
         owner_mutation_blocked_count=ownership_stats.owner_mutation_blocked_count,
         unresolved_owner_count=ownership_stats.unresolved_owner_count,
     )
+    scoped_fact_access_stats = CanonicalScopedFactAccessStats()
     log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
     payload = guard_experience_boundaries(
         payload, request.raw_input, stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
+        scoped_access_stats=scoped_fact_access_stats,
     )
     payload = resolve_resume_roles(payload, request.raw_input, stage="generation")
     payload = cleanup_uncertain_expressions(payload, request.raw_input)
@@ -586,6 +590,7 @@ def create_generation(
     payload = reconcile_resume_projects(
         payload, request.raw_input, stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
+        scoped_access_stats=scoped_fact_access_stats,
     )
     log_generation_stage(payload, "after_reconciliation")
     payload = deduplicate_resume_facts(payload, stage="generation_pre_coverage")
@@ -599,11 +604,13 @@ def create_generation(
     payload = guard_fact_coverage(
         payload, request.raw_input, stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
+        scoped_access_stats=scoped_fact_access_stats,
     )
     log_generation_stage(payload, "after_fact_coverage")
     payload = guard_experience_boundaries(
         payload, request.raw_input, stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
+        scoped_access_stats=scoped_fact_access_stats,
     )
     narrative_changes: dict[str, int] = {}
     payload = layer_resume_sections(payload, stage="generation")
@@ -655,6 +662,7 @@ def create_generation(
     payload = deduplicate_resume_experience_entities(
         payload, request.raw_input, stage="before_save", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
+        scoped_access_stats=scoped_fact_access_stats,
     )
     payload = ensure_resume_experience_validity(
         payload, request.raw_input, stage="before_save",
@@ -708,6 +716,14 @@ def create_generation(
         rejected_owner_binding_count=ownership_stats.rejected_binding_count,
         owner_mutation_blocked_count=ownership_stats.owner_mutation_blocked_count,
         unresolved_owner_count=ownership_stats.unresolved_owner_count,
+    )
+    write_canonical_scoped_fact_access_log(
+        semantic_build.ownership_index,
+        scoped_fact_access_stats,
+        stage="generation_scoped_access_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
     )
     write_claim_resolution_log(
         claim_resolutions,

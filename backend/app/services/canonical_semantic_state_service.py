@@ -19,6 +19,7 @@ from .structured_log_service import stable_hash
 SEMANTIC_SCHEMA_VERSION = "canonical-semantic-state/v1"
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_semantic_state.jsonl"
 OWNERSHIP_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fact_ownership.jsonl"
+SCOPED_ACCESS_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_scoped_fact_access.jsonl"
 _NON_RESUME_ROLES = {"USER_INSTRUCTION", "NEGATIVE_CONSTRAINT", "UNCERTAIN_FACT"}
 CANONICAL_EXPERIENCE_TYPES = (
     "项目经历",
@@ -116,6 +117,61 @@ class CanonicalFactOwnershipIndex:
 
     def claim_owner(self, claim_id: str) -> str:
         return self.claim_owner_by_id.get(str(claim_id or ""), "")
+
+
+@dataclass(frozen=True)
+class CanonicalFactScope:
+    """Identifier-only read permission for one frozen experience owner.
+
+    The scope deliberately stores no user text. Callers provide the existing
+    request-local ledger when they need the eligible facts for this owner.
+    """
+
+    source_experience_id: str
+    eligible_fact_ids: tuple[str, ...]
+    eligible_claim_ids: tuple[str, ...]
+
+    def permits_fact(self, fact_id: str) -> bool:
+        return str(fact_id or "") in self.eligible_fact_ids
+
+    def permits_claim(self, claim_id: str) -> bool:
+        return str(claim_id or "") in self.eligible_claim_ids
+
+    def eligible_facts(self, ledger: ExperienceFactLedger) -> list:
+        return [
+            fact
+            for fact in ledger.for_experience(self.source_experience_id)
+            if self.permits_fact(fact.fact_id)
+        ]
+
+
+@dataclass
+class CanonicalScopedFactAccessStats:
+    """Aggregate-only observability for post-freeze scoped consumers."""
+
+    scoped_read_count: int = 0
+    rejected_cross_owner_access_count: int = 0
+    local_fact_recovered_count: int = 0
+    unowned_project_skipped_count: int = 0
+    raw_input_fallback_blocked_count: int = 0
+
+    def record_scope_read(self) -> None:
+        self.scoped_read_count += 1
+
+
+def canonical_fact_scope_for_owner(
+    ownership_index: CanonicalFactOwnershipIndex | None,
+    source_experience_id: str,
+) -> CanonicalFactScope | None:
+    """Return the eligible-only fact view for a canonical owner, if known."""
+    owner = str(source_experience_id or "")
+    if ownership_index is None or owner not in ownership_index.source_experience_ids:
+        return None
+    return CanonicalFactScope(
+        source_experience_id=owner,
+        eligible_fact_ids=ownership_index.eligible_fact_ids_by_experience.get(owner, ()),
+        eligible_claim_ids=ownership_index.eligible_claim_ids_by_experience.get(owner, ()),
+    )
 
 
 @dataclass(frozen=True)
@@ -452,6 +508,38 @@ def write_canonical_fact_ownership_log(
     try:
         OWNERSHIP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with OWNERSHIP_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def write_canonical_scoped_fact_access_log(
+    ownership_index: CanonicalFactOwnershipIndex,
+    access_stats: CanonicalScopedFactAccessStats,
+    *,
+    stage: str,
+    request_id: str = "",
+    attempt_id: str = "",
+    generation_result_id: int | None = None,
+) -> None:
+    """Write only aggregate scoped-access diagnostics; never resume content."""
+    entry = {
+        "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        "stage": stage,
+        "request_id": request_id,
+        "attempt_id": attempt_id,
+        "generation_result_id": generation_result_id,
+        "scoped_read_count": access_stats.scoped_read_count,
+        "rejected_cross_owner_access_count": access_stats.rejected_cross_owner_access_count,
+        "local_fact_recovered_count": access_stats.local_fact_recovered_count,
+        "unowned_project_skipped_count": access_stats.unowned_project_skipped_count,
+        "raw_input_fallback_blocked_count": access_stats.raw_input_fallback_blocked_count,
+        "affected_source_experience_ids": list(ownership_index.source_experience_ids),
+        "ownership_fingerprint": ownership_index.ownership_fingerprint,
+    }
+    try:
+        SCOPED_ACCESS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with SCOPED_ACCESS_LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         return

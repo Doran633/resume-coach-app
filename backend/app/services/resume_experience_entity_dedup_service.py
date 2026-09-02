@@ -12,6 +12,7 @@ from .experience_identity_service import ExperienceIdentity, build_experience_id
 from .project_hierarchy_service import is_heading_detail, merge_parent_child_projects
 from .resume_fact_dedup_service import information_score, similarity
 from .resume_experience_validity_service import classify_experience_project, is_forbidden_experience_name
+from .canonical_semantic_state_service import CanonicalScopedFactAccessStats
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -342,6 +343,7 @@ def deduplicate_resume_experience_entities(
     apply_hierarchy: bool = True,
     semantic_build: "CanonicalSemanticBuild | None" = None,
     ownership_index: "CanonicalFactOwnershipIndex | None" = None,
+    scoped_access_stats: CanonicalScopedFactAccessStats | None = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     projects = [deepcopy(item) for item in updated.resume_sections.projects if isinstance(item, dict)]
@@ -358,10 +360,12 @@ def deduplicate_resume_experience_entities(
     if apply_hierarchy:
         projects = merge_parent_child_projects(
             projects,
-            raw_input,
+            "" if canonical_mode else raw_input,
             stage=f"{stage}_entity_dedup",
             generation_result_id=generation_result_id,
             write_log=write_log,
+            identities=identities if canonical_mode else None,
+            require_same_frozen_owner=canonical_mode,
         )
 
     for project in projects:
@@ -383,8 +387,10 @@ def deduplicate_resume_experience_entities(
             if canonical_mode:
                 left_owner = str(existing.get("immutable_source_experience_id") or "")
                 right_owner = str(project.get("immutable_source_experience_id") or "")
-                if left_owner and right_owner and left_owner != right_owner:
+                if left_owner != right_owner:
                     decision = DuplicateDecision(False, "distinct_frozen_source_experience_id", 1.0)
+                    if scoped_access_stats is not None:
+                        scoped_access_stats.rejected_cross_owner_access_count += 1
                 else:
                     decision = _duplicate_decision(existing, project)
             else:

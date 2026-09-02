@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Sequence
 from zoneinfo import ZoneInfo
 
 from .. import schemas
@@ -377,9 +378,14 @@ def merge_parent_child_projects(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    identities: Sequence[ExperienceIdentity] | None = None,
+    require_same_frozen_owner: bool = False,
 ) -> list[dict]:
     rows = [deepcopy(item) for item in projects if isinstance(item, dict)]
-    identities = {item.experience_id: item for item in build_experience_identities(raw_input)} if raw_input else {}
+    identity_map = {
+        item.experience_id: item
+        for item in (identities if identities is not None else (build_experience_identities(raw_input) if raw_input else []))
+    }
     stats = ProjectHierarchyStats(
         created_at=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
         stage=stage,
@@ -388,7 +394,7 @@ def merge_parent_child_projects(
     stats.detected_shell_project_count = sum(is_shell_project(item) for item in rows)
     for left_index in range(len(rows)):
         for right_index in range(left_index + 1, len(rows)):
-            relation = _relation_for_pair(rows[left_index], rows[right_index], left_index, right_index, identities)
+            relation = _relation_for_pair(rows[left_index], rows[right_index], left_index, right_index, identity_map)
             if relation:
                 continue
             left, right = rows[left_index], rows[right_index]
@@ -402,7 +408,13 @@ def merge_parent_child_projects(
         changed = False
         for left_index in range(len(rows)):
             for right_index in range(left_index + 1, len(rows)):
-                relation = _relation_for_pair(rows[left_index], rows[right_index], left_index, right_index, identities)
+                left, right = rows[left_index], rows[right_index]
+                if require_same_frozen_owner:
+                    left_owner = _compact(left.get("immutable_source_experience_id"))
+                    right_owner = _compact(right.get("immutable_source_experience_id"))
+                    if not left_owner or not right_owner or left_owner != right_owner:
+                        continue
+                relation = _relation_for_pair(left, right, left_index, right_index, identity_map)
                 if not relation:
                     continue
                 stats.parent_child_relation_count += 1

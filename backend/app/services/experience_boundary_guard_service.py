@@ -11,6 +11,10 @@ from .experience_identity_service import ExperienceIdentity, build_experience_id
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 from .resume_role_resolution_service import resolve_role_for_experience
 from .experience_slot_service import fact_owner_id
+from .canonical_semantic_state_service import (
+    CanonicalScopedFactAccessStats,
+    canonical_fact_scope_for_owner,
+)
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -186,6 +190,19 @@ def _global_terms(segments: list[ExperienceIdentity]) -> set[str]:
     return result
 
 
+def _scoped_fact_text(facts: list) -> str:
+    return "\n".join(str(fact.fact_text or "") for fact in facts)
+
+
+def _requires_local_evidence(text: str) -> bool:
+    return bool(re.search(
+        r"(?:React|FastAPI|Docker|RAG|Embedding|Nginx|systemd|Python|TypeScript|"
+        r"\d+(?:\.\d+)?\s*(?:%|条|次|token|用户|人)|部署|上线|测试集|命中率|提升|降低)",
+        text or "",
+        re.IGNORECASE,
+    ))
+
+
 def guard_experience_boundaries(
     payload: schemas.GenerationPayload,
     raw_input: str,
@@ -194,6 +211,7 @@ def guard_experience_boundaries(
     write_log: bool = True,
     semantic_build: "CanonicalSemanticBuild | None" = None,
     ownership_index: "CanonicalFactOwnershipIndex | None" = None,
+    scoped_access_stats: CanonicalScopedFactAccessStats | None = None,
 ) -> schemas.GenerationPayload:
     canonical_mode = semantic_build is not None or ownership_index is not None
     ownership = ownership_index or (semantic_build.ownership_index if semantic_build is not None else None)
@@ -214,7 +232,7 @@ def guard_experience_boundaries(
 
     updated = payload.model_copy(deep=True)
     ledger = semantic_build.ledger if semantic_build is not None else build_experience_fact_ledger(raw_input)
-    all_terms = _global_terms(segments)
+    all_terms = set() if canonical_mode else _global_terms(segments)
     guarded_projects: list[dict[str, Any]] = []
     pending_moves: list[tuple[str, str, str]] = []
 
@@ -227,15 +245,21 @@ def guard_experience_boundaries(
         frozen_owner = str(guarded.get("immutable_source_experience_id") or "")
         if canonical_mode:
             segment = next((item for item in segments if item.experience_id == frozen_owner), None) if frozen_owner else None
-            if segment is None or (ownership is not None and frozen_owner not in ownership.source_experience_ids):
+            scope = canonical_fact_scope_for_owner(ownership, frozen_owner)
+            if segment is None or scope is None:
                 # Ownership is not evidence we may recreate here. Keep the
                 # project for later validity handling, but do not guess.
                 stats.unmatched_project_count += 1
+                if scoped_access_stats is not None:
+                    scoped_access_stats.unowned_project_skipped_count += 1
                 guarded.pop("source_experience_id", None)
                 guarded_projects.append(guarded)
                 continue
+            if scoped_access_stats is not None:
+                scoped_access_stats.record_scope_read()
         else:
             segment = _match_project_to_segment(guarded, segments, index)
+            scope = None
         if not segment:
             stats.unmatched_project_count += 1
             guarded_projects.append(guarded)
@@ -246,10 +270,13 @@ def guard_experience_boundaries(
 
         related_ids = {segment.experience_id} if canonical_mode else (set(_project_source_ids(guarded)) or {segment.experience_id})
         related_segments = [item for item in segments if item.experience_id in related_ids] or [segment]
-        related_raw_text = "\n".join(item.raw_text for item in related_segments)
-        related_allowed_terms: set[str] = set()
-        for related_segment in related_segments:
-            related_allowed_terms.update(_allowed_terms(related_segment))
+        local_facts = scope.eligible_facts(ledger) if scope is not None else [
+            fact for related_segment in related_segments for fact in ledger.for_experience(related_segment.experience_id)
+        ]
+        related_raw_text = _scoped_fact_text(local_facts) if canonical_mode else "\n".join(item.raw_text for item in related_segments)
+        related_allowed_terms = set() if canonical_mode else set().union(
+            *(_allowed_terms(related_segment) for related_segment in related_segments),
+        )
 
         blocked_terms = all_terms - related_allowed_terms
         for key in ["intro", "role"]:
@@ -262,11 +289,11 @@ def guard_experience_boundaries(
             if cleaned:
                 guarded[key] = cleaned
             elif key == "intro":
-                local_facts = [fact.resume_ready_text for fact in ledger.for_experience(segment.experience_id) if fact.resume_ready_text]
-                guarded[key] = local_facts[0] if local_facts else ""
+                resume_ready = [fact.resume_ready_text for fact in local_facts if fact.resume_ready_text]
+                guarded[key] = resume_ready[0] if resume_ready else ""
             else:
                 guarded[key], role_fact_ids = resolve_role_for_experience(
-                    raw_input,
+                    "" if canonical_mode else raw_input,
                     segment.experience_id,
                     details=guarded.get("details", []),
                     intro=str(guarded.get("intro") or ""),
@@ -286,9 +313,11 @@ def guard_experience_boundaries(
                 else []
             )
             owners = {fact_owner_id(fact_id) for fact_id in fact_ids if fact_owner_id(fact_id)}
-            if owners and not owners.issubset(related_ids):
+            if owners and (not owners.issubset(related_ids) or (scope is not None and not all(scope.permits_fact(fact_id) for fact_id in fact_ids))):
                 stats.provenance_conflict_count += 1
                 stats.fixed(f"projects[{index}].details")
+                if scoped_access_stats is not None:
+                    scoped_access_stats.rejected_cross_owner_access_count += 1
                 continue
             if any(_contains_term(detail_text, term) for term in blocked_terms):
                 stats.fixed(f"projects[{index}].details")
@@ -296,18 +325,21 @@ def guard_experience_boundaries(
             if _has_metric_contamination(detail_text, related_raw_text):
                 stats.fixed(f"projects[{index}].details")
                 continue
-            all_ranked = sorted(((fact, fact_match_score(detail_text, fact)) for fact in ledger.facts), key=lambda item: item[1], reverse=True)
             local_ranked = sorted(
-                ((fact, fact_match_score(detail_text, fact)) for fact in ledger.facts if fact.experience_id in related_ids),
+                ((fact, fact_match_score(detail_text, fact)) for fact in local_facts),
                 key=lambda item: item[1], reverse=True,
             )
-            best_fact, best_score = all_ranked[0] if all_ranked else (None, 0.0)
             local_score = local_ranked[0][1] if local_ranked else 0.0
-            if best_fact and best_fact.experience_id not in related_ids and best_score >= 0.62 and local_score < 0.45:
+            if canonical_mode and _requires_local_evidence(detail_text) and local_score < 0.45:
                 stats.fixed(f"projects[{index}].details")
-                if not canonical_mode:
-                    pending_moves.append((best_fact.experience_id, detail_text, best_fact.fact_id))
                 continue
+            if not canonical_mode:
+                all_ranked = sorted(((fact, fact_match_score(detail_text, fact)) for fact in ledger.facts), key=lambda item: item[1], reverse=True)
+                best_fact, best_score = all_ranked[0] if all_ranked else (None, 0.0)
+                if best_fact and best_fact.experience_id not in related_ids and best_score >= 0.62 and local_score < 0.45:
+                    stats.fixed(f"projects[{index}].details")
+                    pending_moves.append((best_fact.experience_id, detail_text, best_fact.fact_id))
+                    continue
             details.append(detail_text)
             kept_fact_rows.append(fact_ids)
         guarded["details"] = _dedupe(details)

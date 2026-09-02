@@ -13,6 +13,10 @@ from .experience_fact_ledger_service import build_experience_fact_ledger, fact_m
 from .project_hierarchy_service import merge_parent_child_projects
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
+from .canonical_semantic_state_service import (
+    CanonicalScopedFactAccessStats,
+    canonical_fact_scope_for_owner,
+)
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -216,7 +220,13 @@ def _assign_project_sources(
     return coverage
 
 
-def _apply_detail_budget(projects: list[dict], raw_input: str, ledger=None) -> None:
+def _apply_detail_budget(
+    projects: list[dict],
+    raw_input: str,
+    ledger=None,
+    ownership_index=None,
+    scoped_access_stats: CanonicalScopedFactAccessStats | None = None,
+) -> None:
     ledger = ledger or build_experience_fact_ledger(raw_input)
     prepared: list[list[str]] = []
     for project in projects:
@@ -227,8 +237,11 @@ def _apply_detail_budget(projects: list[dict], raw_input: str, ledger=None) -> N
             # the fact-aware dedup service handles that with source_fact_ids.
             if not any(_similar(detail, existing) >= 0.94 for existing in unique):
                 unique.append(detail)
-        source_id = str(project.get("source_experience_id") or "")
-        local_facts = ledger.for_experience(source_id)
+        source_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
+        scope = canonical_fact_scope_for_owner(ownership_index, source_id) if ownership_index is not None else None
+        local_facts = scope.eligible_facts(ledger) if scope is not None else ledger.for_experience(source_id)
+        if scope is not None and scoped_access_stats is not None:
+            scoped_access_stats.record_scope_read()
 
         def priority(item: tuple[int, str]) -> tuple[int, int]:
             index, detail = item
@@ -296,6 +309,7 @@ def reconcile_resume_projects(
     write_log: bool = True,
     semantic_build: "CanonicalSemanticBuild | None" = None,
     ownership_index: "CanonicalFactOwnershipIndex | None" = None,
+    scoped_access_stats: CanonicalScopedFactAccessStats | None = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     canonical_mode = semantic_build is not None or ownership_index is not None
@@ -325,6 +339,10 @@ def reconcile_resume_projects(
             for index, project in enumerate(concrete)
             if str(project.get("immutable_source_experience_id") or "") in (ownership.source_experience_ids if ownership else ())
         }
+        for project in concrete:
+            owner = str(project.get("immutable_source_experience_id") or "")
+            if canonical_fact_scope_for_owner(ownership, owner) is None and scoped_access_stats is not None:
+                scoped_access_stats.unowned_project_skipped_count += 1
     else:
         coverage = _assign_project_sources(concrete, identities, stats)
     for generic_project in ([] if canonical_mode else comprehensive):
@@ -357,12 +375,20 @@ def reconcile_resume_projects(
 
     concrete = merge_parent_child_projects(
         concrete,
-        raw_input,
+        "" if canonical_mode else raw_input,
         stage=f"{stage}_reconciliation",
         generation_result_id=generation_result_id,
         write_log=write_log,
+        identities=identities if canonical_mode else None,
+        require_same_frozen_owner=canonical_mode,
     )
-    _apply_detail_budget(concrete, raw_input, semantic_build.ledger if semantic_build is not None else None)
+    _apply_detail_budget(
+        concrete,
+        "" if canonical_mode else raw_input,
+        semantic_build.ledger if semantic_build is not None else None,
+        ownership_index=ownership if canonical_mode else None,
+        scoped_access_stats=scoped_access_stats,
+    )
     if not canonical_mode:
         coverage = _assign_project_sources(concrete, identities, stats)
     stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in coverage]
@@ -371,17 +397,18 @@ def reconcile_resume_projects(
     updated.resume_sections.projects = concrete
     updated = deduplicate_resume_experience_entities(
         updated,
-        raw_input,
+        "" if canonical_mode else raw_input,
         stage=f"{stage}_reconciliation",
         generation_result_id=generation_result_id,
         write_log=write_log,
         apply_hierarchy=False,
         semantic_build=semantic_build,
         ownership_index=ownership,
+        scoped_access_stats=scoped_access_stats,
     )
     updated = ensure_resume_experience_validity(
         updated,
-        raw_input,
+        "" if canonical_mode else raw_input,
         stage=f"{stage}_reconciliation",
         generation_result_id=generation_result_id,
         write_log=write_log,
