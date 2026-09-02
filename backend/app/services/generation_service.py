@@ -66,15 +66,14 @@ from .resume_delivery_quality_gate_service import (
 )
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 from .experience_slot_service import bind_projects_to_experience_slots, strip_experience_slot_metadata
-from .experience_identity_service import build_experience_identities
-from .input_semantic_role_service import analyze_experience_semantics, write_semantic_role_log
+from .input_semantic_role_service import write_semantic_role_log
 from .input_claim_resolution_service import (
     build_claim_missing_questions,
-    resolve_experience_claims,
     write_claim_resolution_log,
 )
 from .canonical_semantic_state_service import (
-    build_canonical_semantic_state,
+    build_canonical_semantic_build,
+    build_canonical_semantic_state_from_build,
     write_canonical_semantic_state_log,
 )
 from .resource_protection_service import resource_protection
@@ -436,18 +435,15 @@ def create_generation(
 ) -> schemas.GenerateResponse:
     started_at = time.perf_counter()
     long_input_context = analyze_long_input(request.raw_input, write_segmentation_log=True, stage="generation")
-    identities_for_roles = build_experience_identities(request.raw_input)
+    semantic_build = build_canonical_semantic_build(
+        request.raw_input,
+        long_input_context=long_input_context,
+    )
     write_semantic_role_log(
-        [
-            analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
-            for identity in identities_for_roles
-        ],
+        semantic_build.semantic_analyses,
         stage="generation",
     )
-    claim_resolutions = [
-        resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
-        for identity in identities_for_roles
-    ]
+    claim_resolutions = semantic_build.claim_resolutions
     write_claim_resolution_log(claim_resolutions, stage="generation")
     user = get_or_create_anonymous_user(db, request.anonymous_user_id)
     ensure_session(db, user, request.session_id)
@@ -467,8 +463,8 @@ def create_generation(
 
     shadow_semantic_state = None
     try:
-        shadow_semantic_state = build_canonical_semantic_state(
-            request.raw_input,
+        shadow_semantic_state = build_canonical_semantic_state_from_build(
+            semantic_build,
             experience_input_id=experience.id,
         )
         write_canonical_semantic_state_log(

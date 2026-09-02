@@ -11,7 +11,14 @@ from app import schemas  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import canonical_semantic_state_service as state_service  # noqa: E402
 from app.services import generation_service  # noqa: E402
-from app.services.canonical_semantic_state_service import build_canonical_semantic_state  # noqa: E402
+from app.services.canonical_semantic_state_service import (  # noqa: E402
+    build_canonical_semantic_build,
+    build_canonical_semantic_state,
+    build_canonical_semantic_state_from_build,
+)
+from app.services.experience_fact_ledger_service import build_experience_fact_ledger  # noqa: E402
+from app.services.experience_identity_service import build_experience_identities  # noqa: E402
+from app.services.long_input_service import analyze_long_input  # noqa: E402
 from app.services.generation_service import build_mock_generation, create_generation  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
@@ -52,6 +59,52 @@ def test_shadow_state_is_deterministic_and_keeps_owner_mapping():
     assert [(fact.fact_id, fact.source_experience_id) for fact in first.facts] == [
         (fact.fact_id, fact.source_experience_id) for fact in second.facts
     ]
+
+
+def test_identity_output_is_identical_when_reusing_long_input_context():
+    context = analyze_long_input(RAW)
+
+    assert build_experience_identities(RAW) == build_experience_identities(
+        RAW,
+        long_input_context=context,
+    )
+
+
+def test_precomputed_semantic_build_matches_legacy_ledger_path():
+    build = build_canonical_semantic_build(RAW)
+
+    assert build.ledger == build_experience_fact_ledger(RAW)
+
+
+def test_state_projection_reuses_exact_build_claim_and_fact_lineage():
+    build = build_canonical_semantic_build(RAW)
+    state = build_canonical_semantic_state_from_build(build, experience_input_id=16)
+    ledger_claims = {claim.claim_id: claim for claim in build.ledger.claims}
+    ledger_facts = {fact.fact_id: fact for fact in build.ledger.facts}
+
+    assert build.state is state
+    for claim in state.claims:
+        ledger_claim = ledger_claims[claim.claim_id]
+        assert (
+            claim.source_experience_id,
+            claim.semantic_role,
+            claim.certainty,
+            claim.polarity,
+            claim.temporal_status,
+            claim.eligibility,
+        ) == (
+            ledger_claim.source_experience_id,
+            ledger_claim.semantic_role,
+            ledger_claim.certainty,
+            ledger_claim.polarity,
+            ledger_claim.temporal_status,
+            ledger_claim.eligibility,
+        )
+    for fact in state.facts:
+        ledger_fact = ledger_facts[fact.fact_id]
+        assert fact.source_experience_id == ledger_fact.experience_id
+        assert fact.source_claim_ids == (ledger_fact.claim_id,)
+        assert fact.provenance.source_span == ledger_fact.source_span
 
 
 def test_every_fact_has_eligible_claim_and_matching_experience_owner():
@@ -123,10 +176,28 @@ def test_generation_emits_only_safe_shadow_state_metadata(tmp_path, monkeypatch)
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()
+    captured: dict[str, object] = {}
     try:
         monkeypatch.setenv("LLM_MODE", "mock")
         state_service.LOG_PATH = tmp_path / "canonical_semantic_state.jsonl"
         generation_service.LOG_DIR = tmp_path
+        original_build = generation_service.build_canonical_semantic_build
+
+        def capture_build(*args, **kwargs):
+            semantic_build = original_build(*args, **kwargs)
+            captured["semantic_build"] = semantic_build
+            return semantic_build
+
+        def capture_role_log(analyses, **kwargs):
+            captured["semantic_analyses"] = analyses
+
+        def capture_claim_log(resolutions, **kwargs):
+            if kwargs.get("stage") == "generation":
+                captured["claim_resolutions"] = resolutions
+
+        monkeypatch.setattr(generation_service, "build_canonical_semantic_build", capture_build)
+        monkeypatch.setattr(generation_service, "write_semantic_role_log", capture_role_log)
+        monkeypatch.setattr(generation_service, "write_claim_resolution_log", capture_claim_log)
         request = _request().model_copy(update={"attempt_id": "attempt_shadow1234"})
         response = create_generation(db, request, request_id="req_shadow1234")
 
@@ -138,6 +209,10 @@ def test_generation_emits_only_safe_shadow_state_metadata(tmp_path, monkeypatch)
         assert all(RAW not in json.dumps(entry, ensure_ascii=False) for entry in entries)
         assert all("论文阅读助手" not in json.dumps(entry, ensure_ascii=False) for entry in entries)
         assert "canonical_semantic_state" not in response.result.model_dump()
+        semantic_build = captured["semantic_build"]
+        assert captured["semantic_analyses"] is semantic_build.semantic_analyses
+        assert captured["claim_resolutions"] is semantic_build.claim_resolutions
+        assert semantic_build.state is not None
     finally:
         state_service.LOG_PATH = original_path
         generation_service.LOG_DIR = original_log_dir

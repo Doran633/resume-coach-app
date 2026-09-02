@@ -5,9 +5,14 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .experience_fact_ledger_service import build_experience_fact_ledger
-from .experience_identity_service import build_experience_identities
-from .input_claim_resolution_service import ELIGIBLE
+from .experience_fact_ledger_service import (
+    ExperienceFactLedger,
+    build_experience_fact_ledger_from_components,
+)
+from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .input_claim_resolution_service import ClaimResolution, ELIGIBLE, resolve_experience_claims
+from .input_semantic_role_service import InputSemanticAnalysis, analyze_experience_semantics
+from .long_input_service import LongInputContext, analyze_long_input
 from .structured_log_service import stable_hash
 
 
@@ -82,6 +87,19 @@ class CanonicalSemanticState:
         return len(self.facts)
 
 
+@dataclass
+class CanonicalSemanticBuild:
+    """Request-scoped semantic compilation; never persisted or passed to presentation."""
+
+    long_input_context: LongInputContext
+    raw_input_hash: str
+    identities: tuple[ExperienceIdentity, ...]
+    semantic_analyses: tuple[InputSemanticAnalysis, ...]
+    claim_resolutions: tuple[ClaimResolution, ...]
+    ledger: ExperienceFactLedger
+    state: CanonicalSemanticState | None = None
+
+
 def _fingerprint(
     source: CanonicalSemanticSource,
     experiences: tuple[CanonicalExperience, ...],
@@ -138,17 +156,49 @@ def _validate(
     return CanonicalStateValidation(valid=not issues, issue_codes=tuple(sorted(issues)))
 
 
-def build_canonical_semantic_state(
+def build_canonical_semantic_build(
     raw_input: str,
+    *,
+    long_input_context: LongInputContext | None = None,
+) -> CanonicalSemanticBuild:
+    """Compile request semantics once before projecting the shadow state."""
+    context = long_input_context or analyze_long_input(raw_input)
+    identities = tuple(build_experience_identities(raw_input, long_input_context=context))
+    semantic_analyses = tuple(
+        analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities
+    )
+    claim_resolutions = tuple(
+        resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities
+    )
+    ledger = build_experience_fact_ledger_from_components(
+        raw_input,
+        identities=identities,
+        semantic_analyses=semantic_analyses,
+        claim_resolutions=claim_resolutions,
+    )
+    return CanonicalSemanticBuild(
+        long_input_context=context,
+        raw_input_hash=stable_hash(raw_input, purpose="canonical_semantic_state"),
+        identities=identities,
+        semantic_analyses=semantic_analyses,
+        claim_resolutions=claim_resolutions,
+        ledger=ledger,
+    )
+
+
+def build_canonical_semantic_state_from_build(
+    build: CanonicalSemanticBuild,
     *,
     experience_input_id: int | None = None,
 ) -> CanonicalSemanticState:
-    """Build a Phase 1 shadow snapshot without changing existing consumers."""
-    identities = build_experience_identities(raw_input)
-    ledger = build_experience_fact_ledger(raw_input)
+    """Project a safe state snapshot from an already-compiled semantic request."""
+    identities = build.identities
+    ledger = build.ledger
     source = CanonicalSemanticSource(
         experience_input_id=experience_input_id,
-        raw_input_hash=stable_hash(raw_input, purpose="canonical_semantic_state"),
+        raw_input_hash=build.raw_input_hash,
     )
     experiences = tuple(
         CanonicalExperience(
@@ -190,13 +240,27 @@ def build_canonical_semantic_state(
         for fact in ledger.facts
     )
     validation = _validate(experiences, claims, facts)
-    return CanonicalSemanticState(
+    state = CanonicalSemanticState(
         source=source,
         experiences=experiences,
         claims=claims,
         facts=facts,
         state_fingerprint=_fingerprint(source, experiences, claims, facts),
         validation=validation,
+    )
+    build.state = state
+    return state
+
+
+def build_canonical_semantic_state(
+    raw_input: str,
+    *,
+    experience_input_id: int | None = None,
+) -> CanonicalSemanticState:
+    """Backward-compatible Phase 1 convenience builder."""
+    return build_canonical_semantic_state_from_build(
+        build_canonical_semantic_build(raw_input),
+        experience_input_id=experience_input_id,
     )
 
 

@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from .long_input_service import LongInputSegment, analyze_long_input
+from .long_input_service import LongInputContext, LongInputSegment, analyze_long_input
 from .semantic_experience_segmentation_service import (
     infer_project_hierarchy_metadata,
     is_heading_only_text,
@@ -59,8 +59,13 @@ def _experience_type(segment: LongInputSegment) -> str:
     return "项目经历"
 
 
-def build_experience_identities(raw_input: str) -> list[ExperienceIdentity]:
-    context = analyze_long_input(raw_input)
+def build_experience_identities(
+    raw_input: str,
+    *,
+    long_input_context: LongInputContext | None = None,
+) -> list[ExperienceIdentity]:
+    """Build stable identities, optionally reusing a request-scoped input analysis."""
+    context = long_input_context or analyze_long_input(raw_input)
     identities: list[ExperienceIdentity] = []
     cursor = 0
     for segment in context.segments:

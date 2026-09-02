@@ -1,13 +1,16 @@
 import re
 from dataclasses import dataclass, field
+from typing import Sequence
 
-from .experience_identity_service import build_experience_identities
+from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .input_semantic_role_service import (
+    InputSemanticAnalysis,
     InputSemanticUnit,
     RESUME_FACT,
     analyze_experience_semantics,
 )
 from .input_claim_resolution_service import (
+    ClaimResolution,
     ELIGIBLE,
     InputClaim,
     resolve_experience_claims,
@@ -166,7 +169,17 @@ def _resume_ready(text: str) -> str:
     return value
 
 
-def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
+def build_experience_fact_ledger_from_components(
+    raw_input: str,
+    *,
+    identities: Sequence[ExperienceIdentity],
+    semantic_analyses: Sequence[InputSemanticAnalysis],
+    claim_resolutions: Sequence[ClaimResolution],
+) -> ExperienceFactLedger:
+    """Assemble the existing ledger from one already-compiled semantic request."""
+    if not (len(identities) == len(semantic_analyses) == len(claim_resolutions)):
+        raise ValueError("Semantic compilation components must have matching experience counts.")
+
     facts: list[ExperienceFact] = []
     constraints: list[InputSemanticUnit] = []
     uncertain_facts: list[InputSemanticUnit] = []
@@ -174,16 +187,15 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
     claims: list[InputClaim] = []
     withheld_claims: list[InputClaim] = []
     excluded_claims: list[InputClaim] = []
-    for identity in build_experience_identities(raw_input):
-        analysis = analyze_experience_semantics(
-            identity.experience_id, identity.raw_text, identity.source_span[0],
-        )
+    for identity, analysis, resolution in zip(
+        identities,
+        semantic_analyses,
+        claim_resolutions,
+        strict=True,
+    ):
         constraints.extend(analysis.constraints)
         uncertain_facts.extend(analysis.uncertain_facts)
         excluded_units.extend(unit for unit in analysis.units if not unit.resume_eligible)
-        resolution = resolve_experience_claims(
-            identity.experience_id, identity.raw_text, identity.source_span[0],
-        )
         claims.extend(resolution.claims)
         withheld_claims.extend(resolution.withheld_claims)
         excluded_claims.extend(resolution.excluded_claims)
@@ -239,6 +251,25 @@ def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
         claims=claims,
         withheld_claims=withheld_claims,
         excluded_claims=excluded_claims,
+    )
+
+
+def build_experience_fact_ledger(raw_input: str) -> ExperienceFactLedger:
+    """Backward-compatible ledger builder for callers outside semantic compilation."""
+    identities = build_experience_identities(raw_input)
+    semantic_analyses = [
+        analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities
+    ]
+    claim_resolutions = [
+        resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities
+    ]
+    return build_experience_fact_ledger_from_components(
+        raw_input,
+        identities=identities,
+        semantic_analyses=semantic_analyses,
+        claim_resolutions=claim_resolutions,
     )
 
 
