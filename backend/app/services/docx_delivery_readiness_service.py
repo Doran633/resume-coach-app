@@ -6,7 +6,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .resume_experience_validity_service import classify_experience_project
+from .project_hierarchy_service import is_heading_detail
+from .resume_experience_validity_service import is_forbidden_experience_name
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "docx_delivery_readiness.jsonl"
@@ -14,6 +15,10 @@ COACHING_MARKERS = (
     "面试准备", "面试问题", "回答要点", "知识补齐", "证据准备", "降级表达",
     "Claim 风险", "当前还缺什么", "建议补充", "建议继续学习", "面试时可以",
     "如果被问到", "准备降级表达", "当前信息不足", "系统建议", "用户需要补充",
+    "围绕该段经历完成相关任务", "具体职责以用户原文提供的信息为准",
+    "具体职责以用户已提供内容为准", "以用户原文为准", "以用户提供的信息为准",
+    "根据用户原文", "根据用户输入", "待用户确认", "待用户进一步确认职责",
+    "技术动作：",
 )
 INTERNAL_MARKERS = (
     "source_experience_id", "source_fact_ids", "detail_fact_ids", "fact_id",
@@ -60,6 +65,18 @@ def _clean_formal_text(value: object, stats: dict, field_name: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _is_renderable_project(project: dict) -> bool:
+    """Reject only empty shells; DOCX must not reinterpret saved semantics."""
+    if not str(project.get("name") or "").strip() or is_forbidden_experience_name(project.get("name")):
+        return False
+    rows = [
+        str(project.get(key) or "").strip()
+        for key in ("intro", "role")
+    ] + [str(item or "").strip() for item in project.get("details", []) or []]
+    rows = [item for item in rows if item]
+    return bool(rows) and not all(is_heading_detail(item) for item in rows)
+
+
 def prepare_docx_delivery(
     payload: schemas.GenerationPayload | dict,
     *,
@@ -95,7 +112,7 @@ def prepare_docx_delivery(
     for project_index, raw_project in enumerate(sections.get("projects", [])):
         if not isinstance(raw_project, dict):
             continue
-        if classify_experience_project(raw_project) != "valid":
+        if not _is_renderable_project(raw_project):
             stats["invalid_incomplete_text_count"] += 1
             stats["affected_fields"].append(f"projects.{project_index}")
             continue

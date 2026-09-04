@@ -109,7 +109,7 @@ def test_historical_docx_removes_coach_language():
     db.add(models.ExperienceInput(id=1, anonymous_user_id=1, session_id="s", target_role="泛互联网岗位",
         mode="full_resume", packaging_level="大胆", experience_type="综合经历", raw_input=RAW))
     db.add(models.GenerationResult(id=805, experience_input_id=1, completeness_score=80,
-        result_json=payload().model_dump_json()))
+        result_json=ensure_resume_summary_quality(payload(), RAW, write_log=False).model_dump_json()))
     db.commit()
     old_output = docx_service.OUTPUT_DIR
     with tempfile.TemporaryDirectory() as tmpdir:

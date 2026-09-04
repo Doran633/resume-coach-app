@@ -165,7 +165,9 @@ def test_possible_duplicate_is_logged_without_auto_merge():
 
 def test_docx_contains_each_experience_entity_once():
     duplicate = regression_project("我做过一个回归分析计算器", details=["完成模型效果对比与最优回归模型推荐。"])
-    payload = make_payload([regression_project(), parking_project(), duplicate])
+    payload = deduplicate_resume_experience_entities(
+        make_payload([regression_project(), parking_project(), duplicate]), RAW_INPUT, write_log=False,
+    )
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()

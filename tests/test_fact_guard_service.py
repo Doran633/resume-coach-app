@@ -113,7 +113,7 @@ def test_docx_export_runs_fact_guard_for_historical_hallucinated_result():
         experience_type="项目经历",
         raw_input=RAW_WITHOUT_MAJOR,
     )
-    payload = schemas.GenerationPayload.model_validate(build_hallucinated_payload())
+    payload = guard_hard_facts(build_hallucinated_payload(), RAW_WITHOUT_MAJOR)
     result_row = models.GenerationResult(
         id=41,
         experience_input_id=1,

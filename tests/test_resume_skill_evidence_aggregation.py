@@ -136,11 +136,18 @@ def test_docx_recovers_global_programming_language_summary():
         experience_type="项目经历",
         raw_input=MULTI_EXPERIENCE_INPUT,
     ))
+    evidence = aggregate_skill_evidence(MULTI_EXPERIENCE_INPUT)
+    persisted = guard_resume_skill_evidence(
+        _payload(), MULTI_EXPERIENCE_INPUT, aggregated_evidence=evidence, write_log=False,
+    )
+    persisted = calibrate_resume_skill_taxonomy(
+        persisted, raw_input=MULTI_EXPERIENCE_INPUT, write_log=False,
+    )
     db.add(models.GenerationResult(
         id=9611,
         experience_input_id=1,
         completeness_score=80,
-        result_json=_payload().model_dump_json(),
+        result_json=persisted.model_dump_json(),
     ))
     db.commit()
     original_output = docx_service.OUTPUT_DIR

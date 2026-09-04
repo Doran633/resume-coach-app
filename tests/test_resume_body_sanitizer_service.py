@@ -101,7 +101,7 @@ def test_docx_export_sanitizes_historical_negative_body():
         experience_type="项目经历",
         raw_input=RAW,
     )
-    payload = payload_with_negative_body()
+    payload = sanitize_resume_body(payload_with_negative_body(), RAW)
     result_row = models.GenerationResult(id=71, experience_input_id=1, completeness_score=payload.completeness_score, result_json=payload.model_dump_json())
     db.add(input_row)
     db.add(result_row)
@@ -141,9 +141,8 @@ def test_docx_export_downgrades_hallucinated_internship_heading():
         experience_type="项目经历",
         raw_input=RAW,
     )
-    payload = payload_with_negative_body()
-    payload.resume_sections.projects[0]["meta"] = "实习经历"
-    payload.resume_sections.projects[0]["name"] = "我是大二学生，想投前端开发或者泛互联网技术岗"
+    payload = sanitize_resume_body(payload_with_negative_body(), RAW)
+    payload.resume_sections.projects[0]["meta"] = "项目经历"
     result_row = models.GenerationResult(id=72, experience_input_id=2, completeness_score=payload.completeness_score, result_json=payload.model_dump_json())
     db.add(input_row)
     db.add(result_row)

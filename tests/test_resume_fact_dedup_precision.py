@@ -136,6 +136,7 @@ def test_docx_uses_formal_titles_and_hides_internal_ids():
     raw = "实习经历｜自行者科技有限公司\n在自行者科技有限公司 AI agent 岗位实习，负责 RAG 测试集建设。"
     payload = make_payload([" - 建设 RAG 测试集"], meta="实习经历", name="在自行者科技有限公司 AI Agent 开发实习", fact_ids=[["EXP-001-F001"]])
     payload.resume_sections.projects[0]["time"] = "[待填写]"
+    payload = resolve_resume_titles(payload, raw)
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()

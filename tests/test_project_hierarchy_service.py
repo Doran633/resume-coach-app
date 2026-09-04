@@ -208,7 +208,12 @@ def test_historical_docx_contains_one_blessed_project_and_no_internal_fields():
     ))
     db.add(models.GenerationResult(
         id=680, experience_input_id=1, completeness_score=90,
-        result_json=json.dumps(payload([shell_project(), phase_project()]).model_dump(), ensure_ascii=False),
+        result_json=json.dumps(
+            merge_resume_project_hierarchies(
+                payload([shell_project(), phase_project()]), RAW_INPUT, write_log=False,
+            ).model_dump(),
+            ensure_ascii=False,
+        ),
     ))
     db.commit()
     old_output = docx_service.OUTPUT_DIR

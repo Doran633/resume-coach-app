@@ -135,7 +135,7 @@ def test_docx_export_cleans_historical_security_token_misclassification():
         id=671,
         experience_input_id=671,
         completeness_score=80,
-        result_json=payload.model_dump_json(),
+        result_json=_skill_pipeline(payload, raw).model_dump_json(),
     ))
     db.commit()
     previous_output = docx_service.OUTPUT_DIR

@@ -8,6 +8,9 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app import models, schemas  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
+from app.services.resume_delivery_quality_gate_service import ensure_resume_delivery_quality  # noqa: E402
+from app.services.resume_skill_evidence_guard_service import guard_resume_skill_evidence  # noqa: E402
+from app.services.resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy  # noqa: E402
 from docx import Document  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
@@ -40,8 +43,11 @@ def test_historical_docx_is_delivery_ready():
     db = sessionmaker(bind=engine)()
     db.add(models.ExperienceInput(id=1, anonymous_user_id=1, session_id="s", target_role="AI Agent",
         mode="full_resume", packaging_level="大胆", experience_type="项目经历", raw_input=RAW))
+    persisted = guard_resume_skill_evidence(payload(), RAW, write_log=False)
+    persisted = calibrate_resume_skill_taxonomy(persisted, raw_input=RAW, write_log=False)
+    persisted = ensure_resume_delivery_quality(persisted, RAW, write_log=False)
     db.add(models.GenerationResult(id=953, experience_input_id=1, completeness_score=90,
-        result_json=payload().model_dump_json()))
+        result_json=persisted.model_dump_json()))
     db.commit()
     old_output = docx_service.OUTPUT_DIR
     with tempfile.TemporaryDirectory() as tmpdir:

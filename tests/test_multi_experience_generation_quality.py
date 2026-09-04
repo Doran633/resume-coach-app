@@ -163,7 +163,7 @@ def test_multi_project_docx_contains_multiple_project_names():
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
 
-    payload = schemas.GenerationPayload.model_validate(build_multi_project_payload(2))
+    payload = fill_resume_sections(build_multi_project_payload(2), write_log=False)
     db.add(models.ExperienceInput(
         id=1,
         anonymous_user_id=1,

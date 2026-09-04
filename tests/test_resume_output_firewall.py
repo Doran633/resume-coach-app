@@ -67,7 +67,9 @@ def test_real_internship_job_title_is_not_removed():
 
 
 def test_historical_docx_removes_instruction_leakage():
-    dirty = payload(["技术动作：我独立完成回归分析工具，希望包装得更适合 AI Agent 岗位，但不要写成无法解释的内容"])
+    dirty = guard_resume_output(payload([
+        "技术动作：我独立完成回归分析工具，希望包装得更适合 AI Agent 岗位，但不要写成无法解释的内容"
+    ]), RAW, write_log=False)
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()

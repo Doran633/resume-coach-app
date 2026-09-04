@@ -107,8 +107,12 @@ def test_docx_recovers_nonempty_skills_and_keeps_both_projects():
         id=611, anonymous_user_id=1, session_id="s", target_role="泛互联网岗位",
         mode="full_resume", packaging_level="大胆", experience_type="项目经历", raw_input=RAW_INPUT,
     ))
+    persisted = strengthen_weak_profile_payload(_payload(), RAW_INPUT, "泛互联网岗位")
+    persisted = guard_resume_skill_evidence(persisted, RAW_INPUT, write_log=False)
+    persisted = calibrate_resume_skill_taxonomy(persisted, raw_input=RAW_INPUT, write_log=False)
     db.add(models.GenerationResult(
-        id=611, experience_input_id=611, completeness_score=65, result_json=_payload().model_dump_json(),
+        id=611, experience_input_id=611, completeness_score=65,
+        result_json=persisted.model_dump_json(),
     ))
     db.commit()
     old_output = docx_service.OUTPUT_DIR

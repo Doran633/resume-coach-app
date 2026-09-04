@@ -92,7 +92,8 @@ def test_docx_routes_projects_and_real_internship_correctly():
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()
     db.add(models.ExperienceInput(id=1, anonymous_user_id=1, session_id="s", target_role="AI / 大模型 / Agent", mode="full_resume", packaging_level="大胆", experience_type="综合经历", raw_input=RAW))
-    db.add(models.GenerationResult(id=808, experience_input_id=1, completeness_score=85, result_json=make_payload().model_dump_json()))
+    persisted = resolve_project_types(make_payload(), RAW, write_log=False)
+    db.add(models.GenerationResult(id=808, experience_input_id=1, completeness_score=85, result_json=persisted.model_dump_json()))
     db.commit()
     old_output = docx_service.OUTPUT_DIR
     with tempfile.TemporaryDirectory() as tmpdir:

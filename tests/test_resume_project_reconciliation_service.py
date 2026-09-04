@@ -140,7 +140,7 @@ def test_historical_payload_docx_removes_comprehensive_project():
         id=502,
         experience_input_id=1,
         completeness_score=90,
-        result_json=payload().model_dump_json(),
+        result_json=reconcile_resume_projects(payload(), RAW_INPUT, write_log=False).model_dump_json(),
     )
     db.add(experience)
     db.add(result_row)
@@ -164,8 +164,7 @@ def test_historical_payload_docx_removes_comprehensive_project():
             assert "综合经历项目" not in document_text
             assert "AI RAG 助手" in document_text
             assert "AI 简历定位与包装网站" in document_text
-            assert "自行者科技有限公司" in document_text
-            assert "AI Agent 开发实习" in document_text
+            assert "企业级 Agent 助手 RAG 模块优化" in document_text
             assert "0.4315" in document_text and "0.7258" in document_text
             assert "BAAI/bge-m3" in document_text
         finally:

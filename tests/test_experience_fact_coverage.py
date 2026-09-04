@@ -90,7 +90,7 @@ def test_docx_hides_internal_fact_and_experience_ids():
     db.add(models.ExperienceInput(id=1, anonymous_user_id=1, session_id="s-test", target_role="AI / 大模型 / Agent",
         mode="full_resume", packaging_level="大胆", experience_type="综合经历", raw_input=RAW_INPUT))
     db.add(models.GenerationResult(id=704, experience_input_id=1, completeness_score=90,
-        result_json=payload().model_dump_json()))
+        result_json=processed().model_dump_json()))
     db.commit()
     old_output = docx_service.OUTPUT_DIR
     with tempfile.TemporaryDirectory() as tmpdir:

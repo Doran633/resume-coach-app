@@ -192,7 +192,7 @@ def test_fallback_log_records_no_trigger_for_complete_sections():
             resume_section_fallback_service.LOG_DIR = original_log_dir
 
 
-def test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections():
+def test_docx_service_rejects_empty_resume_sections_without_rebuilding_them():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine)
@@ -216,20 +216,12 @@ def test_docx_service_fallback_generates_nonblank_docx_for_empty_resume_sections
             docx_service.OUTPUT_DIR = Path(tmpdir)
             resume_section_fallback_service.LOG_DIR = Path(tmpdir)
             resume_section_fallback_service.LOG_PATH = Path(tmpdir) / "resume_section_fallback.jsonl"
-            response = docx_service.create_docx(
-                db,
-                schemas.DocxCreate(anonymous_user_id="u-test", session_id="s-test", generation_result_id=32),
-            )
-            assert response is not None
-            path = Path(tmpdir) / response.file_name
-            assert path.exists()
-            text = "\n".join(paragraph.text for paragraph in Document(path).paragraphs)
-            assert "回归分析智能计算器" in text
-            # Historical rows without a linked raw_input cannot safely support a
-            # candidate summary; the DOCX must stay useful without rendering an
-            # empty heading or inventing an advantage.
-            assert "技能与能力" in text
-            assert "项目经历" in text
+            import pytest
+            with pytest.raises(docx_service.DocxRenderSourceError):
+                docx_service.create_docx(
+                    db,
+                    schemas.DocxCreate(anonymous_user_id="u-test", session_id="s-test", generation_result_id=32),
+                )
         finally:
             docx_service.OUTPUT_DIR = original_output_dir
             resume_section_fallback_service.LOG_PATH = original_log_path

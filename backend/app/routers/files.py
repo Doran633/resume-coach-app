@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
-from ..services.docx_service import create_docx
+from ..services.docx_service import DocxRenderSourceError, create_docx
 from ..services.identity_service import get_or_create_anonymous_user
 from ..services.security_service import (
     create_download_token,
@@ -32,7 +32,18 @@ def generate_docx(payload: schemas.DocxCreate, request: Request, response: Respo
         )
         raise HTTPException(status_code=404, detail="generation_result_id 不存在。")
     trusted_payload = payload.model_copy(update={"anonymous_user_id": identity.anonymous_id})
-    docx_response = create_docx(db, trusted_payload)
+    try:
+        docx_response = create_docx(db, trusted_payload)
+    except DocxRenderSourceError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "DOCX_RENDER_SOURCE_INVALID",
+                "user_message": str(exc),
+                "retry_after": None,
+                "attempt_id": None,
+            },
+        ) from exc
     if not docx_response:
         raise HTTPException(status_code=404, detail="generation_result_id 不存在。")
     token = create_download_token(docx_response.file_id, identity.anonymous_id)

@@ -1,5 +1,8 @@
+import json
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
-import re
+from zoneinfo import ZoneInfo
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
@@ -11,62 +14,57 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from .generation_service import get_generation_payload
-from .resume_section_fallback_service import fill_resume_sections
-from .fact_guard_service import guard_hard_facts
-from .enhancement_guard_service import ensure_packaging_gain
-from .experience_boundary_guard_service import guard_experience_boundaries
-from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
-from .project_specificity_guard_service import guard_project_specificity
-from .weak_profile_strategy_service import strengthen_weak_profile_payload
-from .resume_body_sanitizer_service import sanitize_resume_body
-from .resume_project_reconciliation_service import reconcile_resume_projects
-from .resume_text_integrity_service import ensure_resume_text_integrity
-from .fact_coverage_guard_service import guard_fact_coverage
-from .resume_summary_quality_service import ensure_resume_summary_quality
-from .resume_output_firewall_service import guard_resume_output
-from .resume_language_professionalization_service import professionalize_resume_language
 from .resume_section_schema_service import normalize_resume_section_schema
-from .resume_section_integrity_service import ensure_resume_section_integrity
-from .experience_type_resolution_service import resolve_project_types
 from .resume_section_routing_service import route_resume_projects
-from .resume_fact_dedup_service import deduplicate_resume_facts
-from .generation_stage_quality_service import log_generation_stage
 from .docx_delivery_readiness_service import prepare_docx_delivery
-from .resume_title_format_service import resolve_resume_titles
-from .resume_dedup_quality_service import ensure_dedup_quality
 from .resume_typography_quality_service import ensure_typography_quality, strip_leading_structure_markers
-from .resume_output_quality_gate_service import evaluate_resume_output_quality
-from .resume_adaptive_narrative_service import organize_adaptive_narrative
-from .resume_information_gain_service import ensure_information_gain
-from .resume_template_language_guard_service import guard_template_language
-from .resume_narrative_coherence_service import evaluate_narrative_quality
-from .resume_semantic_unit_service import ensure_semantic_units
-from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
-from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
-from .resume_skill_evidence_aggregation_service import aggregate_skill_evidence
-from .resume_section_layering_service import layer_resume_sections
-from .resume_fact_increment_service import ensure_resume_fact_increment
-from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
-from .resume_output_relevance_service import guard_resume_output_relevance
-from .recruiter_facing_technical_language_service import ensure_recruiter_facing_technical_language
-from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality
-from .resume_role_resolution_service import resolve_resume_roles
-from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
-from .resume_experience_validity_service import ensure_resume_experience_validity
-from .resume_delivery_quality_gate_service import ensure_resume_delivery_quality
-from .project_hierarchy_service import strip_project_hierarchy_metadata
-from .experience_slot_service import bind_projects_to_experience_slots, strip_experience_slot_metadata
-from .experience_identity_service import build_experience_identities
-from .input_claim_resolution_service import resolve_experience_claims, write_claim_resolution_log
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = BASE_DIR / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+ONE_WAY_LOG_PATH = BASE_DIR / "logs" / "docx_one_way_rendering.jsonl"
 ACCENT = "2F5597"
 BODY_FONT = "Microsoft YaHei"
+
+
+class DocxRenderSourceError(RuntimeError):
+    """The persisted result cannot produce a formal, non-empty DOCX."""
+
+
+@dataclass
+class DocxOneWayRenderStats:
+    generation_result_id: int
+    file_id: int | None = None
+    render_source: str = "generation_result.result_json"
+    semantic_rebuild_attempt_count: int = 0
+    removed_field_count: int = 0
+    rendered_project_count: int = 0
+    passed: bool = False
+
+
+def _visible_field_count(payload: schemas.GenerationPayload) -> int:
+    sections = payload.resume_sections
+    count = sum(bool(str(value or "").strip()) for value in sections.personal_info.values())
+    count += sum(bool(str(value or "").strip()) for value in sections.education.values())
+    count += sum(bool(str(value or "").strip()) for value in sections.summary)
+    count += sum(bool(str(value or "").strip()) for value in sections.skills)
+    for project in sections.projects:
+        count += sum(bool(str(project.get(key) or "").strip()) for key in ("name", "position", "meta", "time", "intro", "role"))
+        count += sum(bool(str(value or "").strip()) for value in project.get("details", []) or [])
+    return count
+
+
+def _write_one_way_render_log(stats: DocxOneWayRenderStats) -> None:
+    try:
+        ONE_WAY_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        entry = {"created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(), **asdict(stats)}
+        with ONE_WAY_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
 
 
 def _font(run, size: float, bold: bool = False, color: str | None = None) -> None:
@@ -150,23 +148,6 @@ def _project_detail_limit(project_count: int) -> int:
     return 5
 
 
-def _experience_heading(meta: str | None) -> str:
-    text = meta or "项目经历"
-    if text.strip() == "实习经历" or re.search(r"(前端|后端|测试|产品|运营|开发)?实习$", text.strip()):
-        return "实习经历"
-    if "科研" in text or "研究" in text or "论文" in text:
-        return "科研经历"
-    if "竞赛" in text or "比赛" in text:
-        if "获奖" in text or "奖项" in text or "奖" in text or "立项" in text:
-            return "竞赛获奖"
-        return "竞赛经历"
-    if "开源" in text:
-        return "开源经历"
-    if "校园" in text or "社团" in text or "志愿" in text:
-        return "校园 / 社团经历"
-    return "项目经历"
-
-
 def _group_experiences(projects: list[dict]) -> list[tuple[str, list[dict]]]:
     return route_resume_projects(projects)
 
@@ -185,145 +166,15 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = get_generation_payload(db, request.generation_result_id)
     if not payload:
         return None
-    result_row = db.query(models.GenerationResult).filter_by(id=request.generation_result_id).first()
-    experience = db.query(models.ExperienceInput).filter_by(id=result_row.experience_input_id).first() if result_row else None
-    raw_input = experience.raw_input if experience else ""
-    target_role = experience.target_role if experience else ""
-    write_claim_resolution_log(
-        [
-            resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
-            for identity in build_experience_identities(raw_input)
-        ],
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
+    render_stats = DocxOneWayRenderStats(generation_result_id=request.generation_result_id)
+    fields_before = _visible_field_count(payload)
+
+    # DOCX is a one-way delivery renderer. Semantic compilation and all factual
+    # decisions were completed before this payload was persisted.
     payload = normalize_resume_section_schema(payload)
-    payload = bind_projects_to_experience_slots(
-        payload,
-        raw_input,
-        stage="docx_export_start",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = sanitize_resume_body(payload, raw_input)
-    payload = guard_hard_facts(payload, raw_input)
-    payload = fill_resume_sections(payload, generation_result_id=request.generation_result_id, stage="docx_export", raw_input=raw_input)
-    payload = ensure_resume_experience_validity(
-        payload,
-        raw_input,
-        stage="docx_after_fallback",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_packaging_gain(payload, raw_input, target_role)
-    payload = guard_experience_boundaries(payload, raw_input, generation_result_id=request.generation_result_id, stage="docx_export")
-    payload = cleanup_uncertain_expressions(payload, raw_input)
-    payload = guard_project_specificity(payload, raw_input)
-    payload = strengthen_weak_profile_payload(payload, raw_input, target_role)
-    payload = sanitize_resume_body(payload, raw_input)
-    payload = reconcile_resume_projects(
-        payload,
-        raw_input,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = resolve_project_types(
-        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = deduplicate_resume_facts(
-        payload, stage="docx_export_pre_coverage", generation_result_id=request.generation_result_id,
-    )
-    route_resume_projects(payload.resume_sections.projects)
-    payload = guard_fact_coverage(
-        payload,
-        raw_input,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = guard_experience_boundaries(
-        payload,
-        raw_input,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = layer_resume_sections(
-        payload, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_resume_fact_increment(payload)
-    payload = resolve_resume_roles(
-        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    narrative_changes: dict[str, int] = {}
-    payload = ensure_semantic_units(payload, raw_input, narrative_changes)
-    payload = organize_adaptive_narrative(payload, narrative_changes)
-    payload = ensure_information_gain(payload, narrative_changes)
-    payload = deduplicate_resume_facts(
-        payload, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_dedup_quality(
-        payload, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = deduplicate_fact_clusters(
-        payload,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-        change_stats=narrative_changes,
-    )
-    payload = guard_template_language(payload, narrative_changes)
-    evaluate_narrative_quality(
-        payload, stage="docx_export", generation_result_id=request.generation_result_id,
-        change_stats=narrative_changes,
-    )
-    payload = ensure_resume_summary_quality(
-        payload,
-        raw_input,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = guard_resume_output(
-        payload,
-        raw_input,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = resolve_resume_roles(
-        payload, raw_input, stage="before_docx_render", generation_result_id=request.generation_result_id,
-    )
-    payload = guard_resume_output(
-        payload, raw_input, stage="before_docx_render", generation_result_id=request.generation_result_id,
-    )
-    payload = professionalize_resume_language(
-        payload,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    skill_evidence = aggregate_skill_evidence(raw_input)
-    payload = guard_resume_skill_evidence(
-        payload,
-        raw_input,
-        aggregated_evidence=skill_evidence,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = calibrate_resume_skill_taxonomy(
-        payload, target_role, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = guard_resume_output_relevance(
-        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_recruiter_facing_technical_language(
-        payload, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_recruiter_readability(
-        payload, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
+    payload = prepare_docx_delivery(payload, generation_result_id=request.generation_result_id)
     payload = ensure_paired_symbol_integrity(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_resume_section_integrity(payload)
-    payload = ensure_resume_text_integrity(
-        payload,
-        raw_input,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
     )
     payload = ensure_resume_whitespace_quality(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
@@ -331,54 +182,11 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     payload = ensure_typography_quality(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
     )
-    payload = guard_hard_facts(payload, raw_input)
-    payload = guard_resume_output(
-        payload,
-        raw_input,
-        stage="docx_export",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = guard_resume_output_relevance(
-        payload,
-        raw_input,
-        stage="before_docx_render",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = resolve_project_types(
-        payload,
-        raw_input,
-        stage="before_docx_render",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = resolve_resume_titles(payload, raw_input)
-    payload = deduplicate_resume_experience_entities(
-        payload,
-        raw_input,
-        stage="before_docx_render",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_resume_experience_validity(
-        payload,
-        raw_input,
-        stage="before_docx_render",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = ensure_resume_delivery_quality(
-        payload,
-        raw_input,
-        stage="before_docx_render",
-        generation_result_id=request.generation_result_id,
-    )
-    payload = prepare_docx_delivery(
-        payload,
-        generation_result_id=request.generation_result_id,
-    )
-    evaluate_resume_output_quality(
-        payload, raw_input, stage="docx_export", generation_result_id=request.generation_result_id,
-    )
-    log_generation_stage(payload, "before_docx_render", request.generation_result_id)
-    payload = strip_project_hierarchy_metadata(payload)
-    payload = strip_experience_slot_metadata(payload)
+    render_stats.removed_field_count = max(0, fields_before - _visible_field_count(payload))
+    render_stats.rendered_project_count = len(payload.resume_sections.projects)
+    if not render_stats.rendered_project_count:
+        _write_one_way_render_log(render_stats)
+        raise DocxRenderSourceError("当前保存的简历结果没有可导出的有效经历，请返回结果页补充并重新生成。")
 
     doc = Document()
     _setup(doc)
@@ -450,6 +258,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     db.add(row)
     db.commit()
     db.refresh(row)
+    render_stats.file_id = row.id
+    render_stats.passed = True
+    _write_one_way_render_log(render_stats)
     return schemas.DocxResponse(
         file_id=row.id,
         file_name=path.name,
