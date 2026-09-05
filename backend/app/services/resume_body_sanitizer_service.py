@@ -84,7 +84,10 @@ def _clean_project(project: dict) -> dict:
         "role": _clean_text(item.get("role")),
         "details": _clean_list(item.get("details")),
     }
-    for key in ["source_experience_id", "resolved_experience_type", "type_resolution_version", "type_locked", "source_fact_ids"]:
+    for key in [
+        "source_experience_id", "resolved_experience_type", "type_resolution_version", "type_locked", "source_fact_ids",
+        "immutable_source_experience_id", "source_binding_origin", "source_binding_confidence", "source_binding_locked",
+    ]:
         if key in item:
             cleaned[key] = item[key]
     return cleaned

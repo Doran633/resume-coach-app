@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "experience_slot_binding.jsonl"
+OWNER_DELIVERY_CONTRACT_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_owner_delivery_contract.jsonl"
 INTERNAL_SLOT_FIELDS = {
     "immutable_source_experience_id",
     "source_binding_origin",
@@ -44,6 +45,22 @@ class SlotBindingStats:
     owner_mutation_blocked_count: int = 0
     unresolved_owner_count: int = 0
     bindings: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class OwnerDeliveryContractStats:
+    """Counts only; project text must never enter this delivery audit."""
+
+    stage: str
+    generation_result_id: int | None = None
+    total_project_count: int = 0
+    owner_bound_project_count: int = 0
+    unowned_candidate_count: int = 0
+    removed_unowned_project_count: int = 0
+    missing_question_added_count: int = 0
+    ownerless_visible_after_count: int = 0
+    canonical_owner_ids: tuple[str, ...] = ()
+    contract_passed: bool = True
 
 
 def build_experience_slots(raw_input: str) -> list[ExperienceSlot]:
@@ -147,6 +164,104 @@ def _write_log(stats: SlotBindingStats) -> None:
             file.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:
         return
+
+
+def _write_owner_delivery_contract_log(
+    stats: OwnerDeliveryContractStats,
+    *,
+    request_id: str = "",
+    attempt_id: str = "",
+) -> None:
+    try:
+        OWNER_DELIVERY_CONTRACT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "request_id": request_id,
+            "attempt_id": attempt_id,
+            "generation_result_id": stats.generation_result_id,
+            "stage": stats.stage,
+            "total_project_count": stats.total_project_count,
+            "owner_bound_project_count": stats.owner_bound_project_count,
+            "unowned_candidate_count": stats.unowned_candidate_count,
+            "removed_unowned_project_count": stats.removed_unowned_project_count,
+            "missing_question_added_count": stats.missing_question_added_count,
+            "ownerless_visible_after_count": stats.ownerless_visible_after_count,
+            "canonical_owner_ids": list(stats.canonical_owner_ids),
+            "contract_passed": stats.contract_passed,
+        }
+        with OWNER_DELIVERY_CONTRACT_LOG_PATH.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
+def contain_ownerless_projects(
+    payload: schemas.GenerationPayload,
+    ownership_index: "CanonicalFactOwnershipIndex | None",
+    *,
+    stage: str = "unknown",
+    generation_result_id: int | None = None,
+    request_id: str = "",
+    attempt_id: str = "",
+    write_log: bool = True,
+    return_stats: bool = False,
+) -> schemas.GenerationPayload | tuple[schemas.GenerationPayload, OwnerDeliveryContractStats]:
+    """Enforce the post-freeze delivery contract without inferring ownership.
+
+    A project is deliverable only when the Slot Binder has already frozen an
+    owner which belongs to the canonical ownership index.  Candidates without
+    that proof are removed rather than merged, rebound, or rewritten.
+    """
+    updated = payload.model_copy(deep=True)
+    canonical_owner_ids = tuple(ownership_index.source_experience_ids) if ownership_index is not None else ()
+    valid_owner_ids = set(canonical_owner_ids)
+    stats = OwnerDeliveryContractStats(
+        stage=stage,
+        generation_result_id=generation_result_id,
+        total_project_count=len(updated.resume_sections.projects),
+        canonical_owner_ids=canonical_owner_ids,
+    )
+    retained: list[dict] = []
+
+    for project in updated.resume_sections.projects:
+        owner = str(project.get("immutable_source_experience_id") or "").strip()
+        is_bound = bool(project.get("source_binding_locked"))
+        if owner and is_bound and owner in valid_owner_ids:
+            retained.append(project)
+            stats.owner_bound_project_count += 1
+        else:
+            stats.unowned_candidate_count += 1
+            stats.removed_unowned_project_count += 1
+
+    updated.resume_sections.projects = retained
+    if stats.unowned_candidate_count and not stats.owner_bound_project_count:
+        question = "请补充无法确认归属经历的具体名称和可验证事实。"
+        if question not in updated.missing_questions:
+            updated.missing_questions.append(question)
+            updated.missing_questions = updated.missing_questions[:8]
+            stats.missing_question_added_count = 1
+
+    stats.ownerless_visible_after_count = sum(
+        not (
+            str(project.get("immutable_source_experience_id") or "").strip()
+            and bool(project.get("source_binding_locked"))
+            and str(project.get("immutable_source_experience_id") or "").strip() in valid_owner_ids
+        )
+        for project in updated.resume_sections.projects
+    )
+    stats.contract_passed = stats.ownerless_visible_after_count == 0
+    if write_log:
+        _write_owner_delivery_contract_log(stats, request_id=request_id, attempt_id=attempt_id)
+    return (updated, stats) if return_stats else updated
+
+
+def write_owner_delivery_contract_log(
+    stats: OwnerDeliveryContractStats,
+    *,
+    request_id: str = "",
+    attempt_id: str = "",
+) -> None:
+    _write_owner_delivery_contract_log(stats, request_id=request_id, attempt_id=attempt_id)
 
 
 def bind_projects_to_experience_slots(

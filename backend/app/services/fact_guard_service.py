@@ -227,6 +227,7 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
             "source_experience_id", "source_experience_ids", "merged_source_experience_ids",
             "resolved_experience_type", "type_resolution_version", "type_locked",
             "source_fact_ids", "detail_fact_ids",
+            "immutable_source_experience_id", "source_binding_origin", "source_binding_confidence", "source_binding_locked",
         ]:
             if key in item:
                 cleaned[key] = item[key]

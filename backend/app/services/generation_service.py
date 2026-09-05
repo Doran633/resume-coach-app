@@ -65,7 +65,12 @@ from .resume_delivery_quality_gate_service import (
     measure_high_value_fact_coverage,
 )
 from .project_hierarchy_service import strip_project_hierarchy_metadata
-from .experience_slot_service import bind_projects_to_experience_slots, strip_experience_slot_metadata
+from .experience_slot_service import (
+    bind_projects_to_experience_slots,
+    contain_ownerless_projects,
+    strip_experience_slot_metadata,
+    write_owner_delivery_contract_log,
+)
 from .input_semantic_role_service import write_semantic_role_log
 from .input_claim_resolution_service import (
     build_claim_missing_questions,
@@ -601,6 +606,15 @@ def create_generation(
         unresolved_owner_count=ownership_stats.unresolved_owner_count,
     )
     mutation_tracer.checkpoint(payload, "after_owner_freeze", parent_stage="canonical_slot_binding")
+    payload, owner_delivery_freeze_stats = contain_ownerless_projects(
+        payload,
+        semantic_build.ownership_index,
+        stage="generation_after_owner_freeze",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        return_stats=True,
+    )
+    mutation_tracer.checkpoint(payload, "after_owner_delivery_contract", parent_stage="ownerless_project_containment")
     scoped_fact_access_stats = CanonicalScopedFactAccessStats()
     log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
@@ -731,6 +745,15 @@ def create_generation(
         payload, request.raw_input, stage="before_save",
         mutation_tracer=mutation_tracer,
     )
+    payload, owner_delivery_final_stats = contain_ownerless_projects(
+        payload,
+        semantic_build.ownership_index,
+        stage="generation_before_persistence",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        return_stats=True,
+    )
+    mutation_tracer.checkpoint(payload, "after_final_owner_delivery_contract", parent_stage="ownerless_project_containment")
     final_quality_issues = evaluate_delivery_quality_issues(payload, request.raw_input)
     final_projects = payload.resume_sections.projects
     projects_with_source_id = sum(bool(project.get("source_experience_id")) for project in final_projects)
@@ -779,6 +802,12 @@ def create_generation(
         rejected_owner_binding_count=ownership_stats.rejected_binding_count,
         owner_mutation_blocked_count=ownership_stats.owner_mutation_blocked_count,
         unresolved_owner_count=ownership_stats.unresolved_owner_count,
+    )
+    owner_delivery_final_stats.generation_result_id = result.id
+    write_owner_delivery_contract_log(
+        owner_delivery_final_stats,
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
     )
     write_canonical_scoped_fact_access_log(
         semantic_build.ownership_index,
