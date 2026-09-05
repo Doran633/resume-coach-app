@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from .experience_fact_ledger_service import build_experience_fact_ledger
+from .experience_fact_ledger_service import ExperienceFactLedger, build_experience_fact_ledger
 from .input_content_classification_service import strip_non_fact_fragments
 from .long_input_service import TECH_TERMS
 from .uncertain_expression_cleanup_service import INFERENCE_TERMS
@@ -76,10 +76,10 @@ def _add_evidence(
     _append_unique(row.inferred_from, inferred_from)
 
 
-def aggregate_skill_evidence(raw_input: str) -> list[AggregatedSkillEvidence]:
-    """Aggregate global skills without relaxing project-level fact boundaries."""
+def aggregate_skill_evidence_from_ledger(ledger: ExperienceFactLedger) -> list[AggregatedSkillEvidence]:
+    """Aggregate global skills from the already-compiled request ledger."""
     grouped: dict[str, AggregatedSkillEvidence] = {}
-    for fact in build_experience_fact_ledger(raw_input).facts:
+    for fact in ledger.facts:
         fact_text, _ = strip_non_fact_fragments(fact.fact_text)
         if not fact_text:
             continue
@@ -108,6 +108,11 @@ def aggregate_skill_evidence(raw_input: str) -> list[AggregatedSkillEvidence]:
                 inferred_from=source_term,
             )
     return list(grouped.values())
+
+
+def aggregate_skill_evidence(raw_input: str) -> list[AggregatedSkillEvidence]:
+    """Aggregate global skills without relaxing project-level fact boundaries."""
+    return aggregate_skill_evidence_from_ledger(build_experience_fact_ledger(raw_input))
 
 
 def aggregate_historical_project_skill_evidence(payload: object) -> list[AggregatedSkillEvidence]:

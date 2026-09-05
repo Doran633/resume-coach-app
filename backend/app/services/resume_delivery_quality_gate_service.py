@@ -749,7 +749,12 @@ def ensure_resume_delivery_quality(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    mutation_tracer: object | None = None,
 ) -> schemas.GenerationPayload:
+    def trace(checkpoint: str) -> None:
+        if mutation_tracer is not None:
+            mutation_tracer.checkpoint(updated, checkpoint, parent_stage="delivery_quality_gate")
+
     updated = schemas.GenerationPayload.model_validate(
         deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
     )
@@ -758,6 +763,7 @@ def ensure_resume_delivery_quality(
     details_before = sum(len(project.get("details", []) or []) for project in updated.resume_sections.projects)
     coverage_before, covered_before = _high_value_coverage(updated, raw_input)
     visible_before = _visible_text(updated)
+    trace("delivery_gate.enter")
 
     if not updated.resume_sections.summary:
         _add_issue(issues, "EMPTY_VISIBLE_SECTION", "critical", "resume_sections.summary", repair_action="recover_grounded_summary")
@@ -786,13 +792,21 @@ def ensure_resume_delivery_quality(
     updated = _clean_visible_fields(updated, issues)
     updated = _remove_semantic_role_leaks(updated, raw_input, issues)
     updated = guard_resume_output(updated, raw_input, stage=stage, generation_result_id=generation_result_id, write_log=False)
+    trace("delivery_gate.after_semantic_role_cleanup")
+
+    # Preserve the pre-existing delivery behavior; this checkpoint only makes
+    # the current payload observable before later recovery paths run.
+    trace("delivery_gate.after_hard_fact_guard")
 
     updated, cross_repaired = _repair_strong_cross_experience_terms(updated, raw_input, issues)
+    trace("delivery_gate.after_cross_experience_repair")
 
     updated = ensure_resume_experience_validity(
         updated, raw_input, stage=stage, generation_result_id=generation_result_id, write_log=False,
     )
+    trace("delivery_gate.after_validity_check")
     updated, recovered_projects = _recover_projects_when_empty(updated, raw_input, issues)
+    trace("delivery_gate.after_project_recovery")
     updated = ensure_resume_experience_validity(
         updated, raw_input, stage=stage, generation_result_id=generation_result_id, write_log=False,
     )
@@ -800,10 +814,12 @@ def ensure_resume_delivery_quality(
         updated = ensure_resume_summary_quality(
             updated, raw_input, stage=stage, generation_result_id=generation_result_id, write_log=False,
         )
+    trace("delivery_gate.after_summary_recovery")
     if not updated.resume_sections.skills and _skill_terms(raw_input):
         updated = guard_resume_skill_evidence(
             updated, raw_input, stage=stage, generation_result_id=generation_result_id, write_log=False,
         )
+    trace("delivery_gate.after_skill_recovery")
     if evaluate_skill_evidence(updated, raw_input) < 100:
         _add_issue(issues, "SKILL_WITHOUT_EVIDENCE", "warning", "resume_sections.skills")
     updated = ensure_semantic_units(updated, raw_input)
@@ -834,6 +850,7 @@ def ensure_resume_delivery_quality(
         )
         updated, extra_removed = _deduplicate_project_fields(updated, issues)
         duplicate_removed += extra_removed
+    trace("delivery_gate.after_coverage_recovery")
 
     updated = guard_resume_output(
         updated, raw_input, stage=stage, generation_result_id=generation_result_id, write_log=False,
@@ -872,4 +889,5 @@ def ensure_resume_delivery_quality(
         stats.gate_passed = False
     if write_log:
         _write_log(stats)
+    trace("delivery_gate.exit")
     return updated
