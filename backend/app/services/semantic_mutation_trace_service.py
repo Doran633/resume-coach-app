@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .canonical_semantic_state_service import CanonicalSemanticBuild
-from .experience_fact_ledger_service import fact_match_score, normalize_fact_text
+from .canonical_consumer_view_service import CanonicalConsumerViews, build_canonical_consumer_views
 from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence, contains_skill_term
 from .structured_log_service import stable_hash
 
@@ -130,87 +130,67 @@ def _project_trace_key(index: int) -> str:
 
 
 def build_semantic_commit_snapshot(
-    build: CanonicalSemanticBuild,
+    build: CanonicalSemanticBuild | None = None,
     skill_evidence: list[AggregatedSkillEvidence] | None = None,
+    *,
+    consumer_views: CanonicalConsumerViews | None = None,
 ) -> SemanticCommitSnapshot:
     """Project canonical IDs and skill evidence without retaining semantic text."""
-    decisions = build.canonical_type_by_experience_id
-    ownership = build.ownership_index
-    withheld = {
-        claim.claim_id
-        for claim in build.ledger.withheld_claims + build.ledger.excluded_claims
-        if claim.semantic_role in _WITHHELD_ROLES or not claim.resume_eligible
-    }
+    if consumer_views is None:
+        if build is None:
+            raise ValueError("consumer_views or build is required")
+        consumer_views = build_canonical_consumer_views(build, skill_evidence or [])
+    guard = consumer_views.guard_view
+    withheld = consumer_views.withheld_claim_ids
     fact_claim_ids = {
         fact.fact_id: tuple(item for item in [fact.claim_id] if item)
-        for fact in build.ledger.facts
+        for fact in guard.ledger.facts
     }
-    skills = {
-        stable_hash(row.term.lower(), purpose="semantic_mutation_skill")
-        for row in skill_evidence or []
-        if row.term
-    }
+    skills = consumer_views.verified_skill_evidence_keys
     source = {
-        "experience_ids": sorted(decisions),
-        "types": {key: decisions[key].canonical_experience_type for key in sorted(decisions)},
-        "fact_owner": ownership.fact_owner_by_id,
+        "experience_ids": sorted(consumer_views.experience_ids),
+        "types": {
+            key: consumer_views.owner_scopes[key].canonical_experience_type
+            for key in sorted(consumer_views.owner_scopes)
+        },
+        "fact_owner": dict(consumer_views.fact_owner_by_id),
         "fact_claim_ids": fact_claim_ids,
-        "claim_owner": ownership.claim_owner_by_id,
-        "eligible_facts": sorted(ownership.fact_owner_by_id),
-        "eligible_claims": sorted(claim.claim_id for claim in build.ledger.claims if claim.resume_eligible),
+        "claim_owner": dict(consumer_views.claim_owner_by_id),
+        "eligible_facts": sorted(consumer_views.eligible_fact_ids),
+        "eligible_claims": sorted(consumer_views.eligible_claim_ids),
         "withheld_claims": sorted(withheld),
         "skill_keys": sorted(skills),
     }
     return SemanticCommitSnapshot(
-        experience_ids=tuple(sorted(decisions)),
-        type_by_experience={key: decisions[key].canonical_experience_type for key in decisions},
-        fact_owner_by_id=dict(ownership.fact_owner_by_id),
+        experience_ids=tuple(sorted(consumer_views.experience_ids)),
+        type_by_experience={
+            key: scope.canonical_experience_type
+            for key, scope in consumer_views.owner_scopes.items()
+        },
+        fact_owner_by_id=dict(consumer_views.fact_owner_by_id),
         fact_claim_ids_by_id=fact_claim_ids,
-        claim_owner_by_id=dict(ownership.claim_owner_by_id),
-        eligible_fact_ids=frozenset(ownership.fact_owner_by_id),
-        eligible_claim_ids=frozenset(claim.claim_id for claim in build.ledger.claims if claim.resume_eligible),
+        claim_owner_by_id=dict(consumer_views.claim_owner_by_id),
+        eligible_fact_ids=consumer_views.eligible_fact_ids,
+        eligible_claim_ids=consumer_views.eligible_claim_ids,
         withheld_claim_ids=frozenset(withheld),
         canonical_skill_keys=frozenset(skills),
         fingerprint=_fingerprint(source, purpose="semantic_mutation_commit"),
     )
 
 
-def _text_supported(value: str, owner: str, build: CanonicalSemanticBuild) -> tuple[tuple[str, ...], tuple[str, ...], bool]:
+def _text_supported(value: str, owner: str, consumer_views: CanonicalConsumerViews) -> tuple[tuple[str, ...], tuple[str, ...], bool]:
     """Return candidate Fact IDs and a lexical-only withheld overlap hint.
 
     The lexical hint is deliberately not a leakage conclusion. It exists only
     to explain an ambiguous trace row after provenance has been inspected.
     """
-    if not value:
-        return (), (), False
-    local: list[str] = []
-    foreign: list[str] = []
-    for fact in build.ledger.facts:
-        score = fact_match_score(value, fact)
-        if score < 0.82:
-            continue
-        if owner and fact.experience_id == owner:
-            local.append(fact.fact_id)
-        elif owner and fact.experience_id != owner:
-            foreign.append(fact.fact_id)
-        elif not owner:
-            local.append(fact.fact_id)
-    normalized_value = normalize_fact_text(value)
-    lexical_withheld_overlap = any(
-        normalized_value and normalize_fact_text(claim.text) and (
-            normalized_value in normalize_fact_text(claim.text)
-            or normalize_fact_text(claim.text) in normalized_value
-        )
-        for resolution in build.claim_resolutions
-        for claim in resolution.withheld_claims + resolution.excluded_claims
-        if claim.semantic_role in _WITHHELD_ROLES or not claim.resume_eligible
-    )
-    return tuple(dict.fromkeys(local)), tuple(dict.fromkeys(foreign)), lexical_withheld_overlap
+    local, foreign = consumer_views.matched_fact_ids(value, owner)
+    return local, foreign, consumer_views.has_lexical_withheld_overlap(value)
 
 
 def _project_payload(
     payload: schemas.GenerationPayload,
-    build: CanonicalSemanticBuild,
+    consumer_views: CanonicalConsumerViews,
     snapshot: SemanticCommitSnapshot,
 ) -> PayloadProjection:
     fields: dict[str, VisibleField] = {}
@@ -240,7 +220,7 @@ def _project_payload(
             supported = bool(row_fact_ids and all(item in snapshot.eligible_fact_ids for item in row_fact_ids) and not foreign)
             field_kind = "structural" if field in _STRUCTURAL_PROJECT_FIELDS else "content"
             local_fact_ids, foreign_fact_ids, lexical_withheld_overlap = (
-                _text_supported(text, owner, build) if field_kind == "content" else ((), (), False)
+                _text_supported(text, owner, consumer_views) if field_kind == "content" else ((), (), False)
             )
             withheld_claim_ids = tuple(sorted(set(row_claim_ids) & snapshot.withheld_claim_ids))
             fields[path] = VisibleField(
@@ -264,7 +244,7 @@ def _project_payload(
         text = str(line or "")
         for term in extract_skill_terms(text):
             if contains_skill_term(text, term):
-                skill_keys.add(stable_hash(term.lower(), purpose="semantic_mutation_skill"))
+                skill_keys.add(stable_hash(term.lower(), purpose="canonical_consumer_skill"))
     digest = {
         "projects": {key: {"owner": value["owner"], "type": value["type"], "facts": value["facts"]} for key, value in projects.items()},
         "fields": {key: {"owner": value.owner, "facts": value.fact_ids, "inferred": value.inferred_fact_ids, "text": value.value_fingerprint} for key, value in fields.items()},
@@ -275,8 +255,9 @@ def _project_payload(
 
 @dataclass
 class SemanticMutationTracer:
-    build: CanonicalSemanticBuild
     snapshot: SemanticCommitSnapshot
+    build: CanonicalSemanticBuild | None = None
+    consumer_views: CanonicalConsumerViews | None = None
     request_id: str = ""
     attempt_id: str = ""
     generation_result_id: int | None = None
@@ -285,8 +266,14 @@ class SemanticMutationTracer:
     seen: set[tuple[str, str]] = field(default_factory=set)
     events: list[dict[str, Any]] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        if self.consumer_views is None:
+            if self.build is None:
+                raise ValueError("consumer_views or build is required")
+            self.consumer_views = build_canonical_consumer_views(self.build)
+
     def checkpoint(self, payload: schemas.GenerationPayload, stage: str, *, parent_stage: str = "") -> None:
-        current = _project_payload(payload, self.build, self.snapshot)
+        current = _project_payload(payload, self.consumer_views, self.snapshot)
         previous = self.previous
         mutations: list[SemanticMutation] = []
         for key, project in current.projects.items():

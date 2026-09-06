@@ -85,6 +85,11 @@ from .canonical_semantic_state_service import (
     write_canonical_fallback_recovery_log,
     write_canonical_scoped_fact_access_log,
 )
+from .canonical_consumer_view_service import (
+    CanonicalConsumerViewAccessStats,
+    build_canonical_consumer_views,
+    write_canonical_consumer_views_log,
+)
 from .semantic_mutation_trace_service import SemanticMutationTracer, build_semantic_commit_snapshot
 from .resource_protection_service import resource_protection
 
@@ -450,13 +455,14 @@ def create_generation(
         long_input_context=long_input_context,
     )
     skill_evidence = aggregate_skill_evidence_from_ledger(semantic_build.ledger)
+    consumer_views = build_canonical_consumer_views(semantic_build, skill_evidence)
+    consumer_view_access_stats = CanonicalConsumerViewAccessStats()
     semantic_commit_snapshot = build_semantic_commit_snapshot(
-        semantic_build,
-        skill_evidence,
+        consumer_views=consumer_views,
     )
     mutation_tracer = SemanticMutationTracer(
-        build=semantic_build,
         snapshot=semantic_commit_snapshot,
+        consumer_views=consumer_views,
         request_id=request_id,
         attempt_id=request.attempt_id or "",
     )
@@ -482,6 +488,13 @@ def create_generation(
     db.add(experience)
     db.commit()
     db.refresh(experience)
+    write_canonical_consumer_views_log(
+        consumer_views,
+        stage="generation_consumer_views_built",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        access_stats=consumer_view_access_stats,
+    )
 
     shadow_semantic_state = None
     try:
@@ -742,10 +755,11 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_experience_validity", parent_stage="ensure_resume_experience_validity")
     validate_resume_delivery_quality(
         payload,
-        semantic_build=semantic_build,
+        consumer_views=consumer_views,
         skill_evidence=skill_evidence,
         stage="before_save",
         mutation_tracer=mutation_tracer,
+        access_stats=consumer_view_access_stats,
     )
     payload, owner_delivery_final_stats = contain_ownerless_projects(
         payload,
@@ -758,8 +772,9 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_final_owner_delivery_contract", parent_stage="ownerless_project_containment")
     final_quality_issues, final_high_value_coverage, _ = evaluate_canonical_delivery_quality_issues(
         payload,
-        semantic_build=semantic_build,
+        consumer_views=consumer_views,
         skill_evidence=skill_evidence,
+        access_stats=consumer_view_access_stats,
     )
     final_projects = payload.resume_sections.projects
     projects_with_source_id = sum(bool(project.get("source_experience_id")) for project in final_projects)
@@ -787,6 +802,14 @@ def create_generation(
     db.add(result)
     db.commit()
     db.refresh(result)
+    write_canonical_consumer_views_log(
+        consumer_views,
+        stage="generation_consumer_views_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
+        access_stats=consumer_view_access_stats,
+    )
     mutation_tracer.checkpoint(payload, "generation_persisted", parent_stage="persistence")
     mutation_tracer.flush(result.id)
     if shadow_semantic_state is not None:

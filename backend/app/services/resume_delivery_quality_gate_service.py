@@ -13,6 +13,11 @@ from .experience_fact_ledger_service import ExperienceFactLedger, build_experien
 from .experience_identity_service import build_experience_identities
 from .experience_slot_service import fact_owner_id
 from .canonical_semantic_state_service import CanonicalSemanticBuild
+from .canonical_consumer_view_service import (
+    CanonicalConsumerViewAccessStats,
+    CanonicalConsumerViews,
+    build_canonical_consumer_views,
+)
 from .input_semantic_role_service import TARGET_ROLE_CONTEXT, USER_INSTRUCTION
 from .input_claim_resolution_service import (
     DENIED,
@@ -29,6 +34,7 @@ from .resume_output_firewall_service import guard_resume_output
 from .resume_semantic_unit_service import ensure_semantic_units, fragment_reasons
 from .resume_skill_evidence_guard_service import _skill_terms, evaluate_skill_evidence, guard_resume_skill_evidence
 from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence
+from .structured_log_service import stable_hash
 from .resume_summary_quality_service import ensure_resume_summary_quality
 from .resume_typography_quality_service import (
     clean_typography,
@@ -794,11 +800,12 @@ def evaluate_delivery_quality_issues(payload: schemas.GenerationPayload, raw_inp
 
 def _canonical_provenance_issues(
     payload: schemas.GenerationPayload,
-    semantic_build: CanonicalSemanticBuild,
+    consumer_views: CanonicalConsumerViews,
+    access_stats: CanonicalConsumerViewAccessStats | None = None,
 ) -> list[ResumeQualityIssue]:
     issues: list[ResumeQualityIssue] = []
-    ownership = semantic_build.ownership_index
-    valid_ids = set(ownership.source_experience_ids)
+    guard = consumer_views.guard_view
+    valid_ids = set(consumer_views.experience_ids)
     bound_ids: set[str] = set()
     for index, project in enumerate(payload.resume_sections.projects):
         source_id = _text(project.get("source_experience_id"))
@@ -812,13 +819,13 @@ def _canonical_provenance_issues(
             continue
         bound_ids.add(owner)
         for fact_id in _all_fact_ids(project):
-            fact_owner = ownership.fact_owner(fact_id)
+            fact_owner = guard.fact_owner(fact_id)
             if not fact_owner:
                 _add_issue(
                     issues, "UNSUPPORTED_HARD_FACT", "critical", path, project,
                     fact_ids=[fact_id],
                 )
-            elif fact_owner != owner:
+            elif not guard.permits_fact(owner, fact_id, access_stats=access_stats):
                 _add_issue(
                     issues, "PROVENANCE_CONFLICT", "critical", path, project,
                     fact_ids=[fact_id],
@@ -828,14 +835,10 @@ def _canonical_provenance_issues(
                     fact_ids=[fact_id],
                 )
         for claim_id in _all_claim_ids(project):
-            claim_owner = ownership.claim_owner(claim_id)
-            if not claim_owner or claim_owner != owner:
+            claim_owner = guard.claim_owner(claim_id)
+            if not claim_owner or not guard.permits_claim(owner, claim_id, access_stats=access_stats):
                 _add_issue(issues, "CLAIM_OWNER_CHANGED", "critical", path, project)
-    explicit_ids = {
-        identity.experience_id
-        for identity in semantic_build.identities
-        if identity.declared_experience_type
-    }
+    explicit_ids = set(consumer_views.explicit_experience_ids)
     if explicit_ids and not explicit_ids.issubset(bound_ids & valid_ids):
         _add_issue(issues, "EXPLICIT_BOUNDARY_LOST", "critical", "resume_sections.projects")
     return issues
@@ -843,22 +846,27 @@ def _canonical_provenance_issues(
 
 def _canonical_skill_issues(
     payload: schemas.GenerationPayload,
-    skill_evidence: list[AggregatedSkillEvidence] | tuple[AggregatedSkillEvidence, ...],
+    consumer_views: CanonicalConsumerViews,
+    skill_evidence: list[AggregatedSkillEvidence] | tuple[AggregatedSkillEvidence, ...] = (),
 ) -> list[ResumeQualityIssue]:
     issues: list[ResumeQualityIssue] = []
-    supported = {row.term.lower() for row in skill_evidence}
-    visible_terms = {
-        term.lower()
+    supported_keys = consumer_views.verified_skill_evidence_keys or {
+        stable_hash(row.term.lower(), purpose="canonical_consumer_skill")
+        for row in skill_evidence
+        if row.term
+    }
+    visible_keys = {
+        stable_hash(term.lower(), purpose="canonical_consumer_skill")
         for line in payload.resume_sections.skills
         for term in _skill_terms(str(line))
     }
-    unsupported = sorted(visible_terms - supported)
+    unsupported = sorted(visible_keys - supported_keys)
     if unsupported:
         _add_issue(
             issues, "SKILL_WITHOUT_EVIDENCE", "warning", "resume_sections.skills",
             confidence=1.0,
         )
-    if supported and not payload.resume_sections.skills:
+    if supported_keys and not payload.resume_sections.skills:
         _add_issue(issues, "EMPTY_VISIBLE_SECTION", "warning", "resume_sections.skills")
     return issues
 
@@ -866,10 +874,17 @@ def _canonical_skill_issues(
 def evaluate_canonical_delivery_quality_issues(
     payload: schemas.GenerationPayload,
     *,
-    semantic_build: CanonicalSemanticBuild,
+    consumer_views: CanonicalConsumerViews | None = None,
+    semantic_build: CanonicalSemanticBuild | None = None,
     skill_evidence: list[AggregatedSkillEvidence] | tuple[AggregatedSkillEvidence, ...] = (),
+    access_stats: CanonicalConsumerViewAccessStats | None = None,
 ) -> tuple[list[ResumeQualityIssue], float, set[str]]:
     """Evaluate delivery quality without rebuilding or mutating request semantics."""
+    if consumer_views is None:
+        if semantic_build is None:
+            raise ValueError("consumer_views or semantic_build is required")
+        consumer_views = build_canonical_consumer_views(semantic_build, skill_evidence)
+    guard = consumer_views.guard_view
     issues: list[ResumeQualityIssue] = []
     sections = payload.resume_sections
     if not sections.summary:
@@ -910,7 +925,7 @@ def evaluate_canonical_delivery_quality_issues(
                         confidence=score,
                     )
 
-    for _ in range(_cross_experience_count_from_ledger(payload, semantic_build.ledger)):
+    for _ in range(_cross_experience_count_from_ledger(payload, guard.ledger)):
         _add_issue(issues, "CROSS_EXPERIENCE_FACT", "critical", "resume_sections.projects", confidence=0.95)
     visible = _visible_text(payload)
     for _ in INVALID_CHAR_PATTERN.findall(visible):
@@ -923,10 +938,10 @@ def evaluate_canonical_delivery_quality_issues(
     if has_unbalanced_symbols(visible):
         _add_issue(issues, "INVALID_CHARACTER", "critical", "resume_sections", confidence=0.95)
 
-    issues.extend(_semantic_role_leaks_from_ledger(payload, semantic_build.ledger))
-    issues.extend(_canonical_provenance_issues(payload, semantic_build))
-    issues.extend(_canonical_skill_issues(payload, skill_evidence))
-    coverage, covered = _high_value_coverage_from_ledger(payload, semantic_build.ledger)
+    issues.extend(_semantic_role_leaks_from_ledger(payload, guard.ledger))
+    issues.extend(_canonical_provenance_issues(payload, consumer_views, access_stats))
+    issues.extend(_canonical_skill_issues(payload, consumer_views, skill_evidence))
+    coverage, covered = _high_value_coverage_from_ledger(payload, guard.ledger)
     if coverage < 0.8:
         _add_issue(
             issues, "LOW_HIGH_VALUE_FACT_COVERAGE", "warning",
@@ -936,10 +951,10 @@ def evaluate_canonical_delivery_quality_issues(
         fact_id
         for project in sections.projects
         for fact_id in _all_fact_ids(project)
-        if semantic_build.ownership_index.fact_owner(fact_id)
+        if guard.fact_owner(fact_id)
     }
-    for experience_id, fact_ids in semantic_build.ownership_index.eligible_fact_ids_by_experience.items():
-        missing = sorted(set(fact_ids) - projected)
+    for experience_id, scope in consumer_views.owner_scopes.items():
+        missing = sorted(set(scope.eligible_fact_ids) & set(guard.unprojected_eligible_fact_ids(projected)))
         if missing:
             issues.append(ResumeQualityIssue(
                 issue_code="ELIGIBLE_FACT_UNPROJECTED",
@@ -965,14 +980,20 @@ def _write_log(stats: DeliveryGateStats) -> None:
 def validate_resume_delivery_quality(
     payload: schemas.GenerationPayload,
     *,
-    semantic_build: CanonicalSemanticBuild,
+    consumer_views: CanonicalConsumerViews | None = None,
+    semantic_build: CanonicalSemanticBuild | None = None,
     skill_evidence: list[AggregatedSkillEvidence] | tuple[AggregatedSkillEvidence, ...] = (),
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
     mutation_tracer: object | None = None,
+    access_stats: CanonicalConsumerViewAccessStats | None = None,
 ) -> DeliveryGateEvaluation:
     """Validate a post-commit payload without changing its presentation or semantics."""
+    if consumer_views is None:
+        if semantic_build is None:
+            raise ValueError("consumer_views or semantic_build is required")
+        consumer_views = build_canonical_consumer_views(semantic_build, skill_evidence)
     before = payload.model_dump(mode="json")
     projects_before = len(payload.resume_sections.projects)
     bindings_before = _fact_binding_count(payload)
@@ -984,8 +1005,9 @@ def validate_resume_delivery_quality(
     trace("delivery_gate.enter")
     issues, coverage, _ = evaluate_canonical_delivery_quality_issues(
         payload,
-        semantic_build=semantic_build,
+        consumer_views=consumer_views,
         skill_evidence=skill_evidence,
+        access_stats=access_stats,
     )
     trace("delivery_gate.evaluated")
     after = payload.model_dump(mode="json")
@@ -1000,8 +1022,8 @@ def validate_resume_delivery_quality(
 
     eligible_fact_ids = {
         fact_id
-        for fact_ids in semantic_build.ownership_index.eligible_fact_ids_by_experience.values()
-        for fact_id in fact_ids
+        for scope in consumer_views.owner_scopes.values()
+        for fact_id in scope.eligible_fact_ids
     }
     projected_fact_ids = {
         fact_id
