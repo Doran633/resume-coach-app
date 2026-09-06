@@ -9,9 +9,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
+from .experience_fact_ledger_service import ExperienceFactLedger, build_experience_fact_ledger, fact_match_score
 from .experience_identity_service import build_experience_identities
 from .experience_slot_service import fact_owner_id
+from .canonical_semantic_state_service import CanonicalSemanticBuild
 from .input_semantic_role_service import TARGET_ROLE_CONTEXT, USER_INSTRUCTION
 from .input_claim_resolution_service import (
     DENIED,
@@ -27,6 +28,7 @@ from .resume_fact_dedup_service import same_fact_action, similarity
 from .resume_output_firewall_service import guard_resume_output
 from .resume_semantic_unit_service import ensure_semantic_units, fragment_reasons
 from .resume_skill_evidence_guard_service import _skill_terms, evaluate_skill_evidence, guard_resume_skill_evidence
+from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence
 from .resume_summary_quality_service import ensure_resume_summary_quality
 from .resume_typography_quality_service import (
     clean_typography,
@@ -72,6 +74,8 @@ ISSUE_CODES = (
     "CLAIM_CONFLICT_UNRESOLVED",
     "USER_CONSTRAINT_RENDERED",
     "TARGET_ROLE_SKILL_LEAK",
+    "ELIGIBLE_FACT_UNPROJECTED",
+    "DELIVERY_GATE_PAYLOAD_MUTATED",
 )
 
 COACH_MARKERS = (
@@ -117,6 +121,20 @@ class DeliveryGateStats:
     invalid_character_count: int = 0
     gate_passed: bool = True
     issues: list[ResumeQualityIssue] = field(default_factory=list)
+    validation_only: bool = False
+    payload_changed: bool = False
+    semantic_rebuild_attempt_count: int = 0
+    fact_binding_count_before: int = 0
+    fact_binding_count_after: int = 0
+    unprojected_eligible_fact_count: int = 0
+
+
+@dataclass(frozen=True)
+class DeliveryGateEvaluation:
+    """Read-only delivery decision produced after the semantic commit."""
+
+    issues: tuple[ResumeQualityIssue, ...]
+    stats: DeliveryGateStats
 
 
 def _text(value: object) -> str:
@@ -146,6 +164,29 @@ def _fact_ids(project: dict, detail_index: int | None = None) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _all_fact_ids(project: dict) -> list[str]:
+    values = [*_fact_ids(project)]
+    values.extend(str(item) for item in project.get("role_source_fact_ids", []) or [] if str(item))
+    for row in project.get("detail_fact_ids", []) if isinstance(project.get("detail_fact_ids"), list) else []:
+        if isinstance(row, list):
+            values.extend(str(item) for item in row if str(item))
+    return list(dict.fromkeys(values))
+
+
+def _all_claim_ids(project: dict) -> list[str]:
+    values: list[str] = []
+    for key in ("source_claim_ids", "role_source_claim_ids"):
+        values.extend(str(item) for item in project.get(key, []) or [] if str(item))
+    for row in project.get("detail_claim_ids", []) if isinstance(project.get("detail_claim_ids"), list) else []:
+        if isinstance(row, list):
+            values.extend(str(item) for item in row if str(item))
+    return list(dict.fromkeys(values))
+
+
+def _fact_binding_count(payload: schemas.GenerationPayload) -> int:
+    return sum(len(_all_fact_ids(project)) for project in payload.resume_sections.projects)
+
+
 def _visible_text(payload: schemas.GenerationPayload) -> str:
     return visible_output_text(payload)
 
@@ -157,9 +198,11 @@ def _project_text(project: dict) -> str:
     ])
 
 
-def _semantic_role_leaks(payload: schemas.GenerationPayload, raw_input: str) -> list[ResumeQualityIssue]:
+def _semantic_role_leaks_from_ledger(
+    payload: schemas.GenerationPayload,
+    ledger: ExperienceFactLedger,
+) -> list[ResumeQualityIssue]:
     issues: list[ResumeQualityIssue] = []
-    ledger = build_experience_fact_ledger(raw_input)
     visible = _normalized(_visible_text(payload))
     local_visible = {
         source_id: _normalized(_project_text(project))
@@ -227,6 +270,10 @@ def _semantic_role_leaks(payload: schemas.GenerationPayload, raw_input: str) -> 
                 {"source_experience_id": claim.source_experience_id},
             )
     return issues
+
+
+def _semantic_role_leaks(payload: schemas.GenerationPayload, raw_input: str) -> list[ResumeQualityIssue]:
+    return _semantic_role_leaks_from_ledger(payload, build_experience_fact_ledger(raw_input))
 
 
 def _provenance_issues(payload: schemas.GenerationPayload, raw_input: str) -> list[ResumeQualityIssue]:
@@ -344,9 +391,12 @@ def _remove_semantic_role_leaks(
     return updated
 
 
-def _high_value_coverage(payload: schemas.GenerationPayload, raw_input: str) -> tuple[float, set[str]]:
+def _high_value_coverage_from_ledger(
+    payload: schemas.GenerationPayload,
+    ledger: ExperienceFactLedger,
+) -> tuple[float, set[str]]:
     high_facts = [
-        fact for fact in build_experience_fact_ledger(raw_input).facts
+        fact for fact in ledger.facts
         if fact.importance == "high" and fact.resume_ready_text
     ]
     if not high_facts:
@@ -361,6 +411,10 @@ def _high_value_coverage(payload: schemas.GenerationPayload, raw_input: str) -> 
         if fact_match_score(visible, fact) >= 0.48:
             covered.add(fact.fact_id)
     return len(covered) / len(high_facts), covered
+
+
+def _high_value_coverage(payload: schemas.GenerationPayload, raw_input: str) -> tuple[float, set[str]]:
+    return _high_value_coverage_from_ledger(payload, build_experience_fact_ledger(raw_input))
 
 
 def measure_high_value_fact_coverage(payload: schemas.GenerationPayload, raw_input: str) -> float:
@@ -574,8 +628,10 @@ def _deduplicate_project_fields(payload: schemas.GenerationPayload, issues: list
     return updated, removed
 
 
-def _cross_experience_count(payload: schemas.GenerationPayload, raw_input: str) -> int:
-    ledger = build_experience_fact_ledger(raw_input)
+def _cross_experience_count_from_ledger(
+    payload: schemas.GenerationPayload,
+    ledger: ExperienceFactLedger,
+) -> int:
     count = 0
     for project in payload.resume_sections.projects:
         local_ids = _source_ids(project)
@@ -586,6 +642,10 @@ def _cross_experience_count(payload: schemas.GenerationPayload, raw_input: str) 
             if all_scores and all_scores[0][0] >= 0.78 and all_scores[0][1].experience_id not in local_ids and local_score < 0.35:
                 count += 1
     return count
+
+
+def _cross_experience_count(payload: schemas.GenerationPayload, raw_input: str) -> int:
+    return _cross_experience_count_from_ledger(payload, build_experience_fact_ledger(raw_input))
 
 
 def _repair_strong_cross_experience_terms(
@@ -732,6 +792,166 @@ def evaluate_delivery_quality_issues(payload: schemas.GenerationPayload, raw_inp
     return issues
 
 
+def _canonical_provenance_issues(
+    payload: schemas.GenerationPayload,
+    semantic_build: CanonicalSemanticBuild,
+) -> list[ResumeQualityIssue]:
+    issues: list[ResumeQualityIssue] = []
+    ownership = semantic_build.ownership_index
+    valid_ids = set(ownership.source_experience_ids)
+    bound_ids: set[str] = set()
+    for index, project in enumerate(payload.resume_sections.projects):
+        source_id = _text(project.get("source_experience_id"))
+        immutable_id = _text(project.get("immutable_source_experience_id"))
+        owner = immutable_id or source_id
+        path = f"resume_sections.projects.{index}"
+        if source_id and immutable_id and source_id != immutable_id:
+            _add_issue(issues, "PROVENANCE_CONFLICT", "critical", path, project)
+        if not owner or owner not in valid_ids or not project.get("source_binding_locked"):
+            _add_issue(issues, "PROVENANCE_CONFLICT", "critical", path, project)
+            continue
+        bound_ids.add(owner)
+        for fact_id in _all_fact_ids(project):
+            fact_owner = ownership.fact_owner(fact_id)
+            if not fact_owner:
+                _add_issue(
+                    issues, "UNSUPPORTED_HARD_FACT", "critical", path, project,
+                    fact_ids=[fact_id],
+                )
+            elif fact_owner != owner:
+                _add_issue(
+                    issues, "PROVENANCE_CONFLICT", "critical", path, project,
+                    fact_ids=[fact_id],
+                )
+                _add_issue(
+                    issues, "CLAIM_OWNER_CHANGED", "critical", path, project,
+                    fact_ids=[fact_id],
+                )
+        for claim_id in _all_claim_ids(project):
+            claim_owner = ownership.claim_owner(claim_id)
+            if not claim_owner or claim_owner != owner:
+                _add_issue(issues, "CLAIM_OWNER_CHANGED", "critical", path, project)
+    explicit_ids = {
+        identity.experience_id
+        for identity in semantic_build.identities
+        if identity.declared_experience_type
+    }
+    if explicit_ids and not explicit_ids.issubset(bound_ids & valid_ids):
+        _add_issue(issues, "EXPLICIT_BOUNDARY_LOST", "critical", "resume_sections.projects")
+    return issues
+
+
+def _canonical_skill_issues(
+    payload: schemas.GenerationPayload,
+    skill_evidence: list[AggregatedSkillEvidence] | tuple[AggregatedSkillEvidence, ...],
+) -> list[ResumeQualityIssue]:
+    issues: list[ResumeQualityIssue] = []
+    supported = {row.term.lower() for row in skill_evidence}
+    visible_terms = {
+        term.lower()
+        for line in payload.resume_sections.skills
+        for term in _skill_terms(str(line))
+    }
+    unsupported = sorted(visible_terms - supported)
+    if unsupported:
+        _add_issue(
+            issues, "SKILL_WITHOUT_EVIDENCE", "warning", "resume_sections.skills",
+            confidence=1.0,
+        )
+    if supported and not payload.resume_sections.skills:
+        _add_issue(issues, "EMPTY_VISIBLE_SECTION", "warning", "resume_sections.skills")
+    return issues
+
+
+def evaluate_canonical_delivery_quality_issues(
+    payload: schemas.GenerationPayload,
+    *,
+    semantic_build: CanonicalSemanticBuild,
+    skill_evidence: list[AggregatedSkillEvidence] | tuple[AggregatedSkillEvidence, ...] = (),
+) -> tuple[list[ResumeQualityIssue], float, set[str]]:
+    """Evaluate delivery quality without rebuilding or mutating request semantics."""
+    issues: list[ResumeQualityIssue] = []
+    sections = payload.resume_sections
+    if not sections.summary:
+        _add_issue(issues, "EMPTY_VISIBLE_SECTION", "critical", "resume_sections.summary")
+    if not sections.projects:
+        _add_issue(issues, "EMPTY_VISIBLE_SECTION", "critical", "resume_sections.projects")
+    for project_index, project in enumerate(sections.projects):
+        project_path = f"resume_sections.projects.{project_index}"
+        if classify_experience_project(project, "") != "valid":
+            _add_issue(issues, "INVALID_EXPERIENCE_ENTITY", "critical", project_path, project)
+        values = [
+            _text(project.get("intro")),
+            _text(project.get("role")),
+            *[_text(item) for item in project.get("details", []) or []],
+        ]
+        if not any(values):
+            _add_issue(issues, "EMPTY_PROJECT_BODY", "critical", project_path, project)
+        for left_index, left in enumerate(values):
+            if not left:
+                continue
+            reasons = set(fragment_reasons(left))
+            if reasons:
+                severity = _fragment_severity(reasons)
+                _add_issue(
+                    issues, "INCOMPLETE_SENTENCE", severity,
+                    f"{project_path}.body.{left_index}", project,
+                    confidence=0.9 if severity == "critical" else 0.65,
+                )
+            for right in values[left_index + 1:]:
+                if not right:
+                    continue
+                score = similarity(left, right)
+                if _normalized(left) == _normalized(right):
+                    _add_issue(issues, "DUPLICATE_FACT", "critical", project_path, project)
+                elif score >= 0.78:
+                    _add_issue(
+                        issues, "LOW_INFORMATION_GAIN", "observe", project_path, project,
+                        confidence=score,
+                    )
+
+    for _ in range(_cross_experience_count_from_ledger(payload, semantic_build.ledger)):
+        _add_issue(issues, "CROSS_EXPERIENCE_FACT", "critical", "resume_sections.projects", confidence=0.95)
+    visible = _visible_text(payload)
+    for _ in INVALID_CHAR_PATTERN.findall(visible):
+        _add_issue(issues, "INVALID_CHARACTER", "critical", "resume_sections")
+    for leak in find_internal_field_leaks(payload):
+        _add_issue(issues, "INTERNAL_FIELD_LEAK", "critical", leak.field_path)
+    for marker in COACH_MARKERS:
+        if marker in visible:
+            _add_issue(issues, "COACH_LANGUAGE_LEAK", "critical", "resume_sections")
+    if has_unbalanced_symbols(visible):
+        _add_issue(issues, "INVALID_CHARACTER", "critical", "resume_sections", confidence=0.95)
+
+    issues.extend(_semantic_role_leaks_from_ledger(payload, semantic_build.ledger))
+    issues.extend(_canonical_provenance_issues(payload, semantic_build))
+    issues.extend(_canonical_skill_issues(payload, skill_evidence))
+    coverage, covered = _high_value_coverage_from_ledger(payload, semantic_build.ledger)
+    if coverage < 0.8:
+        _add_issue(
+            issues, "LOW_HIGH_VALUE_FACT_COVERAGE", "warning",
+            "resume_sections.projects", confidence=1.0 - coverage,
+        )
+    projected = {
+        fact_id
+        for project in sections.projects
+        for fact_id in _all_fact_ids(project)
+        if semantic_build.ownership_index.fact_owner(fact_id)
+    }
+    for experience_id, fact_ids in semantic_build.ownership_index.eligible_fact_ids_by_experience.items():
+        missing = sorted(set(fact_ids) - projected)
+        if missing:
+            issues.append(ResumeQualityIssue(
+                issue_code="ELIGIBLE_FACT_UNPROJECTED",
+                severity="warning",
+                field_path="resume_sections.projects",
+                source_experience_id=experience_id,
+                source_fact_ids=missing,
+                confidence=1.0,
+            ))
+    return issues, coverage, covered
+
+
 def _write_log(stats: DeliveryGateStats) -> None:
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -740,6 +960,88 @@ def _write_log(stats: DeliveryGateStats) -> None:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         pass
+
+
+def validate_resume_delivery_quality(
+    payload: schemas.GenerationPayload,
+    *,
+    semantic_build: CanonicalSemanticBuild,
+    skill_evidence: list[AggregatedSkillEvidence] | tuple[AggregatedSkillEvidence, ...] = (),
+    stage: str = "unknown",
+    generation_result_id: int | None = None,
+    write_log: bool = True,
+    mutation_tracer: object | None = None,
+) -> DeliveryGateEvaluation:
+    """Validate a post-commit payload without changing its presentation or semantics."""
+    before = payload.model_dump(mode="json")
+    projects_before = len(payload.resume_sections.projects)
+    bindings_before = _fact_binding_count(payload)
+
+    def trace(checkpoint: str) -> None:
+        if mutation_tracer is not None:
+            mutation_tracer.checkpoint(payload, checkpoint, parent_stage="delivery_quality_gate")
+
+    trace("delivery_gate.enter")
+    issues, coverage, _ = evaluate_canonical_delivery_quality_issues(
+        payload,
+        semantic_build=semantic_build,
+        skill_evidence=skill_evidence,
+    )
+    trace("delivery_gate.evaluated")
+    after = payload.model_dump(mode="json")
+    payload_changed = before != after
+    if payload_changed:
+        issues.append(ResumeQualityIssue(
+            issue_code="DELIVERY_GATE_PAYLOAD_MUTATED",
+            severity="critical",
+            field_path="resume_sections",
+            confidence=1.0,
+        ))
+
+    eligible_fact_ids = {
+        fact_id
+        for fact_ids in semantic_build.ownership_index.eligible_fact_ids_by_experience.values()
+        for fact_id in fact_ids
+    }
+    projected_fact_ids = {
+        fact_id
+        for project in payload.resume_sections.projects
+        for fact_id in _all_fact_ids(project)
+        if fact_id in eligible_fact_ids
+    }
+    counts = {code: 0 for code in ISSUE_CODES}
+    for issue in issues:
+        counts[issue.issue_code] = counts.get(issue.issue_code, 0) + 1
+    critical_count = sum(issue.severity == "critical" for issue in issues)
+    stats = DeliveryGateStats(
+        created_at=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        generation_result_id=generation_result_id,
+        stage=stage,
+        issue_count_by_code=counts,
+        critical_issue_count=critical_count,
+        repaired_issue_count=0,
+        unresolved_issue_count=len(issues),
+        projects_before=projects_before,
+        projects_after=len(payload.resume_sections.projects),
+        details_removed_count=0,
+        facts_recovered_count=0,
+        high_value_coverage_before=round(coverage, 3),
+        high_value_coverage_after=round(coverage, 3),
+        internal_leak_count=sum(issue.issue_code == "INTERNAL_FIELD_LEAK" for issue in issues),
+        invalid_character_count=sum(issue.issue_code == "INVALID_CHARACTER" for issue in issues),
+        gate_passed=not critical_count and not payload_changed,
+        issues=issues,
+        validation_only=True,
+        payload_changed=payload_changed,
+        semantic_rebuild_attempt_count=0,
+        fact_binding_count_before=bindings_before,
+        fact_binding_count_after=_fact_binding_count(payload),
+        unprojected_eligible_fact_count=len(eligible_fact_ids - projected_fact_ids),
+    )
+    if write_log:
+        _write_log(stats)
+    trace("delivery_gate.exit")
+    return DeliveryGateEvaluation(issues=tuple(issues), stats=stats)
 
 
 def ensure_resume_delivery_quality(
@@ -751,6 +1053,7 @@ def ensure_resume_delivery_quality(
     write_log: bool = True,
     mutation_tracer: object | None = None,
 ) -> schemas.GenerationPayload:
+    """Legacy mutable compatibility path; canonical generation must not call it."""
     def trace(checkpoint: str) -> None:
         if mutation_tracer is not None:
             mutation_tracer.checkpoint(updated, checkpoint, parent_stage="delivery_quality_gate")

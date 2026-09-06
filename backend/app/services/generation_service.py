@@ -47,7 +47,7 @@ from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_semantic_unit_service import ensure_semantic_units
 from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
 from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
-from .resume_skill_evidence_aggregation_service import aggregate_skill_evidence, aggregate_skill_evidence_from_ledger
+from .resume_skill_evidence_aggregation_service import aggregate_skill_evidence_from_ledger
 from .resume_section_layering_service import layer_resume_sections
 from .resume_fact_increment_service import ensure_resume_fact_increment
 from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
@@ -60,9 +60,8 @@ from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
 from .resume_delivery_quality_gate_service import (
-    ensure_resume_delivery_quality,
-    evaluate_delivery_quality_issues,
-    measure_high_value_fact_coverage,
+    evaluate_canonical_delivery_quality_issues,
+    validate_resume_delivery_quality,
 )
 from .project_hierarchy_service import strip_project_hierarchy_metadata
 from .experience_slot_service import (
@@ -450,9 +449,10 @@ def create_generation(
         request.raw_input,
         long_input_context=long_input_context,
     )
+    skill_evidence = aggregate_skill_evidence_from_ledger(semantic_build.ledger)
     semantic_commit_snapshot = build_semantic_commit_snapshot(
         semantic_build,
-        aggregate_skill_evidence_from_ledger(semantic_build.ledger),
+        skill_evidence,
     )
     mutation_tracer = SemanticMutationTracer(
         build=semantic_build,
@@ -697,7 +697,6 @@ def create_generation(
     payload = guard_resume_output(payload, request.raw_input, stage="before_save")
     payload = professionalize_resume_language(payload, stage="generation")
     mutation_tracer.checkpoint(payload, "after_professionalization", parent_stage="professionalize_resume_language")
-    skill_evidence = aggregate_skill_evidence(request.raw_input)
     payload = guard_resume_skill_evidence(
         payload,
         request.raw_input,
@@ -741,8 +740,11 @@ def create_generation(
         recovery_stats=fallback_recovery_stats,
     )
     mutation_tracer.checkpoint(payload, "after_experience_validity", parent_stage="ensure_resume_experience_validity")
-    payload = ensure_resume_delivery_quality(
-        payload, request.raw_input, stage="before_save",
+    validate_resume_delivery_quality(
+        payload,
+        semantic_build=semantic_build,
+        skill_evidence=skill_evidence,
+        stage="before_save",
         mutation_tracer=mutation_tracer,
     )
     payload, owner_delivery_final_stats = contain_ownerless_projects(
@@ -754,7 +756,11 @@ def create_generation(
         return_stats=True,
     )
     mutation_tracer.checkpoint(payload, "after_final_owner_delivery_contract", parent_stage="ownerless_project_containment")
-    final_quality_issues = evaluate_delivery_quality_issues(payload, request.raw_input)
+    final_quality_issues, final_high_value_coverage, _ = evaluate_canonical_delivery_quality_issues(
+        payload,
+        semantic_build=semantic_build,
+        skill_evidence=skill_evidence,
+    )
     final_projects = payload.resume_sections.projects
     projects_with_source_id = sum(bool(project.get("source_experience_id")) for project in final_projects)
     projects_missing_source_id = len(final_projects) - projects_with_source_id
@@ -764,7 +770,7 @@ def create_generation(
         "role_fallback_triggered_count": resume_fallback_stats.role_fallback_triggered,
         "projects_with_source_id": projects_with_source_id,
         "projects_missing_source_id": projects_missing_source_id,
-        "high_value_fact_coverage": round(measure_high_value_fact_coverage(payload, request.raw_input), 3),
+        "high_value_fact_coverage": round(final_high_value_coverage, 3),
         "unresolved_quality_issue_codes": sorted({issue.issue_code for issue in final_quality_issues}),
         "unresolved_critical_issue_count": sum(issue.severity == "critical" for issue in final_quality_issues),
     })
