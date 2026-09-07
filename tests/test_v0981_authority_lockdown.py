@@ -328,6 +328,6 @@ def test_create_generation_uses_canonical_validation_not_legacy_gate(tmp_path, m
         )
         stored = db.get(models.GenerationResult, response.generation_result_id)
         assert stored is not None
-        assert calls["canonical"] == 1
+        assert calls["canonical"] == 2
     finally:
         db.close()

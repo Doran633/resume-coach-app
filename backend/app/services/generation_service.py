@@ -60,7 +60,6 @@ from .resume_role_resolution_service import resolve_resume_roles
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
 from .resume_delivery_quality_gate_service import (
-    evaluate_canonical_delivery_quality_issues,
     validate_resume_delivery_quality,
 )
 from .project_hierarchy_service import strip_project_hierarchy_metadata
@@ -89,6 +88,10 @@ from .canonical_consumer_view_service import (
     CanonicalConsumerViewAccessStats,
     build_canonical_consumer_views,
     write_canonical_consumer_views_log,
+)
+from .resume_quality_repair_router_service import (
+    route_quality_repairs,
+    write_quality_repair_router_log,
 )
 from .semantic_mutation_trace_service import SemanticMutationTracer, build_semantic_commit_snapshot
 from .resource_protection_service import resource_protection
@@ -753,15 +756,7 @@ def create_generation(
         recovery_stats=fallback_recovery_stats,
     )
     mutation_tracer.checkpoint(payload, "after_experience_validity", parent_stage="ensure_resume_experience_validity")
-    validate_resume_delivery_quality(
-        payload,
-        consumer_views=consumer_views,
-        skill_evidence=skill_evidence,
-        stage="before_save",
-        mutation_tracer=mutation_tracer,
-        access_stats=consumer_view_access_stats,
-    )
-    payload, owner_delivery_final_stats = contain_ownerless_projects(
+    payload, _owner_delivery_pre_repair_stats = contain_ownerless_projects(
         payload,
         semantic_build.ownership_index,
         stage="generation_before_persistence",
@@ -770,12 +765,42 @@ def create_generation(
         return_stats=True,
     )
     mutation_tracer.checkpoint(payload, "after_final_owner_delivery_contract", parent_stage="ownerless_project_containment")
-    final_quality_issues, final_high_value_coverage, _ = evaluate_canonical_delivery_quality_issues(
+    repair_plan_evaluation = validate_resume_delivery_quality(
         payload,
         consumer_views=consumer_views,
         skill_evidence=skill_evidence,
+        stage="before_quality_repair",
+        mutation_tracer=mutation_tracer,
         access_stats=consumer_view_access_stats,
     )
+    quality_repair_result = route_quality_repairs(
+        payload,
+        repair_plan_evaluation.issues,
+        consumer_views.repair_view,
+        stage="generation_quality_repair",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+    )
+    mutation_tracer.checkpoint(payload, "after_quality_repair_router", parent_stage="resume_quality_repair_router")
+    repair_recheck_evaluation = validate_resume_delivery_quality(
+        payload,
+        consumer_views=consumer_views,
+        skill_evidence=skill_evidence,
+        stage="after_quality_repair",
+        mutation_tracer=mutation_tracer,
+        access_stats=consumer_view_access_stats,
+    )
+    payload, owner_delivery_post_repair_stats = contain_ownerless_projects(
+        payload,
+        semantic_build.ownership_index,
+        stage="generation_after_quality_repair",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        return_stats=True,
+    )
+    mutation_tracer.checkpoint(payload, "after_quality_repair_owner_delivery_contract", parent_stage="ownerless_project_containment")
+    final_quality_issues = list(repair_recheck_evaluation.issues)
+    final_high_value_coverage = repair_recheck_evaluation.stats.high_value_coverage_after
     final_projects = payload.resume_sections.projects
     projects_with_source_id = sum(bool(project.get("source_experience_id")) for project in final_projects)
     projects_missing_source_id = len(final_projects) - projects_with_source_id
@@ -802,6 +827,13 @@ def create_generation(
     db.add(result)
     db.commit()
     db.refresh(result)
+    write_quality_repair_router_log(
+        quality_repair_result,
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
+        stage="generation_quality_repair_saved",
+    )
     write_canonical_consumer_views_log(
         consumer_views,
         stage="generation_consumer_views_saved",
@@ -832,9 +864,9 @@ def create_generation(
         owner_mutation_blocked_count=ownership_stats.owner_mutation_blocked_count,
         unresolved_owner_count=ownership_stats.unresolved_owner_count,
     )
-    owner_delivery_final_stats.generation_result_id = result.id
+    owner_delivery_post_repair_stats.generation_result_id = result.id
     write_owner_delivery_contract_log(
-        owner_delivery_final_stats,
+        owner_delivery_post_repair_stats,
         request_id=request_id,
         attempt_id=request.attempt_id or "",
     )

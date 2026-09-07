@@ -215,6 +215,6 @@ def test_generation_builds_one_consumer_view_and_passes_it_to_delivery_gate(tmp_
             request_id="req_v0982_view",
         )
         assert db.get(models.GenerationResult, response.generation_result_id) is not None
-        assert calls == {"views": 1, "gate_views": 1}
+        assert calls == {"views": 1, "gate_views": 2}
     finally:
         db.close()
