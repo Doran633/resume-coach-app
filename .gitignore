@@ -21,3 +21,6 @@ backend/backups/*
 !backend/outputs/.gitkeep
 !backend/reports/.gitkeep
 !backend/backups/.gitkeep
+
+.pytest-*/
+.pytest_cache/
