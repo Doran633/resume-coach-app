@@ -1,5 +1,76 @@
 # Resume Coach App
 
+## 当前架构：v0.9.8.3
+
+Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
+
+```text
+raw_input
+  -> Semantic Compilation
+  -> CanonicalSemanticBuild / Canonical Consumer Views
+  -> Existing Presentation Pipeline
+  -> Owner / Type / Fact Scope Freeze
+  -> Delivery Gate（只读验证）
+  -> Quality Repair Router（确定性局部清理）
+  -> Persisted GenerationResult
+  -> DOCX One-way Renderer
+```
+
+核心职责如下：
+
+- **Semantic Compilation**：同一次请求只构建一套 Experience Identity、Claim Resolution 和 Fact Ledger，形成请求级 CanonicalSemanticBuild。
+- **Canonical Consumer Views**：Planner、Guard 和未来 Repair 只能通过按 `experience_id` 限定的只读视图读取允许的 Claim、Fact 和技能证据，不重新理解完整 `raw_input`。
+- **Owner / Type Freeze**：经历类型、事实归属和项目归属在生成链路中冻结；后续模块只能验证、删除污染或使用同 owner 事实，不能跨经历重绑。
+- **Delivery Gate**：仅检查交付质量，不再恢复项目、补写事实、重建语义或修改 payload。
+- **Quality Repair Router**：仅处理证据充分的局部冗余，例如同一 owner、同一 Fact binding 的完全重复字段；不会创建事实、项目、技能或职责。
+- **DOCX One-way Renderer**：DOCX 只消费已保存的 `GenerationResult.result_json`，进行确定性文本清理后渲染，不再读取原始输入或重跑语义生成链路。
+
+### v0.9 架构迁移记录
+
+| 版本 | 阶段 | 已完成的权限收口 |
+| --- | --- | --- |
+| v0.9.0 | Shadow Canonical State | 构建不影响用户结果的 Canonical Semantic State 影子快照。 |
+| v0.9.1 | Single Semantic Compilation | Identity、Claim、Fact Ledger 和 Canonical State 复用同一次语义编译。 |
+| v0.9.2 | Experience Type Authority | 显式经历标签优先，冻结 `experience_type`，下游不再重分类。 |
+| v0.9.3 / v0.9.3.1 | Canonical Fact Ownership | 冻结 Fact / Claim owner；补齐单经历合法候选的安全绑定。 |
+| v0.9.4 | Scoped Fact Access | Boundary、Coverage、Reconciliation、Entity Dedup 按 owner 限定读取 Fact。 |
+| v0.9.5 | Fallback / Recovery Demotion | Fallback 和 Recovery 只能使用当前 owner 的 eligible Fact，不能重建事实或跨经历借用。 |
+| v0.9.6 | DOCX One-way Rendering | DOCX 从已保存 payload 单向渲染，不再重跑语义链路。 |
+| v0.9.7.1 - v0.9.7.3 | Semantic Audit | 建立 Mutation Trace、校准观测误报，并阻止无 owner 项目进入正式交付。 |
+| v0.9.8.1 | Authority Lockdown | Delivery Gate 收口为纯只读验证器。 |
+| v0.9.8.2 | Canonical Consumer Views | 建立 Planner、Guard、Repair 的请求级只读 Canonical Views。 |
+| v0.9.8.3 | Quality / Repair Split | 引入受 Canonical scope 限制的确定性 Repair Router，处理完全重复字段。 |
+
+后续尚未实施的架构阶段：
+
+- **Phase 8.4 Scoped Professionalization**：对每个字段限定可用于书面化改写的事实范围，改写后重新校验 provenance。
+- **Phase 8.5 Immutable Delivery Revision**：保存最终不可变 revision，让网页与 DOCX 都单向消费同一交付版本。
+
+后续阶段不得重新授予 Commit 后模块读取完整 `raw_input`、创建具体事实、重绑 owner 或改写 type 的权限。
+
+### 当前质量与可观测性
+
+- 每次请求可通过 `X-Request-ID` 关联 `request_id -> attempt_id -> generation_result_id -> file_id`。
+- `semantic_mutation_trace.jsonl` 用于识别 Semantic Commit 后首次出现的 owner、type、Fact binding 或 claim eligibility 异常。
+- Canonical State、Ownership、Consumer Views、Delivery Gate、Repair Router 都输出脱敏聚合日志，不记录用户正文、Cookie、API Key 或原始 IP。
+- shallow smoke 检查网站、法律页面、健康接口、Cookie、安全响应头和版本一致性；full smoke 显式调用模型，并在 finally 中清理测试数据。
+
+本地常用验证命令：
+
+```powershell
+python -m pytest -q
+python scripts/evaluate_golden_resume.py --mode mock
+python scripts/evaluate_claim_resolution_golden.py --mode mock
+```
+
+服务器按结果查询质量证据：
+
+```bash
+.venv/bin/python scripts/list_recent_quality_incidents.py --result-id <result_id> --json
+.venv/bin/python scripts/list_semantic_mutations.py --result-id <result_id> --show-transitions
+tail -n 20 backend/logs/resume_quality_repair_router.jsonl
+```
+
 ## v0.8.3 可见输出完整性与 Full Smoke 诊断
 
 - 新增统一的用户可见输出遍历，覆盖四档版本文案以及 summary、skills 和项目全部可见字段。
@@ -603,15 +674,15 @@ http://127.0.0.1:5173
 
 ## 服务器部署
 
-服务器推荐只作为部署环境，不直接修改源码。
+服务器推荐只作为部署环境，不直接修改源码。先在本地完成测试、提交与推送，再在服务器使用 fast-forward merge 拉取；不要用 `git reset --hard` 覆盖运行数据或本地环境配置。
 
 ```bash
 cd /www/wwwroot/resume-coach-app
 git fetch origin main
-git reset --hard origin/main
+git merge --ff-only origin/main
 cd frontend
 pnpm build
-systemctl reload nginx
+nginx -t && systemctl reload nginx
 systemctl restart resume-coach-backend
 ```
 
@@ -620,10 +691,10 @@ systemctl restart resume-coach-backend
 ```bash
 cd /www/wwwroot/resume-coach-app
 git fetch origin main
-git reset --hard origin/main
+git merge --ff-only origin/main
 cd frontend
 pnpm build
-systemctl reload nginx
+nginx -t && systemctl reload nginx
 ```
 
 如果改了后端代码、prompt、`.env` 或生成逻辑，需要重启后端。
@@ -716,6 +787,11 @@ sqlite3 backend/data/resume_coach.db "select id, generation_result_id, file_type
 - 经历边界守卫日志：`backend/logs/experience_boundary.jsonl`
 - 混合输入分段日志：`backend/logs/experience_segmentation.jsonl`
 - 项目级内容对账日志：`backend/logs/resume_project_reconciliation.jsonl`
+- Canonical 影子状态日志：`backend/logs/canonical_semantic_state.jsonl`
+- Canonical owner 冻结日志：`backend/logs/canonical_fact_ownership.jsonl`
+- Canonical Consumer Views 日志：`backend/logs/canonical_consumer_views.jsonl`
+- 语义变更追踪日志：`backend/logs/semantic_mutation_trace.jsonl`
+- Quality Repair Router 日志：`backend/logs/resume_quality_repair_router.jsonl`
 - 项目层级关系日志：`backend/logs/project_hierarchy.jsonl`
 - 生成文件：`backend/outputs/`
 - 数据报告：`backend/reports/`
