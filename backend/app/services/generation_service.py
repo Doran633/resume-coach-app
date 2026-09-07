@@ -79,6 +79,7 @@ from .canonical_semantic_state_service import (
     CanonicalScopedFactAccessStats,
     build_canonical_semantic_build,
     build_canonical_semantic_state_from_build,
+    write_canonical_eligibility_integrity_log,
     write_canonical_semantic_state_log,
     write_canonical_fact_ownership_log,
     write_canonical_fallback_recovery_log,
@@ -457,6 +458,21 @@ def create_generation(
         request.raw_input,
         long_input_context=long_input_context,
     )
+    semantic_state = semantic_build.state
+    if semantic_state is None:
+        semantic_state = build_canonical_semantic_state_from_build(semantic_build)
+    write_canonical_eligibility_integrity_log(
+        semantic_build,
+        semantic_state,
+        stage="generation_semantic_validated" if semantic_state.validation.valid else "generation_semantic_validation_failed",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+    )
+    if not semantic_state.validation.valid:
+        raise GenerationServiceError(
+            "Canonical semantic state validation failed.",
+            code="INVALID_CANONICAL_SEMANTIC_STATE",
+        )
     skill_evidence = aggregate_skill_evidence_from_ledger(semantic_build.ledger)
     consumer_views = build_canonical_consumer_views(semantic_build, skill_evidence)
     consumer_view_access_stats = CanonicalConsumerViewAccessStats()
@@ -498,7 +514,6 @@ def create_generation(
         attempt_id=request.attempt_id or "",
         access_stats=consumer_view_access_stats,
     )
-
     shadow_semantic_state = None
     try:
         shadow_semantic_state = build_canonical_semantic_state_from_build(
@@ -862,6 +877,14 @@ def create_generation(
         attempt_id=request.attempt_id or "",
         generation_result_id=result.id,
         access_stats=consumer_view_access_stats,
+    )
+    write_canonical_eligibility_integrity_log(
+        semantic_build,
+        shadow_semantic_state or semantic_state,
+        stage="generation_semantic_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
     )
     mutation_tracer.checkpoint(payload, "generation_persisted", parent_stage="persistence")
     mutation_tracer.flush(result.id)

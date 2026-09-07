@@ -351,6 +351,8 @@ def build_canonical_consumer_views(
     skill_evidence: tuple[AggregatedSkillEvidence, ...] | list[AggregatedSkillEvidence] = (),
 ) -> CanonicalConsumerViews:
     """Project one immutable semantic compilation into consumer permissions."""
+    if build.state is None or not build.state.validation.valid:
+        raise ValueError("Canonical Consumer Views require a validated CanonicalSemanticState.")
     decisions = build.canonical_type_by_experience_id
     claims = {claim.claim_id: claim for claim in build.ledger.claims}
     scopes: dict[str, CanonicalConsumerOwnerScope] = {}

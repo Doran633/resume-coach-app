@@ -12,7 +12,11 @@ from .input_semantic_role_service import (
 from .input_claim_resolution_service import (
     ClaimResolution,
     ELIGIBLE,
+    EXCLUDED,
     InputClaim,
+    WITHHELD,
+    claim_is_fact_eligible,
+    normalize_claim_eligibility,
     resolve_experience_claims,
 )
 
@@ -74,6 +78,8 @@ class ExperienceFactLedger:
     claims: list[InputClaim] = field(default_factory=list)
     withheld_claims: list[InputClaim] = field(default_factory=list)
     excluded_claims: list[InputClaim] = field(default_factory=list)
+    quarantined_claim_ids: list[str] = field(default_factory=list)
+    quarantined_fact_candidate_count: int = 0
 
     def for_experience(self, experience_id: str) -> list[ExperienceFact]:
         return [fact for fact in self.facts if fact.experience_id == experience_id]
@@ -187,6 +193,8 @@ def build_experience_fact_ledger_from_components(
     claims: list[InputClaim] = []
     withheld_claims: list[InputClaim] = []
     excluded_claims: list[InputClaim] = []
+    quarantined_claim_ids: list[str] = []
+    quarantined_fact_candidate_count = 0
     for identity, analysis, resolution in zip(
         identities,
         semantic_analyses,
@@ -196,11 +204,18 @@ def build_experience_fact_ledger_from_components(
         constraints.extend(analysis.constraints)
         uncertain_facts.extend(analysis.uncertain_facts)
         excluded_units.extend(unit for unit in analysis.units if not unit.resume_eligible)
-        claims.extend(resolution.claims)
-        withheld_claims.extend(resolution.withheld_claims)
-        excluded_claims.extend(resolution.excluded_claims)
+        normalized_claims = [normalize_claim_eligibility(claim) for claim in resolution.claims]
+        for original, normalized in zip(resolution.claims, normalized_claims, strict=True):
+            if original.eligibility == ELIGIBLE and normalized.eligibility != ELIGIBLE:
+                quarantined_claim_ids.append(original.claim_id)
+                quarantined_fact_candidate_count += len(split_atomic_facts(original.text))
+        claims.extend(normalized_claims)
+        withheld_claims.extend(claim for claim in normalized_claims if claim.eligibility == WITHHELD)
+        excluded_claims.extend(claim for claim in normalized_claims if claim.eligibility == EXCLUDED)
         fact_index = 0
-        for claim in resolution.eligible_claims:
+        for claim in normalized_claims:
+            if not claim_is_fact_eligible(claim):
+                continue
             for text in split_atomic_facts(claim.text):
                 fact_index += 1
                 local = raw_input.find(text, claim.source_span[0], claim.source_span[1] + 1)
@@ -251,6 +266,8 @@ def build_experience_fact_ledger_from_components(
         claims=claims,
         withheld_claims=withheld_claims,
         excluded_claims=excluded_claims,
+        quarantined_claim_ids=list(dict.fromkeys(quarantined_claim_ids)),
+        quarantined_fact_candidate_count=quarantined_fact_candidate_count,
     )
 
 

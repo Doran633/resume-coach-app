@@ -10,7 +10,13 @@ from .experience_fact_ledger_service import (
     build_experience_fact_ledger_from_components,
 )
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
-from .input_claim_resolution_service import ClaimResolution, ELIGIBLE, resolve_experience_claims
+from .input_claim_resolution_service import (
+    ClaimResolution,
+    ELIGIBLE,
+    claim_is_fact_eligible,
+    effective_claim_eligibility,
+    resolve_experience_claims,
+)
 from .input_semantic_role_service import InputSemanticAnalysis, analyze_experience_semantics
 from .long_input_service import LongInputContext, analyze_long_input
 from .structured_log_service import stable_hash
@@ -21,7 +27,7 @@ LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_semantic_st
 OWNERSHIP_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fact_ownership.jsonl"
 SCOPED_ACCESS_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_scoped_fact_access.jsonl"
 FALLBACK_RECOVERY_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fallback_recovery.jsonl"
-_NON_RESUME_ROLES = {"USER_INSTRUCTION", "NEGATIVE_CONSTRAINT", "UNCERTAIN_FACT"}
+ELIGIBILITY_INTEGRITY_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_eligibility_integrity.jsonl"
 CANONICAL_EXPERIENCE_TYPES = (
     "项目经历",
     "实习经历",
@@ -260,6 +266,9 @@ def _validate(
     for claim in claims:
         if claim.source_experience_id not in experience_id_set:
             issues.add("CLAIM_OWNER_MISSING")
+        effective_eligibility, _ = effective_claim_eligibility(claim)
+        if claim.eligibility != effective_eligibility:
+            issues.add("CLAIM_ELIGIBILITY_CONTRACT_VIOLATION")
     for fact in facts:
         if fact.source_experience_id not in experience_id_set:
             issues.add("FACT_OWNER_MISSING")
@@ -274,7 +283,7 @@ def _validate(
                 continue
             if claim.source_experience_id != fact.source_experience_id:
                 issues.add("FACT_CLAIM_OWNER_MISMATCH")
-            if claim.eligibility != ELIGIBLE or claim.semantic_role in _NON_RESUME_ROLES:
+            if not claim_is_fact_eligible(claim):
                 issues.add("INELIGIBLE_CLAIM_FACT_PRESENT")
     return CanonicalStateValidation(valid=not issues, issue_codes=tuple(sorted(issues)))
 
@@ -311,14 +320,21 @@ def _build_ownership_index(ledger: ExperienceFactLedger) -> CanonicalFactOwnersh
         if not owner:
             continue
         claim_owner_by_id[claim.claim_id] = owner
-        if claim.eligibility == ELIGIBLE:
+        if claim_is_fact_eligible(claim):
             eligible_claim_ids_by_experience.setdefault(owner, []).append(claim.claim_id)
+    claims_by_id = {claim.claim_id: claim for claim in ledger.claims}
     for fact in ledger.facts:
         owner = str(fact.experience_id or "")
         if not owner:
             continue
         fact_owner_by_id[fact.fact_id] = owner
-        if fact.eligibility == ELIGIBLE:
+        source_claim = claims_by_id.get(fact.claim_id)
+        if (
+            fact.eligibility == ELIGIBLE
+            and source_claim is not None
+            and claim_is_fact_eligible(source_claim)
+            and source_claim.source_experience_id == owner
+        ):
             eligible_fact_ids_by_experience.setdefault(owner, []).append(fact.fact_id)
 
     serializable = {
@@ -338,54 +354,18 @@ def _build_ownership_index(ledger: ExperienceFactLedger) -> CanonicalFactOwnersh
     )
 
 
-def build_canonical_semantic_build(
-    raw_input: str,
+def _project_canonical_semantic_state(
     *,
-    long_input_context: LongInputContext | None = None,
-) -> CanonicalSemanticBuild:
-    """Compile request semantics once before projecting the shadow state."""
-    context = long_input_context or analyze_long_input(raw_input)
-    identities = tuple(build_experience_identities(raw_input, long_input_context=context))
-    experience_type_decisions = tuple(_build_experience_type_decision(identity) for identity in identities)
-    semantic_analyses = tuple(
-        analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
-        for identity in identities
-    )
-    claim_resolutions = tuple(
-        resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
-        for identity in identities
-    )
-    ledger = build_experience_fact_ledger_from_components(
-        raw_input,
-        identities=identities,
-        semantic_analyses=semantic_analyses,
-        claim_resolutions=claim_resolutions,
-    )
-    ownership_index = _build_ownership_index(ledger)
-    return CanonicalSemanticBuild(
-        long_input_context=context,
-        raw_input_hash=stable_hash(raw_input, purpose="canonical_semantic_state"),
-        identities=identities,
-        experience_type_decisions=experience_type_decisions,
-        semantic_analyses=semantic_analyses,
-        claim_resolutions=claim_resolutions,
-        ledger=ledger,
-        ownership_index=ownership_index,
-    )
-
-
-def build_canonical_semantic_state_from_build(
-    build: CanonicalSemanticBuild,
-    *,
+    raw_input_hash: str,
+    identities: tuple[ExperienceIdentity, ...],
+    experience_type_decisions: tuple[CanonicalExperienceTypeDecision, ...],
+    ledger: ExperienceFactLedger,
     experience_input_id: int | None = None,
 ) -> CanonicalSemanticState:
-    """Project a safe state snapshot from an already-compiled semantic request."""
-    identities = build.identities
-    ledger = build.ledger
-    type_decisions = build.canonical_type_by_experience_id
+    type_decisions = {item.experience_id: item for item in experience_type_decisions}
     source = CanonicalSemanticSource(
         experience_input_id=experience_input_id,
-        raw_input_hash=build.raw_input_hash,
+        raw_input_hash=raw_input_hash,
     )
     experiences = tuple(
         CanonicalExperience(
@@ -431,13 +411,74 @@ def build_canonical_semantic_state_from_build(
         for fact in ledger.facts
     )
     validation = _validate(experiences, claims, facts)
-    state = CanonicalSemanticState(
+    return CanonicalSemanticState(
         source=source,
         experiences=experiences,
         claims=claims,
         facts=facts,
         state_fingerprint=_fingerprint(source, experiences, claims, facts),
         validation=validation,
+    )
+
+
+def build_canonical_semantic_build(
+    raw_input: str,
+    *,
+    long_input_context: LongInputContext | None = None,
+) -> CanonicalSemanticBuild:
+    """Compile request semantics once before projecting the shadow state."""
+    context = long_input_context or analyze_long_input(raw_input)
+    identities = tuple(build_experience_identities(raw_input, long_input_context=context))
+    experience_type_decisions = tuple(_build_experience_type_decision(identity) for identity in identities)
+    semantic_analyses = tuple(
+        analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities
+    )
+    claim_resolutions = tuple(
+        resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities
+    )
+    ledger = build_experience_fact_ledger_from_components(
+        raw_input,
+        identities=identities,
+        semantic_analyses=semantic_analyses,
+        claim_resolutions=claim_resolutions,
+    )
+    raw_input_hash = stable_hash(raw_input, purpose="canonical_semantic_state")
+    state = _project_canonical_semantic_state(
+        raw_input_hash=raw_input_hash,
+        identities=identities,
+        experience_type_decisions=experience_type_decisions,
+        ledger=ledger,
+    )
+    ownership_index = _build_ownership_index(
+        ledger if state.validation.valid else ExperienceFactLedger()
+    )
+    return CanonicalSemanticBuild(
+        long_input_context=context,
+        raw_input_hash=raw_input_hash,
+        identities=identities,
+        experience_type_decisions=experience_type_decisions,
+        semantic_analyses=semantic_analyses,
+        claim_resolutions=claim_resolutions,
+        ledger=ledger,
+        ownership_index=ownership_index,
+        state=state,
+    )
+
+
+def build_canonical_semantic_state_from_build(
+    build: CanonicalSemanticBuild,
+    *,
+    experience_input_id: int | None = None,
+) -> CanonicalSemanticState:
+    """Project a safe state snapshot from an already-compiled semantic request."""
+    state = _project_canonical_semantic_state(
+        raw_input_hash=build.raw_input_hash,
+        identities=build.identities,
+        experience_type_decisions=build.experience_type_decisions,
+        ledger=build.ledger,
+        experience_input_id=experience_input_id,
     )
     build.state = state
     return state
@@ -481,6 +522,74 @@ def write_canonical_semantic_state_log(
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def write_canonical_eligibility_integrity_log(
+    build: CanonicalSemanticBuild,
+    state: CanonicalSemanticState,
+    *,
+    stage: str,
+    request_id: str = "",
+    attempt_id: str = "",
+    generation_result_id: int | None = None,
+) -> None:
+    """Record eligibility lineage using identifiers and aggregate counts only."""
+    claims = tuple(build.ledger.claims)
+    claims_by_id = {claim.claim_id: claim for claim in claims}
+    invalid_fact_ids: list[str] = []
+    affected_claim_ids = set(build.ledger.quarantined_claim_ids)
+    affected_experience_ids: set[str] = set()
+    for fact in build.ledger.facts:
+        claim = claims_by_id.get(fact.claim_id)
+        valid = bool(
+            fact.eligibility == ELIGIBLE
+            and claim is not None
+            and claim_is_fact_eligible(claim)
+            and claim.source_experience_id == fact.experience_id
+        )
+        if valid:
+            continue
+        invalid_fact_ids.append(fact.fact_id)
+        affected_experience_ids.add(fact.experience_id)
+        if fact.claim_id:
+            affected_claim_ids.add(fact.claim_id)
+    for claim in claims:
+        effective, _ = effective_claim_eligibility(claim)
+        if claim.eligibility != effective:
+            affected_claim_ids.add(claim.claim_id)
+            affected_experience_ids.add(claim.source_experience_id)
+    affected_experience_ids.update(
+        claim.source_experience_id
+        for claim in claims
+        if claim.claim_id in affected_claim_ids
+    )
+    entry = {
+        "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        "request_id": request_id,
+        "attempt_id": attempt_id,
+        "generation_result_id": generation_result_id,
+        "stage": stage,
+        "total_claim_count": len(claims),
+        "eligible_claim_count": sum(claim_is_fact_eligible(claim) for claim in claims),
+        "withheld_claim_count": sum(claim.eligibility == "withheld" for claim in claims),
+        "excluded_claim_count": sum(claim.eligibility == "excluded" for claim in claims),
+        "total_fact_count": len(build.ledger.facts),
+        "quarantined_fact_count": (
+            build.ledger.quarantined_fact_candidate_count + len(invalid_fact_ids)
+        ),
+        "affected_claim_ids": sorted(affected_claim_ids),
+        "affected_fact_ids": sorted(invalid_fact_ids),
+        "affected_experience_ids": sorted(item for item in affected_experience_ids if item),
+        "validation_issue_codes": list(state.validation.issue_codes),
+        "state_fingerprint": state.state_fingerprint,
+        "validation_result": "valid" if state.validation.valid else "invalid",
+    }
+    try:
+        ELIGIBILITY_INTEGRITY_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with ELIGIBILITY_INTEGRITY_LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         return

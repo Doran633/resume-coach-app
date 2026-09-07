@@ -1,6 +1,6 @@
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -33,6 +33,41 @@ ELIGIBLE = "eligible"
 WITHHELD = "withheld"
 EXCLUDED = "excluded"
 
+EXCLUDED_SEMANTIC_ROLES = frozenset({
+    USER_INSTRUCTION,
+    TARGET_ROLE_CONTEXT,
+    STRUCTURE_MARKER,
+    NEGATIVE_CONSTRAINT,
+})
+WITHHELD_SEMANTIC_ROLES = frozenset({UNCERTAIN_FACT})
+_ELIGIBILITY_RESTRICTIVENESS = {
+    ELIGIBLE: 0,
+    WITHHELD: 1,
+    EXCLUDED: 2,
+}
+
+
+def resolve_claim_eligibility_contract(
+    *,
+    semantic_role: str,
+    polarity: str,
+    certainty: str,
+    temporal_status: str,
+) -> tuple[str, str]:
+    """Return the most permissive eligibility allowed by semantic attributes."""
+    if semantic_role in EXCLUDED_SEMANTIC_ROLES:
+        reason = "negative_constraint" if semantic_role == NEGATIVE_CONSTRAINT else semantic_role.lower()
+        return EXCLUDED, reason
+    if polarity == NEGATIVE or certainty == DENIED:
+        return EXCLUDED, "negative_constraint"
+    if semantic_role in WITHHELD_SEMANTIC_ROLES:
+        return WITHHELD, "uncertain_claim"
+    if temporal_status == PLANNED:
+        return WITHHELD, "planned_work"
+    if certainty in {UNCERTAIN, PROBABLE}:
+        return WITHHELD, "uncertain_claim"
+    return ELIGIBLE, ""
+
 
 @dataclass(frozen=True)
 class InputClaim:
@@ -58,7 +93,33 @@ class InputClaim:
 
     @property
     def resume_eligible(self) -> bool:
-        return self.eligibility == ELIGIBLE
+        return effective_claim_eligibility(self)[0] == ELIGIBLE
+
+
+def effective_claim_eligibility(claim: InputClaim) -> tuple[str, str]:
+    """Never make a stored Claim more permissive than its semantic contract."""
+    contract, contract_reason = resolve_claim_eligibility_contract(
+        semantic_role=claim.semantic_role,
+        polarity=claim.polarity,
+        certainty=claim.certainty,
+        temporal_status=claim.temporal_status,
+    )
+    stored = claim.eligibility if claim.eligibility in _ELIGIBILITY_RESTRICTIVENESS else EXCLUDED
+    stored_reason = str(getattr(claim, "exclusion_reason", "") or "")
+    if _ELIGIBILITY_RESTRICTIVENESS[stored] > _ELIGIBILITY_RESTRICTIVENESS[contract]:
+        return stored, stored_reason or "stored_restriction"
+    return contract, contract_reason or stored_reason
+
+
+def normalize_claim_eligibility(claim: InputClaim) -> InputClaim:
+    eligibility, reason = effective_claim_eligibility(claim)
+    if eligibility == claim.eligibility and (claim.exclusion_reason or "") == reason:
+        return claim
+    return replace(claim, eligibility=eligibility, exclusion_reason=reason)
+
+
+def claim_is_fact_eligible(claim: InputClaim) -> bool:
+    return effective_claim_eligibility(claim)[0] == ELIGIBLE
 
 
 @dataclass
@@ -70,19 +131,36 @@ class ClaimResolution:
 
     @property
     def eligible_claims(self) -> list[InputClaim]:
-        return [claim for claim in self.claims if claim.eligibility == ELIGIBLE]
+        return [
+            normalize_claim_eligibility(claim)
+            for claim in self.claims
+            if effective_claim_eligibility(claim)[0] == ELIGIBLE
+        ]
 
     @property
     def withheld_claims(self) -> list[InputClaim]:
-        return [claim for claim in self.claims if claim.eligibility == WITHHELD]
+        return [
+            normalize_claim_eligibility(claim)
+            for claim in self.claims
+            if effective_claim_eligibility(claim)[0] == WITHHELD
+        ]
 
     @property
     def excluded_claims(self) -> list[InputClaim]:
-        return [claim for claim in self.claims if claim.eligibility == EXCLUDED]
+        return [
+            normalize_claim_eligibility(claim)
+            for claim in self.claims
+            if effective_claim_eligibility(claim)[0] == EXCLUDED
+        ]
 
 
 CLAUSE_BOUNDARY = re.compile(
-    r"[，,](?=\s*(?:但|但是|不过|而|只|仅|实际|后来|后续|随后|最终|目前|现在|也有可能|也可能|可能|计划|准备|拟(?:开展|进行|增加|开发|上线|部署|实现|重构|迁移)|引入|是课程项目|有|我记不清|我不确定|记不清|不确定))"
+    r"[，,](?=\s*(?:但|但是|不过|而|只|仅|实际|后来|后续|随后|最终|目前|现在|"
+    r"没有|并未|未曾|不曾|并没有|不负责|无法确认|"
+    r"未(?:参与|实现|完成|上线|获奖|使用|部署|负责)|"
+    r"请|不要|不得|别|也有可能|也可能|可能|计划|准备|"
+    r"拟(?:开展|进行|增加|开发|上线|部署|实现|重构|迁移)|引入|是课程项目|有|"
+    r"我记不清|我不确定|记不清|不确定))"
 )
 UNCERTAINTY_PATTERN = re.compile(
     r"(?:可能|也许|或许|好像|大概|似乎|记不清|不确定|无法确认|应该是|有可能)", re.I
@@ -164,15 +242,13 @@ def _attributes(text: str, role: str) -> tuple[str, str, str, str, str]:
     else:
         temporal = UNKNOWN
 
-    if role in {USER_INSTRUCTION, TARGET_ROLE_CONTEXT, STRUCTURE_MARKER}:
-        return polarity, certainty, temporal, EXCLUDED, role.lower()
-    if polarity == NEGATIVE:
-        return polarity, certainty, temporal, EXCLUDED, "negative_constraint"
-    if certainty in {UNCERTAIN, PROBABLE}:
-        return polarity, certainty, temporal, WITHHELD, "uncertain_claim"
-    if temporal == PLANNED:
-        return polarity, certainty, temporal, WITHHELD, "planned_work"
-    return polarity, certainty, temporal, ELIGIBLE, ""
+    eligibility, reason = resolve_claim_eligibility_contract(
+        semantic_role=role,
+        polarity=polarity,
+        certainty=certainty,
+        temporal_status=temporal,
+    )
+    return polarity, certainty, temporal, eligibility, reason
 
 
 def _parts(text: str) -> tuple[str, str, str]:
