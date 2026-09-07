@@ -3,6 +3,7 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 
 from .. import schemas
+from .canonical_consumer_view_service import CanonicalPresentationView
 from .experience_identity_service import build_experience_identities
 
 
@@ -71,6 +72,23 @@ def _build_recommended_from_projects(projects: list[dict], target_role: str, raw
     return "\n".join(parts)
 
 
+def _build_recommended_from_validated_projects(projects: list[dict], target_role: str) -> str:
+    parts = [
+        f"推荐版本：面向{target_role or '目标岗位'}，按项目定位、个人职责、技术动作和结果证据组织经历。"
+    ]
+    for index, project in enumerate(projects[:3], start=1):
+        values = [
+            str(project.get("name") or f"项目经历 {index}").strip(),
+            str(project.get("intro") or "").strip(),
+            str(project.get("role") or "").strip(),
+            *[str(item).strip() for item in (project.get("details") or [])[:3] if str(item).strip()],
+        ]
+        visible = [value for value in values if value]
+        if visible:
+            parts.append("；".join(visible))
+    return "\n".join(parts)
+
+
 def _enhance_project_details(project: dict, raw_input: str, source_text: str = "") -> dict:
     enhanced = dict(project)
     local_input = source_text or raw_input
@@ -96,12 +114,24 @@ def _enhance_project_details(project: dict, raw_input: str, source_text: str = "
 
 def ensure_packaging_gain(
     payload: schemas.GenerationPayload | dict,
-    raw_input: str,
+    raw_input: str = "",
     target_role: str = "",
+    *,
+    presentation_view: CanonicalPresentationView | None = None,
 ) -> schemas.GenerationPayload:
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
     projects = sections.get("projects") if isinstance(sections.get("projects"), list) else []
+    if presentation_view is not None:
+        # Canonical presentation may only recompose fields that are already
+        # visible. Fact projection and packaging expansion belong to a later,
+        # explicitly authorized presentation phase.
+        for key in ("normal_version", "bold_version", "recommended_version"):
+            if len(str(data.get(key) or "").strip()) < 80:
+                data[key] = _build_recommended_from_validated_projects(projects, target_role)
+        data["resume_sections"] = sections
+        return schemas.GenerationPayload.model_validate(data)
+
     identities = {item.experience_id: item for item in build_experience_identities(raw_input)}
     enhanced_projects = [
         _enhance_project_details(

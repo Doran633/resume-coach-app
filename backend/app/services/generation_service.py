@@ -633,7 +633,11 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_owner_delivery_contract", parent_stage="ownerless_project_containment")
     scoped_fact_access_stats = CanonicalScopedFactAccessStats()
     log_generation_stage(payload, "after_fallback")
-    payload = ensure_packaging_gain(payload, request.raw_input, request.target_role)
+    payload = ensure_packaging_gain(
+        payload,
+        target_role=request.target_role,
+        presentation_view=consumer_views.presentation_view,
+    )
     mutation_tracer.checkpoint(payload, "after_packaging_gain", parent_stage="ensure_packaging_gain")
     payload = guard_experience_boundaries(
         payload, request.raw_input, stage="generation", semantic_build=semantic_build,
@@ -695,7 +699,13 @@ def create_generation(
     payload = deduplicate_fact_clusters(
         payload, stage="generation", change_stats=narrative_changes,
     )
-    payload = guard_template_language(payload, narrative_changes)
+    payload = guard_template_language(
+        payload,
+        narrative_changes,
+        presentation_view=consumer_views.presentation_view,
+        access_stats=consumer_view_access_stats,
+    )
+    mutation_tracer.checkpoint(payload, "after_template_language", parent_stage="guard_template_language")
     evaluate_narrative_quality(payload, stage="generation", change_stats=narrative_changes)
     mutation_tracer.checkpoint(payload, "after_narrative_cleanup", parent_stage="narrative_quality")
     log_generation_stage(payload, "after_dedup")
@@ -711,7 +721,12 @@ def create_generation(
         recovery_stats=fallback_recovery_stats,
     )
     payload = guard_resume_output(payload, request.raw_input, stage="before_save")
-    payload = professionalize_resume_language(payload, stage="generation")
+    payload = professionalize_resume_language(
+        payload,
+        stage="generation",
+        presentation_view=consumer_views.presentation_view,
+        access_stats=consumer_view_access_stats,
+    )
     mutation_tracer.checkpoint(payload, "after_professionalization", parent_stage="professionalize_resume_language")
     payload = guard_resume_skill_evidence(
         payload,
@@ -724,7 +739,13 @@ def create_generation(
     )
     mutation_tracer.checkpoint(payload, "after_skill_taxonomy", parent_stage="skill_evidence_and_taxonomy")
     payload = guard_resume_output_relevance(payload, request.raw_input, stage="generation")
-    payload = ensure_recruiter_facing_technical_language(payload, stage="generation")
+    payload = ensure_recruiter_facing_technical_language(
+        payload,
+        stage="generation",
+        presentation_view=consumer_views.presentation_view,
+        access_stats=consumer_view_access_stats,
+    )
+    mutation_tracer.checkpoint(payload, "after_recruiter_language", parent_stage="ensure_recruiter_facing_technical_language")
     payload = ensure_recruiter_readability(payload, stage="generation")
     payload = ensure_paired_symbol_integrity(payload, stage="generation")
     payload = ensure_resume_section_integrity(payload)

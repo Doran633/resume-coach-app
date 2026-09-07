@@ -6,6 +6,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .canonical_consumer_view_service import (
+    CanonicalConsumerViewAccessStats,
+    CanonicalPresentationView,
+)
 from .resume_visible_output_service import VISIBLE_VERSION_FIELDS
 
 
@@ -101,6 +105,8 @@ def _write_log(stats: RecruiterLanguageStats) -> None:
 def ensure_recruiter_language(
     payload: schemas.GenerationPayload,
     *, stage: str = "unknown", generation_result_id: int | None = None, write_log: bool = True,
+    presentation_view: CanonicalPresentationView | None = None,
+    access_stats: CanonicalConsumerViewAccessStats | None = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     stats = RecruiterLanguageStats(stage=stage, generation_result_id=generation_result_id)
@@ -118,14 +124,35 @@ def ensure_recruiter_language(
 
     for field_name in VISIBLE_VERSION_FIELDS:
         setattr(updated, field_name, clean(getattr(updated, field_name), field_name))
-    updated.resume_sections.summary = [clean(item, f"summary.{i}") for i, item in enumerate(updated.resume_sections.summary)]
-    updated.resume_sections.skills = [clean(item, f"skills.{i}") for i, item in enumerate(updated.resume_sections.skills)]
+    updated.resume_sections.summary = [
+        clean(item, f"summary.{i}")
+        if presentation_view is None or presentation_view.supports_global_text(item)
+        else item
+        for i, item in enumerate(updated.resume_sections.summary)
+    ]
+    if presentation_view is None:
+        updated.resume_sections.skills = [clean(item, f"skills.{i}") for i, item in enumerate(updated.resume_sections.skills)]
     for p_index, project in enumerate(updated.resume_sections.projects):
-        source_id = str(project.get("source_experience_id") or "")
-        for key in ["name", "position", "meta", "intro", "role"]:
+        source_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
+        for key in ["name", "position", "meta"]:
             if key in project:
                 project[key] = clean(project.get(key, ""), f"projects.{p_index}.{key}", source_id)
-        project["details"] = [clean(item, f"projects.{p_index}.details.{i}", source_id) for i, item in enumerate(project.get("details", []))]
+        for key in ["intro", "role"]:
+            if key not in project:
+                continue
+            permitted = presentation_view is None or presentation_view.permits_project_field(
+                project, key, access_stats=access_stats,
+            )
+            if permitted:
+                project[key] = clean(project.get(key, ""), f"projects.{p_index}.{key}", source_id)
+        project["details"] = [
+            clean(item, f"projects.{p_index}.details.{i}", source_id)
+            if presentation_view is None or presentation_view.permits_project_field(
+                project, "details", i, access_stats=access_stats,
+            )
+            else item
+            for i, item in enumerate(project.get("details", []))
+        ]
     if write_log:
         _write_log(stats)
     return updated

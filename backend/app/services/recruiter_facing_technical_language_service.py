@@ -1,6 +1,10 @@
 import re
 
 from .. import schemas
+from .canonical_consumer_view_service import (
+    CanonicalConsumerViewAccessStats,
+    CanonicalPresentationView,
+)
 from .recruiter_language_service import ensure_recruiter_language
 
 
@@ -33,15 +37,37 @@ def ensure_recruiter_facing_technical_language(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    presentation_view: CanonicalPresentationView | None = None,
+    access_stats: CanonicalConsumerViewAccessStats | None = None,
 ) -> schemas.GenerationPayload:
     updated = ensure_recruiter_language(
         payload, stage=stage, generation_result_id=generation_result_id, write_log=write_log,
+        presentation_view=presentation_view, access_stats=access_stats,
     )
-    updated.resume_sections.summary = [_convert(item) for item in updated.resume_sections.summary if _convert(item)]
-    updated.resume_sections.skills = [_convert(item) for item in updated.resume_sections.skills if _convert(item)]
+    updated.resume_sections.summary = [
+        _convert(item)
+        if presentation_view is None or presentation_view.supports_global_text(item)
+        else item
+        for item in updated.resume_sections.summary
+        if item
+    ]
+    if presentation_view is None:
+        updated.resume_sections.skills = [_convert(item) for item in updated.resume_sections.skills if _convert(item)]
     for project in updated.resume_sections.projects:
-        for key in ("name", "position", "meta", "intro", "role"):
-            if key in project:
+        for key in ("intro", "role"):
+            if key in project and (
+                presentation_view is None or presentation_view.permits_project_field(
+                    project, key, access_stats=access_stats,
+                )
+            ):
                 project[key] = _convert(project.get(key, ""))
-        project["details"] = [_convert(item) for item in project.get("details", []) if _convert(item)]
+        project["details"] = [
+            _convert(item)
+            if presentation_view is None or presentation_view.permits_project_field(
+                project, "details", index, access_stats=access_stats,
+            )
+            else item
+            for index, item in enumerate(project.get("details", []))
+            if item
+        ]
     return updated

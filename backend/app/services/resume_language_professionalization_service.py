@@ -6,6 +6,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .canonical_consumer_view_service import (
+    CanonicalConsumerViewAccessStats,
+    CanonicalPresentationView,
+)
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_language_quality.jsonl"
@@ -63,6 +67,8 @@ def professionalize_resume_language(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    presentation_view: CanonicalPresentationView | None = None,
+    access_stats: CanonicalConsumerViewAccessStats | None = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     stats = LanguageStats(stage=stage, generation_result_id=generation_result_id)
@@ -79,14 +85,35 @@ def professionalize_resume_language(
             stats.removed_label_count += 1
         return text
 
-    updated.resume_sections.summary = [clean(item, "summary") for item in updated.resume_sections.summary if item]
+    updated.resume_sections.summary = [
+        clean(item, f"summary.{index}")
+        if presentation_view is None or presentation_view.supports_global_text(item)
+        else item
+        for index, item in enumerate(updated.resume_sections.summary)
+        if item
+    ]
     projects: list[dict] = []
     for raw_project in updated.resume_sections.projects:
         project = dict(raw_project)
-        experience_id = str(project.get("source_experience_id", ""))
-        project["intro"] = clean(str(project.get("intro", "")), "projects.intro", experience_id)
-        project["role"] = clean(str(project.get("role", "")), "projects.role", experience_id)
-        project["details"] = [clean(str(item), "projects.details", experience_id) for item in project.get("details", []) if str(item).strip()]
+        experience_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
+        for field_name in ("intro", "role"):
+            original = str(project.get(field_name, ""))
+            permitted = presentation_view is None or presentation_view.permits_project_field(
+                project, field_name, access_stats=access_stats,
+            )
+            candidate = clean(original, f"projects.{field_name}", experience_id) if permitted else original
+            project[field_name] = candidate or original
+        details: list[str] = []
+        for detail_index, item in enumerate(project.get("details", [])):
+            original = str(item).strip()
+            if not original:
+                continue
+            permitted = presentation_view is None or presentation_view.permits_project_field(
+                project, "details", detail_index, access_stats=access_stats,
+            )
+            candidate = clean(original, "projects.details", experience_id) if permitted else original
+            details.append(candidate or original)
+        project["details"] = details
         projects.append(project)
     updated.resume_sections.projects = projects
     if write_log:

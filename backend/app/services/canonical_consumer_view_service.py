@@ -90,6 +90,10 @@ class CanonicalConsumerViews:
         return CanonicalRepairView(self)
 
     @property
+    def presentation_view(self) -> "CanonicalPresentationView":
+        return CanonicalPresentationView(self)
+
+    @property
     def experience_ids(self) -> tuple[str, ...]:
         return tuple(self.owner_scopes)
 
@@ -275,6 +279,71 @@ class CanonicalRepairView:
 
     def permits_claim(self, experience_id: str, claim_id: str) -> bool:
         return self._views.permits_claim(experience_id, claim_id, repair=True)
+
+
+@dataclass(frozen=True)
+class CanonicalPresentationView:
+    """Owner-scoped authority for deterministic presentation transforms."""
+
+    _views: CanonicalConsumerViews = field(repr=False, compare=False)
+
+    @property
+    def fingerprint(self) -> str:
+        return self._views.build_fingerprint
+
+    def owner_for_project(self, project: Mapping[str, object]) -> str:
+        owner = str(project.get("immutable_source_experience_id") or "")
+        if not owner or project.get("source_binding_locked") is not True:
+            return ""
+        return owner if self._views.scope_for_owner(owner) is not None else ""
+
+    def eligible_facts(self, experience_id: str) -> tuple[ExperienceFact, ...]:
+        return self._views.facts_for_owner(experience_id)
+
+    def fact_ids_for_field(
+        self,
+        project: Mapping[str, object],
+        field_name: str,
+        detail_index: int | None = None,
+    ) -> tuple[str, ...]:
+        def ids(value: object) -> tuple[str, ...]:
+            if not isinstance(value, (list, tuple, set)):
+                return ()
+            return tuple(dict.fromkeys(str(item) for item in value if str(item or "")))
+
+        if field_name == "role":
+            return ids(project.get("role_source_fact_ids")) or ids(project.get("source_fact_ids"))
+        if field_name == "details" and detail_index is not None:
+            rows = project.get("detail_fact_ids")
+            if isinstance(rows, list) and detail_index < len(rows):
+                return ids(rows[detail_index])
+            return ()
+        if field_name == "intro":
+            return ids(project.get("source_fact_ids"))
+        return ()
+
+    def permits_project_field(
+        self,
+        project: Mapping[str, object],
+        field_name: str,
+        detail_index: int | None = None,
+        *,
+        access_stats: CanonicalConsumerViewAccessStats | None = None,
+    ) -> bool:
+        owner = self.owner_for_project(project)
+        fact_ids = self.fact_ids_for_field(project, field_name, detail_index)
+        permitted = bool(
+            owner
+            and fact_ids
+            and all(self._views.permits_fact(owner, fact_id) for fact_id in fact_ids)
+        )
+        if not permitted and access_stats is not None:
+            access_stats.rejected_cross_owner_access_count += 1
+        return permitted
+
+    def supports_global_text(self, value: str) -> bool:
+        local, foreign = self._views.matched_fact_ids(value, "")
+        return bool(local and not foreign)
 
 
 def build_canonical_consumer_views(

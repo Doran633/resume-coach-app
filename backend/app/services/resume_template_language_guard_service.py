@@ -1,6 +1,10 @@
 import re
 
 from .. import schemas
+from .canonical_consumer_view_service import (
+    CanonicalConsumerViewAccessStats,
+    CanonicalPresentationView,
+)
 
 
 PREFIX_REPLACEMENTS = [
@@ -29,16 +33,37 @@ def professionalize_sentence(text: str) -> str:
     return value.strip(" ，,；;")
 
 
-def guard_template_language(payload: schemas.GenerationPayload, stats: dict | None = None) -> schemas.GenerationPayload:
+def guard_template_language(
+    payload: schemas.GenerationPayload,
+    stats: dict | None = None,
+    *,
+    presentation_view: CanonicalPresentationView | None = None,
+    access_stats: CanonicalConsumerViewAccessStats | None = None,
+) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     for project in updated.resume_sections.projects:
-        project["intro"] = professionalize_sentence(str(project.get("intro") or ""))
-        project["role"] = professionalize_sentence(str(project.get("role") or ""))
-        if any(pattern.fullmatch(project["role"]) for pattern in GENERIC_ROLE_PATTERNS):
+        intro_permitted = presentation_view is None or presentation_view.permits_project_field(
+            project, "intro", access_stats=access_stats,
+        )
+        role_permitted = presentation_view is None or presentation_view.permits_project_field(
+            project, "role", access_stats=access_stats,
+        )
+        if intro_permitted:
+            project["intro"] = professionalize_sentence(str(project.get("intro") or ""))
+        if role_permitted:
+            project["role"] = professionalize_sentence(str(project.get("role") or ""))
+        if role_permitted and any(pattern.fullmatch(str(project.get("role") or "")) for pattern in GENERIC_ROLE_PATTERNS):
             project["role"] = ""
         original_details = [str(item) for item in project.get("details", [])]
-        cleaned_details = [professionalize_sentence(item) for item in original_details]
-        project["details"] = [item for item in cleaned_details if item]
+        cleaned_details = [
+            professionalize_sentence(item)
+            if presentation_view is None or presentation_view.permits_project_field(
+                project, "details", index, access_stats=access_stats,
+            )
+            else item
+            for index, item in enumerate(original_details)
+        ]
+        project["details"] = [after or before for before, after in zip(original_details, cleaned_details) if before]
         if stats is not None:
             stats["removed_template_detail_count"] = stats.get("removed_template_detail_count", 0) + sum(
                 before != after for before, after in zip(original_details, cleaned_details)
