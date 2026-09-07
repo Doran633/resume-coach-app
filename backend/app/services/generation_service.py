@@ -95,6 +95,7 @@ from .resume_quality_repair_router_service import (
     write_quality_repair_router_log,
 )
 from .semantic_mutation_trace_service import SemanticMutationTracer, build_semantic_commit_snapshot
+from .canonical_projection_completeness_service import CanonicalProjectionCompletenessObserver
 from .resource_protection_service import resource_protection
 
 
@@ -485,6 +486,11 @@ def create_generation(
         request_id=request_id,
         attempt_id=request.attempt_id or "",
     )
+    projection_observer = CanonicalProjectionCompletenessObserver(
+        consumer_views=consumer_views,
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+    )
     fallback_recovery_stats = CanonicalFallbackRecoveryStats()
     write_semantic_role_log(
         semantic_build.semantic_analyses,
@@ -600,6 +606,7 @@ def create_generation(
 
     log_generation_stage(payload, "after_llm")
     mutation_tracer.checkpoint(payload, "after_llm", parent_stage="llm")
+    projection_observer.checkpoint(payload, "after_llm", parent_stage="llm")
     payload = normalize_resume_section_schema(payload)
     payload = cleanup_generation_payload(payload, source=mode)
     log_generation_stage(payload, "after_normalize")
@@ -637,6 +644,11 @@ def create_generation(
         unresolved_owner_count=ownership_stats.unresolved_owner_count,
     )
     mutation_tracer.checkpoint(payload, "after_owner_freeze", parent_stage="canonical_slot_binding")
+    projection_observer.checkpoint(
+        payload,
+        "after_owner_freeze",
+        parent_stage="canonical_slot_binding",
+    )
     payload, owner_delivery_freeze_stats = contain_ownerless_projects(
         payload,
         semantic_build.ownership_index,
@@ -646,6 +658,12 @@ def create_generation(
         return_stats=True,
     )
     mutation_tracer.checkpoint(payload, "after_owner_delivery_contract", parent_stage="ownerless_project_containment")
+    projection_observer.checkpoint(
+        payload,
+        "after_ownerless_containment",
+        parent_stage="ownerless_project_containment",
+        containment_stats=owner_delivery_freeze_stats,
+    )
     scoped_fact_access_stats = CanonicalScopedFactAccessStats()
     log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(
@@ -767,6 +785,11 @@ def create_generation(
     payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
     payload = ensure_resume_whitespace_quality(payload, stage="generation")
     payload = ensure_typography_quality(payload, stage="generation")
+    projection_observer.checkpoint(
+        payload,
+        "after_presentation",
+        parent_stage="presentation_pipeline",
+    )
     payload = guard_hard_facts(payload, request.raw_input)
     payload = guard_resume_output(payload, request.raw_input, stage="generation")
     payload = guard_resume_output_relevance(payload, request.raw_input, stage="before_save")
@@ -835,6 +858,12 @@ def create_generation(
         return_stats=True,
     )
     mutation_tracer.checkpoint(payload, "after_quality_repair_owner_delivery_contract", parent_stage="ownerless_project_containment")
+    projection_observer.checkpoint(
+        payload,
+        "before_persistence",
+        parent_stage="final_ownerless_project_containment",
+        containment_stats=owner_delivery_post_repair_stats,
+    )
     final_quality_issues = list(repair_recheck_evaluation.issues)
     final_high_value_coverage = repair_recheck_evaluation.stats.high_value_coverage_after
     final_projects = payload.resume_sections.projects
@@ -888,6 +917,12 @@ def create_generation(
     )
     mutation_tracer.checkpoint(payload, "generation_persisted", parent_stage="persistence")
     mutation_tracer.flush(result.id)
+    projection_observer.checkpoint(
+        payload,
+        "generation_persisted",
+        parent_stage="persistence",
+    )
+    projection_observer.flush(result.id)
     if shadow_semantic_state is not None:
         write_canonical_semantic_state_log(
             shadow_semantic_state,
