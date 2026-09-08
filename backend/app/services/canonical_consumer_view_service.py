@@ -216,12 +216,35 @@ class CanonicalPlannerView:
     def fingerprint(self) -> str:
         return self._views.build_fingerprint
 
+    @property
+    def experience_ids(self) -> tuple[str, ...]:
+        return self._views.experience_ids
+
     def owner_scope(self, experience_id: str) -> CanonicalConsumerOwnerScope | None:
         return self._views.scope_for_owner(experience_id)
 
     def canonical_identity(self, experience_id: str) -> str:
         scope = self.owner_scope(experience_id)
         return scope.canonical_experience_id if scope else ""
+
+    def identity_for_owner(self, experience_id: str):
+        """Return the existing request-local identity for a permitted owner.
+
+        This is intentionally an in-memory accessor rather than a new identity
+        projection.  Callers must not serialize the returned object or use it
+        to discover a different owner.
+        """
+        scope = self.owner_scope(experience_id)
+        if scope is None:
+            return None
+        return next(
+            (
+                identity
+                for identity in self._views._build.identities
+                if identity.experience_id == scope.experience_id
+            ),
+            None,
+        )
 
     @property
     def verified_skill_evidence_keys(self) -> frozenset[str]:

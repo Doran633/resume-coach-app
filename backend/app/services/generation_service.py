@@ -66,6 +66,7 @@ from .project_hierarchy_service import strip_project_hierarchy_metadata
 from .experience_slot_service import (
     bind_projects_to_experience_slots,
     contain_ownerless_projects,
+    freeze_canonical_projection_candidates,
     strip_experience_slot_metadata,
     write_owner_delivery_contract_log,
 )
@@ -96,6 +97,11 @@ from .resume_quality_repair_router_service import (
 )
 from .semantic_mutation_trace_service import SemanticMutationTracer, build_semantic_commit_snapshot
 from .canonical_projection_completeness_service import CanonicalProjectionCompletenessObserver
+from .canonical_project_projection_service import (
+    append_canonical_project_projection_candidates,
+    plan_canonical_project_projections,
+    write_canonical_project_projection_log,
+)
 from .resource_protection_service import resource_protection
 
 
@@ -664,6 +670,43 @@ def create_generation(
         parent_stage="ownerless_project_containment",
         containment_stats=owner_delivery_freeze_stats,
     )
+    canonical_projection_plan = plan_canonical_project_projections(
+        payload,
+        consumer_views.planner_view,
+    )
+    payload = append_canonical_project_projection_candidates(payload, canonical_projection_plan)
+    payload, canonical_projection_freeze_stats = freeze_canonical_projection_candidates(
+        payload,
+        semantic_build.ownership_index,
+        stage="generation_canonical_project_projection_freeze",
+        return_stats=True,
+    )
+    payload, canonical_projection_containment_stats = contain_ownerless_projects(
+        payload,
+        semantic_build.ownership_index,
+        stage="generation_after_canonical_project_projection",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        return_stats=True,
+    )
+    write_canonical_project_projection_log(
+        canonical_projection_plan,
+        canonical_projection_freeze_stats,
+        stage="generation_canonical_project_projection_activated",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+    )
+    mutation_tracer.checkpoint(
+        payload,
+        "after_canonical_project_projection_activation",
+        parent_stage="canonical_project_projection",
+    )
+    projection_observer.checkpoint(
+        payload,
+        "after_canonical_project_projection_activation",
+        parent_stage="canonical_project_projection",
+        containment_stats=canonical_projection_containment_stats,
+    )
     scoped_fact_access_stats = CanonicalScopedFactAccessStats()
     log_generation_stage(payload, "after_fallback")
     payload = ensure_packaging_gain(
@@ -906,6 +949,14 @@ def create_generation(
         attempt_id=request.attempt_id or "",
         generation_result_id=result.id,
         access_stats=consumer_view_access_stats,
+    )
+    write_canonical_project_projection_log(
+        canonical_projection_plan,
+        canonical_projection_freeze_stats,
+        stage="generation_canonical_project_projection_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
     )
     write_canonical_eligibility_integrity_log(
         semantic_build,

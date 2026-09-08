@@ -205,6 +205,7 @@ def _project_payload(
             "facts": tuple(fact_ids),
             "binding_origin": str(project.get("source_binding_origin") or ""),
             "binding_locked": bool(project.get("source_binding_locked")),
+            "canonical_projection_candidate": bool(project.get("canonical_projection_candidate")),
         }
         records: list[tuple[str, object, int | None]] = [(field, project.get(field), None) for field in _VISIBLE_PROJECT_FIELDS]
         records.extend(("details", value, detail_index) for detail_index, value in enumerate(project.get("details", []) or []))
@@ -278,6 +279,23 @@ class SemanticMutationTracer:
         mutations: list[SemanticMutation] = []
         for key, project in current.projects.items():
             canonical_type = self.snapshot.type_by_experience.get(project["owner"], "")
+            if (
+                stage == "after_canonical_project_projection_activation"
+                and project["canonical_projection_candidate"]
+                and project["owner"] in self.snapshot.experience_ids
+                and project["binding_locked"]
+            ):
+                mutations.append(SemanticMutation(
+                    "CANONICAL_PROJECT_PROJECTION_ACTIVATED",
+                    "observe",
+                    f"resume_sections.projects.{key}",
+                    tuple(project["facts"]),
+                    key,
+                    project["owner"],
+                    project["owner"],
+                    "canonical_owner_scoped_projection",
+                    True,
+                ))
             if project["owner"] and project["owner"] not in self.snapshot.experience_ids:
                 mutations.append(SemanticMutation("NEW_EXPERIENCE", "warning", f"resume_sections.projects.{key}", (project["owner"],)))
             if canonical_type and project["type"] and project["type"] != canonical_type:

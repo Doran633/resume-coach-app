@@ -24,6 +24,7 @@ LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_projection_
 _OWNER_FREEZE_STAGES = frozenset({
     "after_owner_freeze",
     "after_ownerless_containment",
+    "after_canonical_project_projection_activation",
     "after_presentation",
     "before_persistence",
     "generation_persisted",

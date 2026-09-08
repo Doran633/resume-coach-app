@@ -22,6 +22,7 @@ INTERNAL_SLOT_FIELDS = {
     "source_binding_origin",
     "source_binding_confidence",
     "source_binding_locked",
+    "canonical_projection_candidate",
 }
 
 
@@ -61,6 +62,15 @@ class OwnerDeliveryContractStats:
     ownerless_visible_after_count: int = 0
     canonical_owner_ids: tuple[str, ...] = ()
     contract_passed: bool = True
+
+
+@dataclass
+class CanonicalProjectionFreezeStats:
+    """Outcome of Slot Binder validation for canonical projection candidates."""
+
+    stage: str
+    candidate_frozen_count: int = 0
+    candidate_rejected_count: int = 0
 
 
 def build_experience_slots(raw_input: str) -> list[ExperienceSlot]:
@@ -262,6 +272,75 @@ def write_owner_delivery_contract_log(
     attempt_id: str = "",
 ) -> None:
     _write_owner_delivery_contract_log(stats, request_id=request_id, attempt_id=attempt_id)
+
+
+def _project_provenance_ids(project: dict, kind: str) -> tuple[str, ...]:
+    values: list[str] = []
+    direct_key = f"source_{kind}_ids"
+    role_key = f"role_source_{kind}_ids"
+    detail_key = f"detail_{kind}_ids"
+    for direct_key in (direct_key, role_key):
+        direct = project.get(direct_key)
+        if isinstance(direct, list):
+            values.extend(str(item) for item in direct if str(item or ""))
+    rows = project.get(detail_key)
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, list):
+                values.extend(str(item) for item in row if str(item or ""))
+    return tuple(dict.fromkeys(values))
+
+
+def freeze_canonical_projection_candidates(
+    payload: schemas.GenerationPayload,
+    ownership_index: "CanonicalFactOwnershipIndex",
+    *,
+    stage: str = "canonical_project_projection_freeze",
+    return_stats: bool = False,
+) -> schemas.GenerationPayload | tuple[schemas.GenerationPayload, CanonicalProjectionFreezeStats]:
+    """Freeze only candidates created by the canonical projection planner.
+
+    The planner may nominate an owner, but only this Slot Binder entry point can
+    make it immutable.  A malformed candidate is discarded; it is never
+    rebound through text similarity, position, title, or technology overlap.
+    """
+    updated = payload.model_copy(deep=True)
+    stats = CanonicalProjectionFreezeStats(stage=stage)
+    retained: list[dict] = []
+
+    for project in updated.resume_sections.projects:
+        if not project.get("canonical_projection_candidate"):
+            retained.append(project)
+            continue
+
+        owner = str(project.get("source_experience_id") or "").strip()
+        fact_ids = _project_provenance_ids(project, "fact")
+        claim_ids = _project_provenance_ids(project, "claim")
+        valid_owner = owner in ownership_index.source_experience_ids
+        valid_facts = bool(fact_ids) and all(
+            ownership_index.fact_owner(fact_id) == owner
+            and fact_id in ownership_index.eligible_fact_ids_by_experience.get(owner, ())
+            for fact_id in fact_ids
+        )
+        valid_claims = bool(claim_ids) and all(
+            ownership_index.claim_owner(claim_id) == owner
+            and claim_id in ownership_index.eligible_claim_ids_by_experience.get(owner, ())
+            for claim_id in claim_ids
+        )
+        candidate_is_unfrozen = not project.get("immutable_source_experience_id") and not project.get("source_binding_locked")
+
+        if valid_owner and valid_facts and valid_claims and candidate_is_unfrozen:
+            project["immutable_source_experience_id"] = owner
+            project["source_binding_locked"] = True
+            project["source_binding_origin"] = "canonical_project_projection"
+            project["source_binding_confidence"] = 1.0
+            retained.append(project)
+            stats.candidate_frozen_count += 1
+        else:
+            stats.candidate_rejected_count += 1
+
+    updated.resume_sections.projects = retained
+    return (updated, stats) if return_stats else updated
 
 
 def bind_projects_to_experience_slots(
