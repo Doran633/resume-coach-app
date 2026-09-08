@@ -35,12 +35,47 @@ def _ids(value: object) -> tuple[str, ...]:
 
 
 def _field_fact_ids(project: dict, field: str, detail_index: int | None = None) -> tuple[str, ...]:
+    """Return only field-specific Fact evidence, never project aggregates."""
     if field == "role":
-        return _ids(project.get("role_source_fact_ids")) or _ids(project.get("source_fact_ids"))
+        return _ids(project.get("role_source_fact_ids"))
     if detail_index is not None:
         rows = project.get("detail_fact_ids")
         return _ids(rows[detail_index]) if isinstance(rows, list) and detail_index < len(rows) else ()
-    return _ids(project.get("source_fact_ids"))
+    return ()
+
+
+def _field_claim_ids(project: dict, field: str, detail_index: int | None = None) -> tuple[str, ...]:
+    if field == "role":
+        return _ids(project.get("role_source_claim_ids"))
+    if detail_index is not None:
+        rows = project.get("detail_claim_ids")
+        return _ids(rows[detail_index]) if isinstance(rows, list) and detail_index < len(rows) else ()
+    return ()
+
+
+def _prune_project_aggregate(
+    project: dict,
+    removed_fact_ids: tuple[str, ...],
+    removed_claim_ids: tuple[str, ...],
+) -> None:
+    """Discard aggregate IDs that were only attached to a removed field."""
+    surviving_facts = set(_field_fact_ids(project, "role"))
+    surviving_claims = set(_field_claim_ids(project, "role"))
+    for index, _ in enumerate(project.get("details", []) or []):
+        surviving_facts.update(_field_fact_ids(project, "details", index))
+        surviving_claims.update(_field_claim_ids(project, "details", index))
+    if "source_fact_ids" in project:
+        removed = set(removed_fact_ids)
+        project["source_fact_ids"] = [
+            fact_id for fact_id in _ids(project.get("source_fact_ids"))
+            if fact_id not in removed or fact_id in surviving_facts
+        ]
+    if "source_claim_ids" in project:
+        removed = set(removed_claim_ids)
+        project["source_claim_ids"] = [
+            claim_id for claim_id in _ids(project.get("source_claim_ids"))
+            if claim_id not in removed or claim_id in surviving_claims
+        ]
 
 
 @dataclass(frozen=True)
@@ -51,6 +86,7 @@ class QualityRepairAction:
     detail_index: int | None
     source_experience_id: str
     source_fact_ids: tuple[str, ...]
+    source_claim_ids: tuple[str, ...]
 
     @property
     def field_path(self) -> str:
@@ -67,6 +103,7 @@ class QualityRepairStats:
     planned_action_count: int = 0
     applied_action_count: int = 0
     skipped_action_count: int = 0
+    insufficient_provenance_skip_count: int = 0
     fields_removed_count: int = 0
     action_count_by_code: dict[str, int] = field(default_factory=dict)
     changed: bool = False
@@ -85,6 +122,7 @@ def _is_locally_repairable(
     project: dict,
     owner: str,
     fact_ids: tuple[str, ...],
+    claim_ids: tuple[str, ...],
     repair_view: CanonicalRepairView,
 ) -> bool:
     return bool(
@@ -93,7 +131,32 @@ def _is_locally_repairable(
         and project.get("immutable_source_experience_id") == owner
         and fact_ids
         and all(repair_view.permits_fact(owner, fact_id) for fact_id in fact_ids)
+        and all(repair_view.permits_claim(owner, claim_id) for claim_id in claim_ids)
     )
+
+
+def _unverified_duplicate_field_count(
+    project: dict,
+    owner: str,
+    repair_view: CanonicalRepairView,
+) -> int:
+    """Count exact repeats that lack enough field-local evidence to repair."""
+    seen: dict[str, list[bool]] = {}
+    for field in ("intro", "role"):
+        value = _normalized(project.get(field))
+        if not value:
+            continue
+        fact_ids = _field_fact_ids(project, field)
+        claim_ids = _field_claim_ids(project, field)
+        seen.setdefault(value, []).append(_is_locally_repairable(project, owner, fact_ids, claim_ids, repair_view))
+    for detail_index, detail in enumerate(project.get("details", []) or []):
+        value = _normalized(detail)
+        if not value:
+            continue
+        fact_ids = _field_fact_ids(project, "details", detail_index)
+        claim_ids = _field_claim_ids(project, "details", detail_index)
+        seen.setdefault(value, []).append(_is_locally_repairable(project, owner, fact_ids, claim_ids, repair_view))
+    return sum(len(items) - 1 for items in seen.values() if len(items) > 1 and not all(items))
 
 
 def build_quality_repair_plan(
@@ -113,21 +176,26 @@ def build_quality_repair_plan(
         if project_path not in duplicate_project_paths:
             continue
         owner = str(project.get("immutable_source_experience_id") or "")
-        records: list[tuple[str, int | None, str, tuple[str, ...], int]] = []
+        records: list[tuple[str, int | None, str, tuple[str, ...], tuple[str, ...], int]] = []
         for field, priority in (("intro", 0), ("role", 2)):
             value = _normalized(project.get(field))
             fact_ids = _field_fact_ids(project, field)
-            if value and _is_locally_repairable(project, owner, fact_ids, repair_view):
-                records.append((field, None, value, fact_ids, priority))
+            claim_ids = _field_claim_ids(project, field)
+            if value and _is_locally_repairable(project, owner, fact_ids, claim_ids, repair_view):
+                records.append((field, None, value, fact_ids, claim_ids, priority))
         for detail_index, detail in enumerate(project.get("details", []) or []):
             value = _normalized(detail)
             fact_ids = _field_fact_ids(project, "details", detail_index)
-            if value and _is_locally_repairable(project, owner, fact_ids, repair_view):
-                records.append(("details", detail_index, value, fact_ids, 1))
+            claim_ids = _field_claim_ids(project, "details", detail_index)
+            if value and _is_locally_repairable(project, owner, fact_ids, claim_ids, repair_view):
+                records.append(("details", detail_index, value, fact_ids, claim_ids, 1))
 
-        kept: list[tuple[str, tuple[str, ...]]] = []
-        for field, detail_index, value, fact_ids, _ in sorted(records, key=lambda row: row[4]):
-            if any(value == prior_value and fact_ids == prior_fact_ids for prior_value, prior_fact_ids in kept):
+        kept: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = []
+        for field, detail_index, value, fact_ids, claim_ids, _ in sorted(records, key=lambda row: row[5]):
+            if any(
+                value == prior_value and fact_ids == prior_fact_ids and claim_ids == prior_claim_ids
+                for prior_value, prior_fact_ids, prior_claim_ids in kept
+            ):
                 actions.append(QualityRepairAction(
                     action_code=EXACT_DUPLICATE_FIELD,
                     project_index=project_index,
@@ -135,9 +203,10 @@ def build_quality_repair_plan(
                     detail_index=detail_index,
                     source_experience_id=owner,
                     source_fact_ids=fact_ids,
+                    source_claim_ids=claim_ids,
                 ))
                 continue
-            kept.append((value, fact_ids))
+            kept.append((value, fact_ids, claim_ids))
     return tuple(actions)
 
 
@@ -145,11 +214,14 @@ def _remove_detail(project: dict, detail_index: int) -> bool:
     details = project.get("details")
     if not isinstance(details, list) or detail_index >= len(details):
         return False
+    removed_fact_ids = _field_fact_ids(project, "details", detail_index)
+    removed_claim_ids = _field_claim_ids(project, "details", detail_index)
     details.pop(detail_index)
     for key in ("detail_fact_ids", "detail_claim_ids"):
         rows = project.get(key)
         if isinstance(rows, list) and detail_index < len(rows):
             rows.pop(detail_index)
+    _prune_project_aggregate(project, removed_fact_ids, removed_claim_ids)
     return True
 
 
@@ -173,14 +245,21 @@ def apply_quality_repair_plan(
             continue
         project = projects[action.project_index]
         owner = str(project.get("immutable_source_experience_id") or "")
-        if not _is_locally_repairable(project, owner, action.source_fact_ids, repair_view):
+        if not _is_locally_repairable(
+            project, owner, action.source_fact_ids, action.source_claim_ids, repair_view,
+        ):
             skipped += 1
             continue
         if action.field == "role" and action.detail_index is None:
             if not _normalized(project.get("role")):
                 skipped += 1
                 continue
+            removed_fact_ids = _field_fact_ids(project, "role")
+            removed_claim_ids = _field_claim_ids(project, "role")
             project["role"] = ""
+            project.pop("role_source_fact_ids", None)
+            project.pop("role_source_claim_ids", None)
+            _prune_project_aggregate(project, removed_fact_ids, removed_claim_ids)
             applied += 1
         elif action.field == "details" and action.detail_index is not None:
             if _remove_detail(project, action.detail_index):
@@ -197,7 +276,6 @@ def _high_value_fact_count(payload: schemas.GenerationPayload, repair_view: Cano
     for project in payload.resume_sections.projects:
         owner = str(project.get("immutable_source_experience_id") or "")
         bindings = [
-            _field_fact_ids(project, "intro"),
             _field_fact_ids(project, "role"),
             *[
                 _field_fact_ids(project, "details", index)
@@ -229,6 +307,18 @@ def route_quality_repairs(
     """Apply the narrowly-authorized repair plan and write aggregate telemetry."""
     before = payload.model_dump(mode="json")
     actions = build_quality_repair_plan(payload, issues, repair_view)
+    duplicate_project_paths = {
+        issue.field_path for issue in issues if issue.issue_code == "DUPLICATE_FACT"
+    }
+    insufficient_provenance_skips = sum(
+        _unverified_duplicate_field_count(
+            project,
+            str(project.get("immutable_source_experience_id") or ""),
+            repair_view,
+        )
+        for project_index, project in enumerate(payload.resume_sections.projects)
+        if f"resume_sections.projects.{project_index}" in duplicate_project_paths
+    )
     high_value_before = _high_value_fact_count(payload, repair_view)
     applied, skipped = apply_quality_repair_plan(payload, actions, repair_view)
     high_value_after = _high_value_fact_count(payload, repair_view)
@@ -242,6 +332,7 @@ def route_quality_repairs(
         planned_action_count=len(actions),
         applied_action_count=applied,
         skipped_action_count=skipped,
+        insufficient_provenance_skip_count=insufficient_provenance_skips,
         fields_removed_count=applied,
         action_count_by_code={EXACT_DUPLICATE_FIELD: applied} if applied else {},
         changed=before != payload.model_dump(mode="json"),
@@ -276,7 +367,7 @@ def write_quality_repair_router_log(
             "attempt_id": attempt_id,
             "action_fingerprint": stable_hash(
                 json.dumps([
-                    (action.action_code, action.project_index, action.field, action.detail_index, action.source_experience_id, action.source_fact_ids)
+                    (action.action_code, action.project_index, action.field, action.detail_index, action.source_experience_id, action.source_fact_ids, action.source_claim_ids)
                     for action in result.actions
                 ], ensure_ascii=False, sort_keys=True),
                 purpose="resume_quality_repair_router",

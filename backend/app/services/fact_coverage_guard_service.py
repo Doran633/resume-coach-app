@@ -195,14 +195,13 @@ def guard_fact_coverage(
         kept: list[str] = []
         detail_fact_ids: list[list[str]] = []
         detail_claim_ids: list[list[str]] = []
+        removed_detail_fact_ids: set[str] = set()
+        removed_detail_claim_ids: set[str] = set()
         existing_fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
         existing_claim_rows = project.get("detail_claim_ids") if isinstance(project.get("detail_claim_ids"), list) else []
         for detail_index, raw_detail in enumerate(project.get("details", []) or []):
             detail = str(raw_detail).strip()
             if not detail:
-                continue
-            if is_generic_detail(detail):
-                stats.removed_generic_detail_count += 1
                 continue
             bound_fact_ids = (
                 [str(item) for item in existing_fact_rows[detail_index]]
@@ -214,6 +213,11 @@ def guard_fact_coverage(
                 if detail_index < len(existing_claim_rows) and isinstance(existing_claim_rows[detail_index], list)
                 else []
             )
+            if is_generic_detail(detail):
+                stats.removed_generic_detail_count += 1
+                removed_detail_fact_ids.update(bound_fact_ids)
+                removed_detail_claim_ids.update(bound_claim_ids)
+                continue
             if scope is not None:
                 valid_fact_ids = _canonical_fact_ids(bound_fact_ids, scope)
                 valid_claim_ids = _canonical_claim_ids(bound_claim_ids, scope)
@@ -233,8 +237,8 @@ def guard_fact_coverage(
                     scoped_access_stats.rejected_cross_owner_access_count += 1
                 continue
             current_best, current_score = _best_fact(detail, scoped_facts)
-            if canonical_mode and not bound_fact_ids:
-                if _requires_local_evidence(detail) and current_score < 0.45:
+            if canonical_mode:
+                if not bound_fact_ids and _requires_local_evidence(detail) and current_score < 0.45:
                     stats.cross_experience_fact_count += 1
                     if scoped_access_stats is not None:
                         scoped_access_stats.rejected_cross_owner_access_count += 1
@@ -260,6 +264,20 @@ def guard_fact_coverage(
             else:
                 role_fact_ids = preserved_role_fact_ids if str(project.get("role") or "").strip() else []
                 role_claim_ids = preserved_role_claim_ids if str(project.get("role") or "").strip() else []
+                surviving_fact_ids = {
+                    fact_id for ids in detail_fact_ids for fact_id in ids
+                } | set(role_fact_ids)
+                surviving_claim_ids = {
+                    claim_id for ids in detail_claim_ids for claim_id in ids
+                } | set(role_claim_ids)
+                preserved_project_fact_ids = [
+                    fact_id for fact_id in preserved_project_fact_ids
+                    if fact_id not in removed_detail_fact_ids or fact_id in surviving_fact_ids
+                ]
+                preserved_project_claim_ids = [
+                    claim_id for claim_id in preserved_project_claim_ids
+                    if claim_id not in removed_detail_claim_ids or claim_id in surviving_claim_ids
+                ]
                 project["source_fact_ids"] = list(dict.fromkeys([
                     *preserved_project_fact_ids,
                     *role_fact_ids,

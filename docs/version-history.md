@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.8.9：Canonical Provenance Contract Closure
+
+- Canonical Coverage 对已绑定 detail 也只查询当前冻结 owner 的 eligible Fact；全局 Ledger 匹配和跨项目 detail 移动仅保留给 legacy 路径。
+- Repair Router 不再把项目级 `source_fact_ids` 当作 intro 或 role 的字段级来源。字段缺少专用 attachment 时，重复修复会跳过并记录脱敏计数。
+- 删除 role 或 detail 时同步删除其行级 Fact / Claim attachment；仅属于已删除 detail 的项目聚合来源也会移除，防止已消失的正文虚增投影覆盖。
+- 补充 Canonical Coverage、Delivery Gate、Projection Observer 与 Repair Router 的联合回归，覆盖 owner scope、低匹配合法附件、空字段和幂等性。
+
 ## v0.9.8.8.1：Presentation Provenance Preservation
 
 - 修复 Body Sanitizer 重建项目时丢失 `role`、`details` 的 Fact / Claim binding 问题；正文过滤和去重时，来源行跟随对应 detail 一起保留或移除。

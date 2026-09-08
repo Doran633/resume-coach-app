@@ -99,10 +99,12 @@ def test_same_owner_same_fact_duplicate_fields_keep_one_visible_fact():
     project = payload.resume_sections.projects[0]
     assert project["intro"] == "实现资料检索接口。"
     assert project["role"] == ""
-    assert project["details"] == []
+    # The project aggregate cannot prove that intro and detail carry the same
+    # fact. Only role has field-local evidence, so the detail remains.
+    assert project["details"] == ["实现资料检索接口。"]
     assert project["immutable_source_experience_id"] == owner
     assert project["source_fact_ids"] == [fact_id]
-    assert result.stats.applied_action_count == 2
+    assert result.stats.applied_action_count == 1
     assert result.stats.high_value_fact_count_after >= result.stats.high_value_fact_count_before
     assert "DUPLICATE_FACT" in {issue.issue_code for issue in evaluation.issues}
     assert gate_before != payload.model_dump(mode="json")
@@ -208,7 +210,7 @@ def test_router_log_is_aggregate_only(tmp_path, monkeypatch):
     )
     content = router_service.LOG_PATH.read_text(encoding="utf-8")
     row = json.loads(content)
-    assert row["applied_action_count"] == 2
+    assert row["applied_action_count"] == 1
     assert RAW not in content
     assert "资料检索工具" not in content
     assert "FastAPI" not in content

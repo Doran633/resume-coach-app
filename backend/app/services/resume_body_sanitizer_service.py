@@ -75,7 +75,7 @@ def _clean_id_list(value) -> list[str]:
     return list(dict.fromkeys(str(item).strip() for item in value if str(item or "").strip()))
 
 
-def _clean_detail_rows(item: dict) -> tuple[list[str], list[list[str]], list[list[str]]]:
+def _clean_detail_rows(item: dict) -> tuple[list[str], list[list[str]], list[list[str]], set[str], set[str]]:
     """Clean detail text without detaching its existing provenance rows."""
     details = item.get("details") if isinstance(item.get("details"), list) else []
     fact_rows = item.get("detail_fact_ids") if isinstance(item.get("detail_fact_ids"), list) else []
@@ -83,25 +83,31 @@ def _clean_detail_rows(item: dict) -> tuple[list[str], list[list[str]], list[lis
     cleaned_details: list[str] = []
     cleaned_fact_rows: list[list[str]] = []
     cleaned_claim_rows: list[list[str]] = []
+    removed_fact_ids: set[str] = set()
+    removed_claim_ids: set[str] = set()
     seen: set[tuple[str, tuple[str, ...], tuple[str, ...]]] = set()
 
     for index, value in enumerate(details):
         text = _clean_text(value)
-        if not text:
-            continue
         fact_ids = _clean_id_list(fact_rows[index]) if index < len(fact_rows) else []
         claim_ids = _clean_id_list(claim_rows[index]) if index < len(claim_rows) else []
+        if not text:
+            removed_fact_ids.update(fact_ids)
+            removed_claim_ids.update(claim_ids)
+            continue
         # Equal wording with different or unknown sources remains separate. The
         # later fact-aware deduplication service decides whether it is safe to merge.
         identity = (text, tuple(fact_ids), tuple(claim_ids))
         if identity in seen:
+            removed_fact_ids.update(fact_ids)
+            removed_claim_ids.update(claim_ids)
             continue
         seen.add(identity)
         cleaned_details.append(text)
         cleaned_fact_rows.append(fact_ids)
         cleaned_claim_rows.append(claim_ids)
 
-    return cleaned_details, cleaned_fact_rows, cleaned_claim_rows
+    return cleaned_details, cleaned_fact_rows, cleaned_claim_rows, removed_fact_ids, removed_claim_ids
 
 
 def _clean_project(project: dict) -> dict:
@@ -111,7 +117,7 @@ def _clean_project(project: dict) -> dict:
         meta = "个人项目"
     if meta == "只是课程作业":
         meta = "课程项目"
-    details, detail_fact_ids, detail_claim_ids = _clean_detail_rows(item)
+    details, detail_fact_ids, detail_claim_ids, removed_detail_facts, removed_detail_claims = _clean_detail_rows(item)
     cleaned = {
         "name": _clean_text(item.get("name")) or "项目实践",
         "meta": meta,
@@ -134,6 +140,26 @@ def _clean_project(project: dict) -> dict:
         cleaned["detail_fact_ids"] = detail_fact_ids
     if "detail_claim_ids" in item:
         cleaned["detail_claim_ids"] = detail_claim_ids
+
+    # A project aggregate cannot prove which field still carries a fact. When a
+    # directly-bound detail disappears, retain the aggregate only if that same
+    # attachment remains on a surviving detail or the role field.
+    surviving_fact_ids = {
+        fact_id for row in detail_fact_ids for fact_id in row
+    } | set(_clean_id_list(cleaned.get("role_source_fact_ids")))
+    surviving_claim_ids = {
+        claim_id for row in detail_claim_ids for claim_id in row
+    } | set(_clean_id_list(cleaned.get("role_source_claim_ids")))
+    if "source_fact_ids" in cleaned:
+        cleaned["source_fact_ids"] = [
+            fact_id for fact_id in cleaned["source_fact_ids"]
+            if fact_id not in removed_detail_facts or fact_id in surviving_fact_ids
+        ]
+    if "source_claim_ids" in cleaned:
+        cleaned["source_claim_ids"] = [
+            claim_id for claim_id in cleaned["source_claim_ids"]
+            if claim_id not in removed_detail_claims or claim_id in surviving_claim_ids
+        ]
 
     # Empty fields may not retain provenance that no longer has visible text.
     if not cleaned["role"]:
