@@ -1,5 +1,14 @@
 # 版本历史
 
+## v0.9.8.8：Canonical Display Name Qualification
+
+- 在同一次 Semantic Compilation 内为每个 `experience_id` 建立请求级名称展示资格，不新增 Identity、Claim、Fact 或第二套 IR。
+- Canonical Project Projection 不再直接读取 `canonical_project_name`、`title` 或 alias；只有显式标题来源或同 owner 已确认 Claim 可证明的名称才能展示。
+- 将名称资格与 Fact eligibility 分离：结构标签、用户说明、否定和不确定表达不能成为名称；名称本身含“没有”等字样不会仅凭关键词误拒。
+- 名称不明确时继续投影本 owner 的 eligible Fact，使用明确待补充名称和泛化缺失问题，不编造名称、不删除经历。
+- 新增脱敏名称资格日志，仅记录 owner、来源类别、原因、数量和指纹；不记录标题、正文、Claim/Fact 文本或原始输入。
+- 静态审计记录：Canonical Projection 之后仍存在其它标题写入者，归入后续 Immutable Delivery Revision 的权限收口范围，本版不改变其行为。
+
 ## v0.8.3：可见输出完整性与 Full Smoke 诊断
 
 - 抽取统一用户可见输出契约，覆盖 normal、bold、boundary、recommended 四档版本和正式简历 Section。

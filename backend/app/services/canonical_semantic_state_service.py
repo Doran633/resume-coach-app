@@ -9,6 +9,10 @@ from .experience_fact_ledger_service import (
     ExperienceFactLedger,
     build_experience_fact_ledger_from_components,
 )
+from .canonical_display_name_service import (
+    CanonicalDisplayNameQualification,
+    build_canonical_display_name_qualifications,
+)
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .input_claim_resolution_service import (
     ClaimResolution,
@@ -217,6 +221,7 @@ class CanonicalSemanticBuild:
     experience_type_decisions: tuple[CanonicalExperienceTypeDecision, ...]
     semantic_analyses: tuple[InputSemanticAnalysis, ...]
     claim_resolutions: tuple[ClaimResolution, ...]
+    display_name_qualifications: tuple[CanonicalDisplayNameQualification, ...]
     ledger: ExperienceFactLedger
     ownership_index: CanonicalFactOwnershipIndex
     state: CanonicalSemanticState | None = None
@@ -224,6 +229,10 @@ class CanonicalSemanticBuild:
     @property
     def canonical_type_by_experience_id(self) -> dict[str, CanonicalExperienceTypeDecision]:
         return {item.experience_id: item for item in self.experience_type_decisions}
+
+    @property
+    def display_name_qualification_by_experience_id(self) -> dict[str, CanonicalDisplayNameQualification]:
+        return {item.experience_id: item for item in self.display_name_qualifications}
 
 
 def _fingerprint(
@@ -438,6 +447,10 @@ def build_canonical_semantic_build(
         resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
         for identity in identities
     )
+    display_name_qualifications = build_canonical_display_name_qualifications(
+        identities,
+        claim_resolutions,
+    )
     ledger = build_experience_fact_ledger_from_components(
         raw_input,
         identities=identities,
@@ -461,6 +474,7 @@ def build_canonical_semantic_build(
         experience_type_decisions=experience_type_decisions,
         semantic_analyses=semantic_analyses,
         claim_resolutions=claim_resolutions,
+        display_name_qualifications=display_name_qualifications,
         ledger=ledger,
         ownership_index=ownership_index,
         state=state,

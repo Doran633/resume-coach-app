@@ -246,6 +246,21 @@ class CanonicalPlannerView:
             None,
         )
 
+    def display_name_qualification_for_owner(self, experience_id: str):
+        """Return the one compiled display-name decision for this owner.
+
+        Projection consumers must use this accessor instead of reading
+        ``identity.title``, ``canonical_project_name`` or aliases directly.
+        The returned decision remains request-local and is never logged with
+        its display text.
+        """
+        scope = self.owner_scope(experience_id)
+        if scope is None:
+            return None
+        return self._views._build.display_name_qualification_by_experience_id.get(
+            scope.experience_id
+        )
+
     @property
     def verified_skill_evidence_keys(self) -> frozenset[str]:
         return self._views.verified_skill_evidence_keys

@@ -1,13 +1,13 @@
 # Resume Coach App
 
-## 当前架构：v0.9.8.3
+## 当前架构：v0.9.8.8
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
 ```text
 raw_input
   -> Semantic Compilation
-  -> CanonicalSemanticBuild / Canonical Consumer Views
+  -> CanonicalSemanticBuild / Display Name Qualification / Canonical Consumer Views
   -> Existing Presentation Pipeline
   -> Owner / Type / Fact Scope Freeze
   -> Delivery Gate（只读验证）
@@ -20,6 +20,7 @@ raw_input
 
 - **Semantic Compilation**：同一次请求只构建一套 Experience Identity、Claim Resolution 和 Fact Ledger，形成请求级 CanonicalSemanticBuild。
 - **Canonical Consumer Views**：Planner、Guard 和未来 Repair 只能通过按 `experience_id` 限定的只读视图读取允许的 Claim、Fact 和技能证据，不重新理解完整 `raw_input`。
+- **Display Name Qualification**：Canonical Projection 只使用具有显式标题来源或同 owner 已确认 Claim 证明的名称；结构标签、说明或否定内容不能作为名称。名称不明时保留本 owner 的事实并请求补充名称，不吞掉经历。
 - **Owner / Type Freeze**：经历类型、事实归属和项目归属在生成链路中冻结；后续模块只能验证、删除污染或使用同 owner 事实，不能跨经历重绑。
 - **Delivery Gate**：仅检查交付质量，不再恢复项目、补写事实、重建语义或修改 payload。
 - **Quality Repair Router**：仅处理证据充分的局部冗余，例如同一 owner、同一 Fact binding 的完全重复字段；不会创建事实、项目、技能或职责。
@@ -40,6 +41,11 @@ raw_input
 | v0.9.8.1 | Authority Lockdown | Delivery Gate 收口为纯只读验证器。 |
 | v0.9.8.2 | Canonical Consumer Views | 建立 Planner、Guard、Repair 的请求级只读 Canonical Views。 |
 | v0.9.8.3 | Quality / Repair Split | 引入受 Canonical scope 限制的确定性 Repair Router，处理完全重复字段。 |
+| v0.9.8.4 | Scoped Presentation Authority | 书面化模块按 owner 使用只读 Presentation View，不再在 Canonical 路径读取完整输入。 |
+| v0.9.8.5 | Canonical Eligibility Integrity | 将 Claim eligibility 与 Fact lineage 的完整性作为编译期契约验证。 |
+| v0.9.8.6 | Projection Completeness Shadow | 按 owner 观察 eligible Fact 首次未投影、未绑定或被移除的位置。 |
+| v0.9.8.7 | Canonical Project Projection | 为缺少 LLM provenance 的 eligible owner 受限投影本地事实，避免真实经历消失。 |
+| v0.9.8.8 | Display Name Qualification | 为 Canonical Projection 增加名称展示资格，结构标签和语义约束不能被当作项目名称。 |
 
 后续尚未实施的架构阶段：
 
@@ -69,6 +75,8 @@ python scripts/evaluate_claim_resolution_golden.py --mode mock
 .venv/bin/python scripts/list_recent_quality_incidents.py --result-id <result_id> --json
 .venv/bin/python scripts/list_semantic_mutations.py --result-id <result_id> --show-transitions
 tail -n 20 backend/logs/resume_quality_repair_router.jsonl
+.venv/bin/python scripts/list_canonical_projection_gaps.py --result-id <result_id>
+tail -n 20 backend/logs/canonical_display_name_qualification.jsonl
 ```
 
 ## v0.8.3 可见输出完整性与 Full Smoke 诊断

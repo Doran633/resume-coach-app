@@ -91,6 +91,7 @@ from .canonical_consumer_view_service import (
     build_canonical_consumer_views,
     write_canonical_consumer_views_log,
 )
+from .canonical_display_name_service import write_canonical_display_name_qualification_log
 from .resume_quality_repair_router_service import (
     route_quality_repairs,
     write_quality_repair_router_log,
@@ -526,6 +527,12 @@ def create_generation(
         attempt_id=request.attempt_id or "",
         access_stats=consumer_view_access_stats,
     )
+    write_canonical_display_name_qualification_log(
+        semantic_build.display_name_qualifications,
+        stage="generation_display_name_qualified",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+    )
     shadow_semantic_state = None
     try:
         shadow_semantic_state = build_canonical_semantic_state_from_build(
@@ -954,6 +961,13 @@ def create_generation(
         canonical_projection_plan,
         canonical_projection_freeze_stats,
         stage="generation_canonical_project_projection_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
+    )
+    write_canonical_display_name_qualification_log(
+        semantic_build.display_name_qualifications,
+        stage="generation_display_name_saved",
         request_id=request_id,
         attempt_id=request.attempt_id or "",
         generation_result_id=result.id,

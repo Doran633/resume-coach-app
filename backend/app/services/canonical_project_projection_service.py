@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .canonical_consumer_view_service import CanonicalPlannerView
+from .canonical_display_name_service import NAME_PENDING_DISPLAY
 from .experience_slot_service import CanonicalProjectionFreezeStats
 from .structured_log_service import stable_hash
 
@@ -30,6 +31,7 @@ class CanonicalProjectProjectionPlan:
     owners_without_bound_project_count: int
     candidate_skipped_existing_count: int
     projected_fact_count: int
+    pending_name_owner_ids: tuple[str, ...]
     projection_fingerprint: str
 
 
@@ -52,12 +54,13 @@ def plan_canonical_project_projections(
     eligible_owner_count = 0
     skipped_existing = 0
     projected_fact_count = 0
+    pending_name_owner_ids: list[str] = []
 
     for owner in planner_view.experience_ids:
         scope = planner_view.owner_scope(owner)
         facts = planner_view.eligible_facts(owner)
-        identity = planner_view.identity_for_owner(owner)
-        if not scope or not facts or identity is None:
+        qualification = planner_view.display_name_qualification_for_owner(owner)
+        if not scope or not facts or qualification is None:
             continue
         eligible_owner_count += 1
         if owner in bound_owners:
@@ -66,7 +69,14 @@ def plan_canonical_project_projections(
 
         first, *remaining = facts
         detail_facts = list(remaining)
-        name = identity.canonical_project_name or identity.title
+        if qualification.qualified:
+            name = qualification.display_name
+        else:
+            # Keep the owner and eligible facts visible without inventing a
+            # display name. The companion missing question is generic and
+            # contains neither the title nor source text.
+            name = NAME_PENDING_DISPLAY
+            pending_name_owner_ids.append(owner)
         candidates.append({
             "name": name,
             "meta": scope.canonical_experience_type,
@@ -94,6 +104,7 @@ def plan_canonical_project_projections(
             len(candidate["source_fact_ids"]) + sum(len(row) for row in candidate["detail_fact_ids"])
             for candidate in candidates
         ],
+        "pending_name_owner_ids": sorted(pending_name_owner_ids),
         "view": planner_view.fingerprint,
     }
     return CanonicalProjectProjectionPlan(
@@ -102,6 +113,7 @@ def plan_canonical_project_projections(
         owners_without_bound_project_count=len(candidates),
         candidate_skipped_existing_count=skipped_existing,
         projected_fact_count=projected_fact_count,
+        pending_name_owner_ids=tuple(pending_name_owner_ids),
         projection_fingerprint=stable_hash(
             json.dumps(safe, sort_keys=True), purpose="canonical_project_projection",
         ),
@@ -115,6 +127,10 @@ def append_canonical_project_projection_candidates(
     """Append planner output without editing any existing project."""
     updated = payload.model_copy(deep=True)
     updated.resume_sections.projects.extend(dict(candidate) for candidate in plan.candidates)
+    if plan.pending_name_owner_ids:
+        question = "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"
+        if question not in updated.missing_questions:
+            updated.missing_questions.append(question)
     return updated
 
 
@@ -142,6 +158,7 @@ def write_canonical_project_projection_log(
             "candidate_frozen_count": freeze_stats.candidate_frozen_count,
             "candidate_rejected_count": freeze_stats.candidate_rejected_count,
             "candidate_skipped_existing_count": plan.candidate_skipped_existing_count,
+            "pending_name_owner_count": len(plan.pending_name_owner_ids),
             "projected_fact_count": plan.projected_fact_count,
             "projection_fingerprint": plan.projection_fingerprint,
         }
