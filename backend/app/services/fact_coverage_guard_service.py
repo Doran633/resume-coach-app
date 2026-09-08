@@ -63,6 +63,28 @@ def _project_source_ids(project: dict) -> list[str]:
     return values
 
 
+def _ids(value: object) -> list[str]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    return list(dict.fromkeys(str(item).strip() for item in value if str(item or "").strip()))
+
+
+def _canonical_fact_ids(value: object, scope) -> list[str]:
+    return [fact_id for fact_id in _ids(value) if scope.permits_fact(fact_id)]
+
+
+def _canonical_claim_ids(value: object, scope) -> list[str]:
+    return [claim_id for claim_id in _ids(value) if scope.permits_claim(claim_id)]
+
+
+def _has_visible_project_body(project: dict) -> bool:
+    return bool(
+        str(project.get("intro") or "").strip()
+        or str(project.get("role") or "").strip()
+        or any(str(item or "").strip() for item in project.get("details", []) or [])
+    )
+
+
 def _fact_covered(fact: ExperienceFact, project: dict) -> bool:
     project_text = _project_text(project).lower()
     signature = fact_signature_terms(fact)
@@ -146,16 +168,35 @@ def guard_fact_coverage(
             if scoped_access_stats is not None:
                 scoped_access_stats.unowned_project_skipped_count += 1
             project["source_fact_ids"] = []
+            project["role_source_fact_ids"] = []
             project["detail_fact_ids"] = [[] for _ in project.get("details", []) or []]
+            project["source_claim_ids"] = []
+            project["role_source_claim_ids"] = []
+            project["detail_claim_ids"] = [[] for _ in project.get("details", []) or []]
             continue
         if scope is not None and scoped_access_stats is not None:
             scoped_access_stats.record_scope_read()
         scoped_facts = scope.eligible_facts(ledger) if scope is not None else [
             fact for fact in ledger.facts if fact.experience_id in source_ids
         ]
+        preserved_project_fact_ids = _canonical_fact_ids(project.get("source_fact_ids"), scope) if scope is not None else []
+        preserved_role_fact_ids = _canonical_fact_ids(project.get("role_source_fact_ids"), scope) if scope is not None else []
+        preserved_project_claim_ids = _canonical_claim_ids(project.get("source_claim_ids"), scope) if scope is not None else []
+        preserved_role_claim_ids = _canonical_claim_ids(project.get("role_source_claim_ids"), scope) if scope is not None else []
+        if scope is not None and (
+            len(preserved_project_fact_ids) != len(_ids(project.get("source_fact_ids")))
+            or len(preserved_role_fact_ids) != len(_ids(project.get("role_source_fact_ids")))
+            or len(preserved_project_claim_ids) != len(_ids(project.get("source_claim_ids")))
+            or len(preserved_role_claim_ids) != len(_ids(project.get("role_source_claim_ids")))
+        ):
+            stats.provenance_conflict_count += 1
+            if scoped_access_stats is not None:
+                scoped_access_stats.rejected_cross_owner_access_count += 1
         kept: list[str] = []
         detail_fact_ids: list[list[str]] = []
+        detail_claim_ids: list[list[str]] = []
         existing_fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
+        existing_claim_rows = project.get("detail_claim_ids") if isinstance(project.get("detail_claim_ids"), list) else []
         for detail_index, raw_detail in enumerate(project.get("details", []) or []):
             detail = str(raw_detail).strip()
             if not detail:
@@ -168,6 +209,22 @@ def guard_fact_coverage(
                 if detail_index < len(existing_fact_rows) and isinstance(existing_fact_rows[detail_index], list)
                 else []
             )
+            bound_claim_ids = (
+                [str(item) for item in existing_claim_rows[detail_index]]
+                if detail_index < len(existing_claim_rows) and isinstance(existing_claim_rows[detail_index], list)
+                else []
+            )
+            if scope is not None:
+                valid_fact_ids = _canonical_fact_ids(bound_fact_ids, scope)
+                valid_claim_ids = _canonical_claim_ids(bound_claim_ids, scope)
+                if len(valid_fact_ids) != len(_ids(bound_fact_ids)) or len(valid_claim_ids) != len(_ids(bound_claim_ids)):
+                    stats.provenance_conflict_count += 1
+                    stats.cross_experience_fact_count += 1
+                    if scoped_access_stats is not None:
+                        scoped_access_stats.rejected_cross_owner_access_count += 1
+                    continue
+                bound_fact_ids = valid_fact_ids
+                bound_claim_ids = valid_claim_ids
             owners = {fact_owner_id(fact_id) for fact_id in bound_fact_ids if fact_owner_id(fact_id)}
             if owners and source_id and (owners != {source_id} or (scope is not None and not all(scope.permits_fact(fact_id) for fact_id in bound_fact_ids))):
                 stats.provenance_conflict_count += 1
@@ -176,7 +233,7 @@ def guard_fact_coverage(
                     scoped_access_stats.rejected_cross_owner_access_count += 1
                 continue
             current_best, current_score = _best_fact(detail, scoped_facts)
-            if canonical_mode:
+            if canonical_mode and not bound_fact_ids:
                 if _requires_local_evidence(detail) and current_score < 0.45:
                     stats.cross_experience_fact_count += 1
                     if scoped_access_stats is not None:
@@ -189,10 +246,36 @@ def guard_fact_coverage(
                     moves.append((best.experience_id, detail, best.fact_id))
                     continue
             kept.append(detail)
-            detail_fact_ids.append([current_best.fact_id] if current_best and current_score >= 0.45 else [])
+            detail_fact_ids.append(bound_fact_ids or ([current_best.fact_id] if current_best and current_score >= 0.45 else []))
+            detail_claim_ids.append(bound_claim_ids)
         project["details"] = kept
         project["detail_fact_ids"] = detail_fact_ids
-        project["source_fact_ids"] = list(dict.fromkeys(fact_id for ids in detail_fact_ids for fact_id in ids))
+        project["detail_claim_ids"] = detail_claim_ids
+        if scope is not None:
+            if not _has_visible_project_body(project):
+                project["source_fact_ids"] = []
+                project["role_source_fact_ids"] = []
+                project["source_claim_ids"] = []
+                project["role_source_claim_ids"] = []
+            else:
+                role_fact_ids = preserved_role_fact_ids if str(project.get("role") or "").strip() else []
+                role_claim_ids = preserved_role_claim_ids if str(project.get("role") or "").strip() else []
+                project["source_fact_ids"] = list(dict.fromkeys([
+                    *preserved_project_fact_ids,
+                    *role_fact_ids,
+                    *(fact_id for ids in detail_fact_ids for fact_id in ids),
+                ]))
+                project["source_claim_ids"] = list(dict.fromkeys([
+                    *preserved_project_claim_ids,
+                    *role_claim_ids,
+                    *(claim_id for ids in detail_claim_ids for claim_id in ids),
+                ]))
+                if "role_source_fact_ids" in project:
+                    project["role_source_fact_ids"] = role_fact_ids
+                if "role_source_claim_ids" in project:
+                    project["role_source_claim_ids"] = role_claim_ids
+        else:
+            project["source_fact_ids"] = list(dict.fromkeys(fact_id for ids in detail_fact_ids for fact_id in ids))
 
     for target_id, detail, fact_id in moves:
         target = project_by_source.get(target_id)

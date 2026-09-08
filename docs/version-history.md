@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.8.8.1：Presentation Provenance Preservation
+
+- 修复 Body Sanitizer 重建项目时丢失 `role`、`details` 的 Fact / Claim binding 问题；正文过滤和去重时，来源行跟随对应 detail 一起保留或移除。
+- Canonical Coverage 不再只根据 `details` 重算项目事实集合；`intro` 或 `role` 中仍可见的有效本地事实不会被低匹配分数清空。
+- 项目级 `source_fact_ids` 继续作为聚合集合，字段级来源只由 role/detail 的专用 binding 表达，不把项目级集合误解为每个字段的精确证明。
+- 继续拒绝跨 owner、非 eligible 或空正文遗留的 binding，不生成新 Fact、Claim、owner 或类型。
+- 补充 Sanitizer 到 Coverage 的确定性回归，覆盖来源对齐、空字段清理、跨 owner 拒绝和幂等性。
+
 ## v0.9.8.8：Canonical Display Name Qualification
 
 - 在同一次 Semantic Compilation 内为每个 `experience_id` 建立请求级名称展示资格，不新增 Identity、Claim、Fact 或第二套 IR。

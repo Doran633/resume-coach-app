@@ -1,6 +1,6 @@
 # Resume Coach App
 
-## 当前架构：v0.9.8.8
+## 当前架构：v0.9.8.8.1
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -46,6 +46,7 @@ raw_input
 | v0.9.8.6 | Projection Completeness Shadow | 按 owner 观察 eligible Fact 首次未投影、未绑定或被移除的位置。 |
 | v0.9.8.7 | Canonical Project Projection | 为缺少 LLM provenance 的 eligible owner 受限投影本地事实，避免真实经历消失。 |
 | v0.9.8.8 | Display Name Qualification | 为 Canonical Projection 增加名称展示资格，结构标签和语义约束不能被当作项目名称。 |
+| v0.9.8.8.1 | Presentation Provenance Preservation | 正文清理与 Coverage 保留并验证既有 Fact / Claim binding，避免字段来源在展示链路中丢失。 |
 
 后续尚未实施的架构阶段：
 
@@ -58,6 +59,7 @@ raw_input
 
 - 每次请求可通过 `X-Request-ID` 关联 `request_id -> attempt_id -> generation_result_id -> file_id`。
 - `semantic_mutation_trace.jsonl` 用于识别 Semantic Commit 后首次出现的 owner、type、Fact binding 或 claim eligibility 异常。
+- [Presentation Provenance Preservation](docs/presentation-provenance-preservation.md) 说明正文清理、字段级 provenance 与 Coverage 的保留契约。
 - Canonical State、Ownership、Consumer Views、Delivery Gate、Repair Router 都输出脱敏聚合日志，不记录用户正文、Cookie、API Key 或原始 IP。
 - shallow smoke 检查网站、法律页面、健康接口、Cookie、安全响应头和版本一致性；full smoke 显式调用模型，并在 finally 中清理测试数据。
 

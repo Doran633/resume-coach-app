@@ -69,6 +69,41 @@ def _clean_list(values) -> list[str]:
     return cleaned
 
 
+def _clean_id_list(value) -> list[str]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    return list(dict.fromkeys(str(item).strip() for item in value if str(item or "").strip()))
+
+
+def _clean_detail_rows(item: dict) -> tuple[list[str], list[list[str]], list[list[str]]]:
+    """Clean detail text without detaching its existing provenance rows."""
+    details = item.get("details") if isinstance(item.get("details"), list) else []
+    fact_rows = item.get("detail_fact_ids") if isinstance(item.get("detail_fact_ids"), list) else []
+    claim_rows = item.get("detail_claim_ids") if isinstance(item.get("detail_claim_ids"), list) else []
+    cleaned_details: list[str] = []
+    cleaned_fact_rows: list[list[str]] = []
+    cleaned_claim_rows: list[list[str]] = []
+    seen: set[tuple[str, tuple[str, ...], tuple[str, ...]]] = set()
+
+    for index, value in enumerate(details):
+        text = _clean_text(value)
+        if not text:
+            continue
+        fact_ids = _clean_id_list(fact_rows[index]) if index < len(fact_rows) else []
+        claim_ids = _clean_id_list(claim_rows[index]) if index < len(claim_rows) else []
+        # Equal wording with different or unknown sources remains separate. The
+        # later fact-aware deduplication service decides whether it is safe to merge.
+        identity = (text, tuple(fact_ids), tuple(claim_ids))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        cleaned_details.append(text)
+        cleaned_fact_rows.append(fact_ids)
+        cleaned_claim_rows.append(claim_ids)
+
+    return cleaned_details, cleaned_fact_rows, cleaned_claim_rows
+
+
 def _clean_project(project: dict) -> dict:
     item = dict(project if isinstance(project, dict) else {"name": "项目经历", "intro": project})
     meta = _clean_text(item.get("meta")) or "项目经历"
@@ -76,20 +111,40 @@ def _clean_project(project: dict) -> dict:
         meta = "个人项目"
     if meta == "只是课程作业":
         meta = "课程项目"
+    details, detail_fact_ids, detail_claim_ids = _clean_detail_rows(item)
     cleaned = {
         "name": _clean_text(item.get("name")) or "项目实践",
         "meta": meta,
         "time": _clean_text(item.get("time")) or "[待填写]",
         "intro": _clean_text(item.get("intro")),
         "role": _clean_text(item.get("role")),
-        "details": _clean_list(item.get("details")),
+        "details": details,
     }
     for key in [
-        "source_experience_id", "resolved_experience_type", "type_resolution_version", "type_locked", "source_fact_ids",
+        "source_experience_id", "resolved_experience_type", "type_resolution_version", "type_locked",
         "immutable_source_experience_id", "source_binding_origin", "source_binding_confidence", "source_binding_locked",
     ]:
         if key in item:
             cleaned[key] = item[key]
+
+    for key in ("source_fact_ids", "role_source_fact_ids", "source_claim_ids", "role_source_claim_ids"):
+        if key in item:
+            cleaned[key] = _clean_id_list(item[key])
+    if "detail_fact_ids" in item:
+        cleaned["detail_fact_ids"] = detail_fact_ids
+    if "detail_claim_ids" in item:
+        cleaned["detail_claim_ids"] = detail_claim_ids
+
+    # Empty fields may not retain provenance that no longer has visible text.
+    if not cleaned["role"]:
+        cleaned.pop("role_source_fact_ids", None)
+        cleaned.pop("role_source_claim_ids", None)
+    if not any((cleaned["intro"], cleaned["role"], cleaned["details"])):
+        for key in (
+            "source_fact_ids", "role_source_fact_ids", "detail_fact_ids",
+            "source_claim_ids", "role_source_claim_ids", "detail_claim_ids",
+        ):
+            cleaned.pop(key, None)
     return cleaned
 
 
