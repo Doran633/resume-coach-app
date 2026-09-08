@@ -1,9 +1,13 @@
 import re
+from typing import TYPE_CHECKING
 
 from .. import schemas
 from .experience_identity_service import build_experience_identities
 from .experience_fact_ledger_service import build_experience_fact_ledger
 from .input_claim_resolution_service import ELIGIBLE, resolve_experience_claims
+
+if TYPE_CHECKING:
+    from .canonical_consumer_view_service import CanonicalPlannerView
 
 
 PLACEHOLDER = "[待填写]"
@@ -137,4 +141,36 @@ def resolve_resume_titles(payload: schemas.GenerationPayload, raw_input: str) ->
             project["meta"] = "实习经历"
         elif meta == "项目经历":
             project["meta"] = resolve_project_display_type(local, str(project.get("meta") or ""))
+    return updated
+
+
+def resolve_canonical_resume_titles(
+    payload: schemas.GenerationPayload,
+    planner_view: "CanonicalPlannerView",
+) -> schemas.GenerationPayload:
+    """Apply only compiled, display-safe title data after Semantic Commit.
+
+    The legacy resolver above remains available to legacy callers.  Canonical
+    generation must not re-read raw input or rebuild Identity, Claim, or Fact
+    state merely to format a title.  The deep copy deliberately preserves every
+    existing provenance attachment while this function limits itself to filling
+    an absent display name from the owner-scoped qualification.
+    """
+    updated = payload.model_copy(deep=True)
+    for project in updated.resume_sections.projects:
+        owner = str(
+            project.get("immutable_source_experience_id")
+            or project.get("source_experience_id")
+            or ""
+        )
+        if planner_view.owner_scope(owner) is None:
+            continue
+        qualification = planner_view.display_name_qualification_for_owner(owner)
+        current_name = str(project.get("name") or "").strip()
+        if (
+            qualification is not None
+            and qualification.qualified
+            and current_name in {"", "[待填写]", "项目实践"}
+        ):
+            project["name"] = qualification.display_name
     return updated

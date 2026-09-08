@@ -35,7 +35,7 @@ from .resume_section_integrity_service import ensure_resume_section_integrity
 from .experience_type_resolution_service import resolve_project_types
 from .resume_section_routing_service import route_resume_projects
 from .resume_fact_dedup_service import deduplicate_resume_facts
-from .resume_title_format_service import resolve_resume_titles
+from .resume_title_format_service import resolve_canonical_resume_titles, resolve_resume_titles
 from .generation_stage_quality_service import log_generation_stage
 from .resume_dedup_quality_service import ensure_dedup_quality
 from .resume_typography_quality_service import ensure_typography_quality
@@ -849,7 +849,7 @@ def create_generation(
         apply_canonical_types=False,
         stage="before_save_type_validation",
     )
-    payload = resolve_resume_titles(payload, request.raw_input)
+    payload = resolve_canonical_resume_titles(payload, consumer_views.planner_view)
     mutation_tracer.checkpoint(payload, "after_title_resolution", parent_stage="resolve_resume_titles")
     payload = deduplicate_resume_experience_entities(
         payload, request.raw_input, stage="before_save", semantic_build=semantic_build,

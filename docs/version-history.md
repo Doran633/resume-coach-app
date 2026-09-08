@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.8.10：Canonical Title Resolution Authority
+
+- Canonical 生成路径的标题解析不再读取 `raw_input`，也不再重建 Experience Identity、Fact Ledger 或 Claim Resolution。
+- 标题处理只读取冻结 owner 的 Consumer View 与名称展示资格；未知名称不再通过原始输入推断公司、岗位或项目类别。
+- 标题阶段完整保留项目级、role 级和 detail 行级 Fact / Claim attachment，避免已投影事实在持久化前失去可追溯性。
+- Legacy 标题 API 继续保留给未迁移路径；Canonical 路径不再按“论文”“开源”“独立开发”等关键词重分类。
+
 ## v0.9.8.9：Canonical Provenance Contract Closure
 
 - Canonical Coverage 对已绑定 detail 也只查询当前冻结 owner 的 eligible Fact；全局 Ledger 匹配和跨项目 detail 移动仅保留给 legacy 路径。
