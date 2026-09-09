@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.9.1：Post-Commit Semantic Rebuild Cutoff
+
+- Canonical 生成路径在 Owner Freeze 后不再调用不确定表达清理、项目特异性补写、弱履历补强、语义单元补齐、摘要补写和文本完整性补写等旧的原文语义重建服务。
+- Boundary、Role、Reconciliation、Coverage、Entity Dedup 与 Validity 继续使用同一次 `CanonicalSemanticBuild`，但 Canonical 调用不再传入完整 `raw_input`；最终硬事实改写不再位于 Commit 后链路。
+- 技能术语消歧在 Semantic Compilation 后从既有 Fact Ledger 计算一次；技能证据、分类与相关性校验复用该结果，不再为技能处理二次构建 Ledger。
+- Body Sanitizer 新增 Canonical 清理-only 模式：保留结构清理与污染删除，但不再把口语描述自动加强为更重的职责表述；legacy 默认行为保持兼容。
+
 ## v0.9.8.10：Canonical Title Resolution Authority
 
 - Canonical 生成路径的标题解析不再读取 `raw_input`，也不再重建 Experience Identity、Fact Ledger 或 Claim Resolution。

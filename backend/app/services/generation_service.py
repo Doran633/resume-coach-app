@@ -20,14 +20,9 @@ from .enhancement_guard_service import ensure_packaging_gain
 from .long_input_service import LongInputContext, analyze_long_input
 from .stable_generation_fallback_service import build_stable_generation_fallback
 from .experience_boundary_guard_service import guard_experience_boundaries
-from .uncertain_expression_cleanup_service import cleanup_uncertain_expressions
-from .project_specificity_guard_service import guard_project_specificity
-from .weak_profile_strategy_service import strengthen_weak_profile_payload
 from .resume_body_sanitizer_service import sanitize_resume_body
 from .resume_project_reconciliation_service import reconcile_resume_projects
-from .resume_text_integrity_service import ensure_resume_text_integrity
 from .fact_coverage_guard_service import guard_fact_coverage
-from .resume_summary_quality_service import ensure_resume_summary_quality
 from .resume_output_firewall_service import guard_resume_output
 from .resume_language_professionalization_service import professionalize_resume_language
 from .resume_section_schema_service import normalize_resume_section_schema
@@ -35,7 +30,7 @@ from .resume_section_integrity_service import ensure_resume_section_integrity
 from .experience_type_resolution_service import resolve_project_types
 from .resume_section_routing_service import route_resume_projects
 from .resume_fact_dedup_service import deduplicate_resume_facts
-from .resume_title_format_service import resolve_canonical_resume_titles, resolve_resume_titles
+from .resume_title_format_service import resolve_canonical_resume_titles
 from .generation_stage_quality_service import log_generation_stage
 from .resume_dedup_quality_service import ensure_dedup_quality
 from .resume_typography_quality_service import ensure_typography_quality
@@ -44,7 +39,6 @@ from .resume_adaptive_narrative_service import organize_adaptive_narrative
 from .resume_information_gain_service import ensure_information_gain
 from .resume_template_language_guard_service import guard_template_language
 from .resume_narrative_coherence_service import evaluate_narrative_quality
-from .resume_semantic_unit_service import ensure_semantic_units
 from .resume_fact_cluster_dedup_service import deduplicate_fact_clusters
 from .resume_skill_evidence_guard_service import guard_resume_skill_evidence
 from .resume_skill_evidence_aggregation_service import aggregate_skill_evidence_from_ledger
@@ -52,6 +46,7 @@ from .resume_section_layering_service import layer_resume_sections
 from .resume_fact_increment_service import ensure_resume_fact_increment
 from .resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy
 from .resume_output_relevance_service import guard_resume_output_relevance
+from .technical_term_disambiguation_service import resolve_technical_terms_from_ledger
 from .recruiter_facing_technical_language_service import ensure_recruiter_facing_technical_language
 from .resume_recruiter_readability_service import ensure_recruiter_readability
 from .paired_symbol_integrity_service import ensure_paired_symbol_integrity
@@ -482,6 +477,7 @@ def create_generation(
             code="INVALID_CANONICAL_SEMANTIC_STATE",
         )
     skill_evidence = aggregate_skill_evidence_from_ledger(semantic_build.ledger)
+    technical_term_resolutions = resolve_technical_terms_from_ledger(semantic_build.ledger)
     consumer_views = build_canonical_consumer_views(semantic_build, skill_evidence)
     consumer_view_access_stats = CanonicalConsumerViewAccessStats()
     semantic_commit_snapshot = build_semantic_commit_snapshot(
@@ -723,27 +719,24 @@ def create_generation(
     )
     mutation_tracer.checkpoint(payload, "after_packaging_gain", parent_stage="ensure_packaging_gain")
     payload = guard_experience_boundaries(
-        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        payload, "", stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
         scoped_access_stats=scoped_fact_access_stats,
     )
     mutation_tracer.checkpoint(payload, "after_boundary_guard", parent_stage="guard_experience_boundaries")
     payload = resolve_resume_roles(
         payload,
-        request.raw_input,
+        "",
         stage="generation",
         semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
         recovery_stats=fallback_recovery_stats,
     )
     mutation_tracer.checkpoint(payload, "after_role_resolution", parent_stage="resolve_resume_roles")
-    payload = cleanup_uncertain_expressions(payload, request.raw_input)
-    payload = guard_project_specificity(payload, request.raw_input)
-    payload = strengthen_weak_profile_payload(payload, request.raw_input, request.target_role)
-    payload = sanitize_resume_body(payload, request.raw_input)
+    payload = sanitize_resume_body(payload, semantic_safe=True)
     mutation_tracer.checkpoint(payload, "after_body_sanitizer", parent_stage="sanitize_resume_body")
     payload = reconcile_resume_projects(
-        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        payload, "", stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
         scoped_access_stats=scoped_fact_access_stats,
     )
@@ -759,14 +752,14 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_type_routing", parent_stage="resolve_project_types")
     log_generation_stage(payload, "after_type_resolution")
     payload = guard_fact_coverage(
-        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        payload, "", stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
         scoped_access_stats=scoped_fact_access_stats,
     )
     mutation_tracer.checkpoint(payload, "after_fact_coverage", parent_stage="guard_fact_coverage")
     log_generation_stage(payload, "after_fact_coverage")
     payload = guard_experience_boundaries(
-        payload, request.raw_input, stage="generation", semantic_build=semantic_build,
+        payload, "", stage="generation", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
         scoped_access_stats=scoped_fact_access_stats,
     )
@@ -774,7 +767,6 @@ def create_generation(
     narrative_changes: dict[str, int] = {}
     payload = layer_resume_sections(payload, stage="generation")
     payload = ensure_resume_fact_increment(payload, narrative_changes)
-    payload = ensure_semantic_units(payload, request.raw_input, narrative_changes)
     payload = organize_adaptive_narrative(payload, narrative_changes)
     payload = ensure_information_gain(payload, narrative_changes)
     payload = deduplicate_resume_facts(payload, stage="generation")
@@ -792,18 +784,16 @@ def create_generation(
     evaluate_narrative_quality(payload, stage="generation", change_stats=narrative_changes)
     mutation_tracer.checkpoint(payload, "after_narrative_cleanup", parent_stage="narrative_quality")
     log_generation_stage(payload, "after_dedup")
-    payload = ensure_resume_summary_quality(payload, request.raw_input, stage="generation")
-    mutation_tracer.checkpoint(payload, "after_summary_quality", parent_stage="ensure_resume_summary_quality")
-    payload = guard_resume_output(payload, request.raw_input, stage="generation")
+    payload = guard_resume_output(payload, stage="generation")
     payload = resolve_resume_roles(
         payload,
-        request.raw_input,
+        "",
         stage="before_save",
         semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
         recovery_stats=fallback_recovery_stats,
     )
-    payload = guard_resume_output(payload, request.raw_input, stage="before_save")
+    payload = guard_resume_output(payload, stage="before_save")
     payload = professionalize_resume_language(
         payload,
         stage="generation",
@@ -813,15 +803,22 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_professionalization", parent_stage="professionalize_resume_language")
     payload = guard_resume_skill_evidence(
         payload,
-        request.raw_input,
         aggregated_evidence=skill_evidence,
+        term_resolutions=technical_term_resolutions,
         stage="generation",
     )
     payload = calibrate_resume_skill_taxonomy(
-        payload, request.target_role, request.raw_input, stage="generation",
+        payload,
+        request.target_role,
+        term_resolutions=technical_term_resolutions,
+        stage="generation",
     )
     mutation_tracer.checkpoint(payload, "after_skill_taxonomy", parent_stage="skill_evidence_and_taxonomy")
-    payload = guard_resume_output_relevance(payload, request.raw_input, stage="generation")
+    payload = guard_resume_output_relevance(
+        payload,
+        term_resolutions=technical_term_resolutions,
+        stage="generation",
+    )
     payload = ensure_recruiter_facing_technical_language(
         payload,
         stage="generation",
@@ -832,7 +829,6 @@ def create_generation(
     payload = ensure_recruiter_readability(payload, stage="generation")
     payload = ensure_paired_symbol_integrity(payload, stage="generation")
     payload = ensure_resume_section_integrity(payload)
-    payload = ensure_resume_text_integrity(payload, request.raw_input, stage="generation")
     payload = ensure_resume_whitespace_quality(payload, stage="generation")
     payload = ensure_typography_quality(payload, stage="generation")
     projection_observer.checkpoint(
@@ -840,9 +836,12 @@ def create_generation(
         "after_presentation",
         parent_stage="presentation_pipeline",
     )
-    payload = guard_hard_facts(payload, request.raw_input)
-    payload = guard_resume_output(payload, request.raw_input, stage="generation")
-    payload = guard_resume_output_relevance(payload, request.raw_input, stage="before_save")
+    payload = guard_resume_output(payload, stage="generation")
+    payload = guard_resume_output_relevance(
+        payload,
+        term_resolutions=technical_term_resolutions,
+        stage="before_save",
+    )
     payload = resolve_project_types(
         payload,
         canonical_type_decisions=semantic_build.canonical_type_by_experience_id,
@@ -852,13 +851,13 @@ def create_generation(
     payload = resolve_canonical_resume_titles(payload, consumer_views.planner_view)
     mutation_tracer.checkpoint(payload, "after_title_resolution", parent_stage="resolve_resume_titles")
     payload = deduplicate_resume_experience_entities(
-        payload, request.raw_input, stage="before_save", semantic_build=semantic_build,
+        payload, "", stage="before_save", semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
         scoped_access_stats=scoped_fact_access_stats,
     )
     payload = ensure_resume_experience_validity(
         payload,
-        request.raw_input,
+        "",
         stage="before_save",
         semantic_build=semantic_build,
         ownership_index=semantic_build.ownership_index,
@@ -929,7 +928,12 @@ def create_generation(
         "unresolved_quality_issue_codes": sorted({issue.issue_code for issue in final_quality_issues}),
         "unresolved_critical_issue_count": sum(issue.severity == "critical" for issue in final_quality_issues),
     })
-    evaluate_resume_output_quality(payload, request.raw_input, stage="generation")
+    evaluate_resume_output_quality(
+        payload,
+        semantic_build=semantic_build,
+        skill_evidence=skill_evidence,
+        stage="generation",
+    )
     log_generation_stage(payload, "before_save")
     payload = strip_project_hierarchy_metadata(payload)
     payload = strip_experience_slot_metadata(payload)

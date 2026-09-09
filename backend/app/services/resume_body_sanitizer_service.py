@@ -46,12 +46,13 @@ def _as_payload_dict(payload: schemas.GenerationPayload | dict) -> dict:
     return deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
 
 
-def _clean_text(value) -> str:
+def _clean_text(value, *, semantic_safe: bool = False) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    for source, target in NEGATIVE_REPLACEMENTS:
-        text = text.replace(source, target)
+    if not semantic_safe:
+        for source, target in NEGATIVE_REPLACEMENTS:
+            text = text.replace(source, target)
     for pattern in NEGATIVE_DROP_PATTERNS:
         text = re.sub(pattern, "", text)
     text = re.sub(r"\s+", " ", text)
@@ -60,10 +61,10 @@ def _clean_text(value) -> str:
     return text.strip()
 
 
-def _clean_list(values) -> list[str]:
+def _clean_list(values, *, semantic_safe: bool = False) -> list[str]:
     cleaned: list[str] = []
     for value in values if isinstance(values, list) else []:
-        text = _clean_text(value)
+        text = _clean_text(value, semantic_safe=semantic_safe)
         if text and text not in cleaned:
             cleaned.append(text)
     return cleaned
@@ -75,7 +76,11 @@ def _clean_id_list(value) -> list[str]:
     return list(dict.fromkeys(str(item).strip() for item in value if str(item or "").strip()))
 
 
-def _clean_detail_rows(item: dict) -> tuple[list[str], list[list[str]], list[list[str]], set[str], set[str]]:
+def _clean_detail_rows(
+    item: dict,
+    *,
+    semantic_safe: bool = False,
+) -> tuple[list[str], list[list[str]], list[list[str]], set[str], set[str]]:
     """Clean detail text without detaching its existing provenance rows."""
     details = item.get("details") if isinstance(item.get("details"), list) else []
     fact_rows = item.get("detail_fact_ids") if isinstance(item.get("detail_fact_ids"), list) else []
@@ -88,7 +93,7 @@ def _clean_detail_rows(item: dict) -> tuple[list[str], list[list[str]], list[lis
     seen: set[tuple[str, tuple[str, ...], tuple[str, ...]]] = set()
 
     for index, value in enumerate(details):
-        text = _clean_text(value)
+        text = _clean_text(value, semantic_safe=semantic_safe)
         fact_ids = _clean_id_list(fact_rows[index]) if index < len(fact_rows) else []
         claim_ids = _clean_id_list(claim_rows[index]) if index < len(claim_rows) else []
         if not text:
@@ -110,20 +115,24 @@ def _clean_detail_rows(item: dict) -> tuple[list[str], list[list[str]], list[lis
     return cleaned_details, cleaned_fact_rows, cleaned_claim_rows, removed_fact_ids, removed_claim_ids
 
 
-def _clean_project(project: dict) -> dict:
+def _clean_project(project: dict, *, semantic_safe: bool = False) -> dict:
     item = dict(project if isinstance(project, dict) else {"name": "项目经历", "intro": project})
-    meta = _clean_text(item.get("meta")) or "项目经历"
-    if meta == "简单小项目":
-        meta = "个人项目"
-    if meta == "只是课程作业":
-        meta = "课程项目"
-    details, detail_fact_ids, detail_claim_ids, removed_detail_facts, removed_detail_claims = _clean_detail_rows(item)
+    meta = _clean_text(item.get("meta"), semantic_safe=semantic_safe) or "项目经历"
+    if not semantic_safe:
+        if meta == "简单小项目":
+            meta = "个人项目"
+        if meta == "只是课程作业":
+            meta = "课程项目"
+    details, detail_fact_ids, detail_claim_ids, removed_detail_facts, removed_detail_claims = _clean_detail_rows(
+        item,
+        semantic_safe=semantic_safe,
+    )
     cleaned = {
-        "name": _clean_text(item.get("name")) or "项目实践",
+        "name": _clean_text(item.get("name"), semantic_safe=semantic_safe) or "项目实践",
         "meta": meta,
-        "time": _clean_text(item.get("time")) or "[待填写]",
-        "intro": _clean_text(item.get("intro")),
-        "role": _clean_text(item.get("role")),
+        "time": _clean_text(item.get("time"), semantic_safe=semantic_safe) or "[待填写]",
+        "intro": _clean_text(item.get("intro"), semantic_safe=semantic_safe),
+        "role": _clean_text(item.get("role"), semantic_safe=semantic_safe),
         "details": details,
     }
     for key in [
@@ -183,20 +192,32 @@ def _add_interview_notes(data: dict, raw_input: str) -> None:
     data["interview_plan"] = interview_plan[:14]
 
 
-def sanitize_resume_body(payload: schemas.GenerationPayload | dict, raw_input: str = "") -> schemas.GenerationPayload:
+def sanitize_resume_body(
+    payload: schemas.GenerationPayload | dict,
+    raw_input: str = "",
+    *,
+    semantic_safe: bool = False,
+) -> schemas.GenerationPayload:
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
 
-    sections["summary"] = _clean_list(sections.get("summary"))
-    sections["projects"] = [_clean_project(project) for project in sections.get("projects", []) if isinstance(project, dict)]
-    sections["interview_preparation"] = _clean_list(sections.get("interview_preparation"))
-    sections["skills"] = _clean_list(sections.get("skills"))
+    sections["summary"] = _clean_list(sections.get("summary"), semantic_safe=semantic_safe)
+    sections["projects"] = [
+        _clean_project(project, semantic_safe=semantic_safe)
+        for project in sections.get("projects", [])
+        if isinstance(project, dict)
+    ]
+    sections["interview_preparation"] = _clean_list(
+        sections.get("interview_preparation"),
+        semantic_safe=semantic_safe,
+    )
+    sections["skills"] = _clean_list(sections.get("skills"), semantic_safe=semantic_safe)
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}
     sections["education"] = sections.get("education") if isinstance(sections.get("education"), dict) else {"学校": "[待填写]", "专业": "[待填写]", "学历": "[待填写]", "时间": "[待填写]"}
     data["resume_sections"] = sections
 
     for key in ["normal_version", "bold_version", "recommended_version"]:
-        data[key] = _clean_text(data.get(key))
+        data[key] = _clean_text(data.get(key), semantic_safe=semantic_safe)
 
     _add_interview_notes(data, raw_input)
     return schemas.GenerationPayload.model_validate(data)

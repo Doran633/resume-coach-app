@@ -8,7 +8,11 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .resume_skill_evidence_guard_service import _canonical_term, _skill_terms
-from .technical_term_disambiguation_service import best_resolution, resolve_technical_terms
+from .technical_term_disambiguation_service import (
+    ResolvedTechnicalTerm,
+    best_resolution,
+    resolve_technical_terms,
+)
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_output_relevance.jsonl"
@@ -62,15 +66,20 @@ def _write_log(stats: OutputRelevanceStats) -> None:
 
 def guard_resume_output_relevance(
     payload: schemas.GenerationPayload,
-    raw_input: str,
+    raw_input: str = "",
     *,
+    term_resolutions: list[ResolvedTechnicalTerm] | None = None,
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     stats = OutputRelevanceStats(stage=stage, generation_result_id=generation_result_id)
-    resolutions = resolve_technical_terms(raw_input)
+    resolutions = (
+        term_resolutions
+        if term_resolutions is not None
+        else resolve_technical_terms(raw_input)
+    )
     grouped: OrderedDict[str, list[str]] = OrderedDict()
     unresolved_token = any(
         item.term.lower() == "token"

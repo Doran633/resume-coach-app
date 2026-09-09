@@ -1,6 +1,6 @@
 # Resume Coach App
 
-## 当前架构：v0.9.8.10
+## 当前架构：v0.9.9.1
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -49,6 +49,7 @@ raw_input
 | v0.9.8.8.1 | Presentation Provenance Preservation | 正文清理与 Coverage 保留并验证既有 Fact / Claim binding，避免字段来源在展示链路中丢失。 |
 | v0.9.8.9 | Canonical Provenance Contract Closure | Canonical Coverage 与 Repair Router 区分字段级附件和项目聚合来源，避免跨 owner 查询和无证据去重。 |
 | v0.9.8.10 | Canonical Title Resolution Authority | Canonical 标题解析不再重读 `raw_input` 或重建语义，只能使用冻结 owner 的名称资格，并完整保留 Fact / Claim attachment。 |
+| v0.9.9.1 | Post-Commit Semantic Rebuild Cutoff | Canonical 路径在 Owner Freeze 后不再调用旧的原文重建、项目补写或摘要补写服务；技能术语解析复用同一次 Ledger。 |
 
 后续尚未实施的架构阶段：
 
@@ -64,6 +65,7 @@ raw_input
 - [Presentation Provenance Preservation](docs/presentation-provenance-preservation.md) 说明正文清理、字段级 provenance 与 Coverage 的保留契约。
 - [Canonical Provenance Contract Closure](docs/canonical-provenance-contract-closure.md) 说明 Coverage、Repair Router 与项目聚合来源的最终使用边界。
 - [Canonical Title Resolution Authority](docs/canonical-title-resolution-authority.md) 说明标题解析在 Semantic Commit 后的只读边界与附件保留契约。
+- [Post-Commit Semantic Rebuild Cutoff](docs/post-commit-semantic-rebuild-cutoff.md) 说明 Commit 后旧语义重建服务在 Canonical 生产路径中的切断边界。
 - Canonical State、Ownership、Consumer Views、Delivery Gate、Repair Router 都输出脱敏聚合日志，不记录用户正文、Cookie、API Key 或原始 IP。
 - shallow smoke 检查网站、法律页面、健康接口、Cookie、安全响应头和版本一致性；full smoke 显式调用模型，并在 finally 中清理测试数据。
 

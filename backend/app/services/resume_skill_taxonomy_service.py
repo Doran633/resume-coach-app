@@ -7,7 +7,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .technical_term_disambiguation_service import best_resolution, resolve_technical_terms
+from .technical_term_disambiguation_service import (
+    ResolvedTechnicalTerm,
+    best_resolution,
+    resolve_technical_terms,
+)
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_skill_taxonomy.jsonl"
 CATEGORIES = OrderedDict([
     ("编程语言", ["Python", "Java", "JavaScript", "TypeScript", "SQL", "C++", "Go"]),
@@ -74,6 +78,7 @@ def calibrate_resume_skill_taxonomy(
     target_role: str = "",
     raw_input: str = "",
     *,
+    term_resolutions: list[ResolvedTechnicalTerm] | None = None,
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
@@ -82,7 +87,11 @@ def calibrate_resume_skill_taxonomy(
     updated = payload.model_copy(deep=True)
     stats = SkillTaxonomyStats(stage=stage, generation_result_id=generation_result_id)
     stats.skills_before_count = len(updated.resume_sections.skills)
-    resolutions = resolve_technical_terms(raw_input) if raw_input else []
+    resolutions = (
+        term_resolutions
+        if term_resolutions is not None
+        else resolve_technical_terms(raw_input) if raw_input else []
+    )
     grouped: dict[str, list[str]] = {name: [] for name in CATEGORIES}
     seen: set[str] = set()
     for raw_line in updated.resume_sections.skills:
@@ -95,7 +104,7 @@ def calibrate_resume_skill_taxonomy(
                 continue
             seen.add(key)
             category = _category(term)
-            if term.lower() == "token" and raw_input:
+            if term.lower() == "token" and resolutions:
                 resolution = best_resolution(resolutions, "Token")
                 if not resolution or not resolution.category or resolution.confidence < 0.65:
                     stats.unsupported_skills_removed += 1

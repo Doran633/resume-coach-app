@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .experience_fact_ledger_service import build_experience_fact_ledger
+from .experience_fact_ledger_service import ExperienceFactLedger, build_experience_fact_ledger
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "technical_term_disambiguation.jsonl"
@@ -100,9 +100,12 @@ RESOLVERS = {
 }
 
 
-def resolve_technical_terms(raw_input: str) -> list[ResolvedTechnicalTerm]:
+def resolve_technical_terms_from_ledger(
+    ledger: ExperienceFactLedger,
+) -> list[ResolvedTechnicalTerm]:
+    """Resolve terms from an existing semantic compilation without reparsing input."""
     resolutions: list[ResolvedTechnicalTerm] = []
-    for fact in build_experience_fact_ledger(raw_input).facts:
+    for fact in ledger.facts:
         for term, (pattern, resolver) in RESOLVERS.items():
             if not pattern.search(fact.fact_text):
                 continue
@@ -116,6 +119,11 @@ def resolve_technical_terms(raw_input: str) -> list[ResolvedTechnicalTerm]:
                 fact_id=fact.fact_id,
             ))
     return resolutions
+
+
+def resolve_technical_terms(raw_input: str) -> list[ResolvedTechnicalTerm]:
+    """Legacy convenience API that compiles its own ledger before resolving terms."""
+    return resolve_technical_terms_from_ledger(build_experience_fact_ledger(raw_input))
 
 
 def best_resolution(

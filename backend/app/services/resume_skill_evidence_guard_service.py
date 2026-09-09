@@ -16,6 +16,7 @@ from .resume_skill_evidence_aggregation_service import (
     extract_skill_terms,
 )
 from .technical_term_disambiguation_service import (
+    ResolvedTechnicalTerm,
     best_resolution,
     resolve_technical_terms,
     write_disambiguation_log,
@@ -108,9 +109,10 @@ def _write_log(stats: SkillEvidenceStats) -> None:
 
 def guard_resume_skill_evidence(
     payload: schemas.GenerationPayload,
-    raw_input: str,
+    raw_input: str = "",
     *,
     aggregated_evidence: list[AggregatedSkillEvidence] | None = None,
+    term_resolutions: list[ResolvedTechnicalTerm] | None = None,
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
@@ -121,7 +123,11 @@ def guard_resume_skill_evidence(
     evidence_rows = aggregated_evidence if aggregated_evidence is not None else aggregate_skill_evidence(raw_input)
     if not raw_input.strip() and not evidence_rows:
         evidence_rows = aggregate_historical_project_skill_evidence(updated)
-    resolutions = resolve_technical_terms(raw_input)
+    resolutions = (
+        term_resolutions
+        if term_resolutions is not None
+        else resolve_technical_terms(raw_input)
+    )
     if write_log:
         write_disambiguation_log(
             resolutions, stage=stage, generation_result_id=generation_result_id,
@@ -196,6 +202,25 @@ def guard_resume_skill_evidence(
 
 
 def evaluate_skill_evidence(payload: schemas.GenerationPayload, raw_input: str) -> int:
+    return evaluate_skill_evidence_with_aggregation(payload, raw_input)
+
+
+def evaluate_skill_evidence_with_aggregation(
+    payload: schemas.GenerationPayload,
+    raw_input: str = "",
+    *,
+    aggregated_evidence: list[AggregatedSkillEvidence] | None = None,
+) -> int:
+    if aggregated_evidence is not None:
+        supported_terms = {
+            _canonical_term(item.term).lower()
+            for item in aggregated_evidence
+        }
+        terms = [term for line in payload.resume_sections.skills for term in _skill_terms(line)]
+        unsupported = sum(_canonical_term(term).lower() not in supported_terms for term in terms)
+        uncertainty = sum(any(marker in line for marker in UNCERTAIN_MARKERS) for line in payload.resume_sections.skills)
+        return max(0, round(100 - (unsupported + uncertainty) / max(1, len(terms)) * 100))
+
     evidence = _visible_evidence(payload, raw_input)
     terms = [term for line in payload.resume_sections.skills for term in _skill_terms(line)]
     unsupported = sum(not _has_grounded_term(evidence.replace("\n".join(payload.resume_sections.skills), ""), term) for term in terms)

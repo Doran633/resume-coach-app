@@ -11,7 +11,10 @@ from .resume_fact_dedup_service import same_fact_action, similarity
 from .resume_typography_quality_service import count_typography_issues
 from .resume_narrative_coherence_service import evaluate_narrative_quality
 from .resume_fact_cluster_dedup_service import evaluate_semantic_quality
-from .resume_skill_evidence_guard_service import evaluate_skill_evidence, _skill_terms
+from .resume_skill_evidence_guard_service import (
+    evaluate_skill_evidence_with_aggregation,
+    _skill_terms,
+)
 from .resume_skill_presentation_service import evaluate_skill_presentation
 from .paired_symbol_integrity_service import has_unbalanced_symbols
 from .recruiter_language_service import recruiter_language_score
@@ -75,8 +78,8 @@ def _visible_text(payload: schemas.GenerationPayload) -> str:
     return "\n".join(values)
 
 
-def _fact_coverage(payload: schemas.GenerationPayload, raw_input: str) -> int:
-    ledger = build_experience_fact_ledger(raw_input)
+def _fact_coverage(payload: schemas.GenerationPayload, raw_input: str, *, ledger=None) -> int:
+    ledger = ledger if ledger is not None else build_experience_fact_ledger(raw_input)
     high_facts = [fact for fact in ledger.facts if fact.importance == "high" and fact.resume_ready_text]
     if not high_facts:
         return 100
@@ -115,8 +118,10 @@ def _duplicate_count(payload: schemas.GenerationPayload) -> int:
 
 def evaluate_resume_output_quality(
     payload: schemas.GenerationPayload,
-    raw_input: str,
+    raw_input: str = "",
     *,
+    semantic_build=None,
+    skill_evidence=None,
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
@@ -138,7 +143,11 @@ def evaluate_resume_output_quality(
     semantic = evaluate_semantic_quality(payload)
     skill_presentation_score, skill_presentation_warnings = evaluate_skill_presentation(payload)
     entity_metrics = analyze_duplicate_experience_entities(payload)
-    explicit_skills = list(dict.fromkeys(_skill_terms(raw_input)))
+    explicit_skills = (
+        list(dict.fromkeys(item.term for item in skill_evidence))
+        if skill_evidence is not None
+        else list(dict.fromkeys(_skill_terms(raw_input)))
+    )
     visible_skills = {
         term.lower()
         for line in payload.resume_sections.skills
@@ -148,7 +157,11 @@ def evaluate_resume_output_quality(
         term.lower() not in visible_skills for term in explicit_skills
     )
     empty_skill_section_count = int(bool(explicit_skills) and not payload.resume_sections.skills)
-    ledger = build_experience_fact_ledger(raw_input)
+    ledger = (
+        semantic_build.ledger
+        if semantic_build is not None
+        else build_experience_fact_ledger(raw_input)
+    )
     facts_by_experience: dict[str, list] = {}
     for fact in ledger.facts:
         if fact.resume_ready_text:
@@ -168,7 +181,7 @@ def evaluate_resume_output_quality(
     project_fact_coverage_rate = round(sum(project_coverage) / len(project_coverage) * 100) if project_coverage else 100
 
     scores = {
-        "fact_coverage_score": _fact_coverage(payload, raw_input),
+        "fact_coverage_score": _fact_coverage(payload, raw_input, ledger=ledger),
         "experience_boundary_score": _boundary_score(payload),
         "duplicate_score": max(0, 100 - duplicate_count * 15),
         "language_professionalism_score": max(0, 100 - colloquial_count * 20),
@@ -180,7 +193,11 @@ def evaluate_resume_output_quality(
         "template_diversity_score": narrative.template_diversity_score,
         "cross_field_repetition_score": narrative.cross_field_repetition_score,
         **semantic,
-        "skill_evidence_score": evaluate_skill_evidence(payload, raw_input),
+        "skill_evidence_score": evaluate_skill_evidence_with_aggregation(
+            payload,
+            raw_input,
+            aggregated_evidence=skill_evidence,
+        ),
         "skill_presentation_score": skill_presentation_score,
         "paired_symbol_integrity_score": 100 if not has_unbalanced_symbols(text) else 0,
         "recruiter_language_score": recruiter_language_score(payload),
