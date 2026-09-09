@@ -30,10 +30,12 @@ def test_intro_and_detail_same_fact_is_not_repeated():
 
 
 def test_same_fact_paraphrase_keeps_more_informative_version():
-    result = ensure_information_gain(payload(
+    source = payload(
         ["建立检索测试集。", "建立固定检索测试集并记录 Groundedness 与 Retrieval 指标。"],
         [["EXP-001-F001"], ["EXP-001-F001"]],
-    ))
+    )
+    source.resume_sections.projects[0]["detail_claim_ids"] = [["EXP-001-C001"], ["EXP-001-C001"]]
+    result = ensure_information_gain(source)
     assert result.resume_sections.projects[0]["details"] == ["建立固定检索测试集并记录 Groundedness 与 Retrieval 指标。"]
 
 
@@ -53,4 +55,3 @@ def test_shared_rag_term_does_not_remove_independent_facts():
 def test_short_project_is_not_padded():
     result = ensure_information_gain(payload(["实现 Citation 来源展示。", "完成 Nginx 部署。"])).resume_sections.projects[0]
     assert len(result["details"]) == 2
-

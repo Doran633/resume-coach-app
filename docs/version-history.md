@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.9.3：Canonical Fact Projection Completeness
+
+- Canonical Project Projection Planner 现在可为唯一对应、已冻结 owner-bound 项目补入本 owner 的遗漏 eligible Fact；只使用 Ledger 既有 `resume_ready_text`，同时写入精确 detail Fact / Claim 行。
+- Planner 不将项目聚合 `source_fact_ids` 当作字段证据。缺少字段来源、存在多个目标项目、owner 不一致、Claim lineage 不一致或触及现有详情上限时，均跳过并记录脱敏原因。
+- Canonical Coverage 不再补写项目正文，保留 owner scope、eligible lineage 与污染检查；事实补齐职责集中到 Projection Planner，避免两个正文恢复者相互覆盖。
+- `layer_resume_sections`、`ensure_resume_fact_increment`、`ensure_information_gain`、`organize_adaptive_narrative` 与 Reconciliation detail budget 均使正文、Fact 行、Claim 行共同过滤、排序和裁剪。不同或未知来源不再因文本相似被强行合并。
+- Projection 日志复用既有文件，记录脱敏 Fact ID、选择、跳过与持久化前保留情况；不记录原始输入、标题或 Fact / Claim 正文。
+
 ## v0.9.9.2：Presentation Field / Provenance Consistency
 
 - `resume_fact_dedup`、`resume_dedup_quality`、`resume_fact_cluster_dedup` 与输出防火墙均按原始 detail 索引同时处理正文、Fact 行和 Claim 行，不再先过滤文本再读取错位附件。

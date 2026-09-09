@@ -6,7 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .resume_fact_dedup_service import similarity
+from .resume_fact_dedup_service import similarity, _detail_records, _preserve_project_aggregates
 from .resume_information_gain_service import information_gain_components
 
 
@@ -82,30 +82,37 @@ def layer_resume_sections(
             if source_id:
                 stats.affected_experience_ids.append(source_id)
 
+        # These transforms cannot attribute a multi-sentence binding to a
+        # retained substring. Keep bound text intact instead of orphaning it.
+        if project.get("source_fact_ids") or project.get("source_claim_ids"):
+            intro = str(project.get("intro") or "")
+        if project.get("role_source_fact_ids") or project.get("role_source_claim_ids"):
+            role = str(project.get("role") or "")
         project["intro"] = intro
         project["role"] = role
         header_components = _components(intro) | _components(role)
-        details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
-        fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
-        kept_details: list[str] = []
-        kept_rows: list[list[str]] = []
-        for index, detail in enumerate(details):
-            ids = [str(item) for item in fact_rows[index]] if index < len(fact_rows) and isinstance(fact_rows[index], list) else []
+        original_records = _detail_records(project, include_empty=True)
+        kept = []
+        for record in original_records:
+            detail, ids = record.text, record.source_fact_ids
+            if not detail:
+                continue
             detail_components = _components(detail)
             covered = bool(detail_components) and detail_components <= header_components
             near_header = any(similarity(detail, value) >= 0.92 for value in (intro, role) if value)
-            if (covered or near_header) and not ids and not _high_value(detail):
+            if (covered or near_header) and not ids and not record.source_claim_ids and not _high_value(detail):
                 stats.details_without_increment_count += 1
                 stats.details_removed_count += 1
                 if source_id:
                     stats.affected_experience_ids.append(source_id)
                 continue
-            kept_details.append(detail)
-            kept_rows.append(ids)
+            kept.append(record)
             stats.facts_preserved_count += max(1, len(ids))
-        project["details"] = kept_details[:8]
-        project["detail_fact_ids"] = kept_rows[:8]
-        project["source_fact_ids"] = list(dict.fromkeys(fact_id for row in kept_rows[:8] for fact_id in row))
+        kept = kept[:8]
+        project["details"] = [row.text for row in kept]
+        project["detail_fact_ids"] = [row.source_fact_ids for row in kept]
+        project["detail_claim_ids"] = [row.source_claim_ids for row in kept]
+        _preserve_project_aggregates(project, kept, original_records)
 
     if write_log:
         _write_log(stats)

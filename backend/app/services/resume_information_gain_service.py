@@ -2,7 +2,7 @@ import re
 
 from .. import schemas
 from .experience_fact_ledger_service import TECH_PATTERN, is_generic_detail
-from .resume_fact_dedup_service import information_score, same_fact_action, similarity
+from .resume_fact_dedup_service import information_score, same_fact_action, similarity, _detail_records, _preserve_project_aggregates
 
 
 ACTION_PATTERN = re.compile(r"设计|实现|构建|搭建|接入|优化|建立|拆分|定位|解决|修复|联调|部署|评测|迭代|组织|协调|分析")
@@ -41,17 +41,21 @@ def ensure_information_gain(payload: schemas.GenerationPayload, stats: dict | No
     updated = payload.model_copy(deep=True)
     for project in updated.resume_sections.projects:
         intro, role = str(project.get("intro") or ""), str(project.get("role") or "")
-        details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
-        fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
-        kept: list[tuple[str, list[str]]] = []
-        for index, detail in enumerate(details):
-            ids = [str(item) for item in fact_rows[index]] if index < len(fact_rows) and isinstance(fact_rows[index], list) else []
-            if is_generic_detail(detail) or _covered_by_header(detail, intro, role, ids):
+        original_records = _detail_records(project, include_empty=True)
+        kept = []
+        for record in original_records:
+            detail, ids = record.text, record.source_fact_ids
+            if not detail:
+                continue
+            if is_generic_detail(detail) or (not ids and not record.source_claim_ids and _covered_by_header(detail, intro, role, ids)):
                 if stats is not None:
                     stats["low_information_gain_count"] = stats.get("low_information_gain_count", 0) + 1
                 continue
             duplicate_index = -1
-            for pos, (existing, existing_ids) in enumerate(kept):
+            for pos, previous in enumerate(kept):
+                existing, existing_ids = previous.text, previous.source_fact_ids
+                if not ids or not record.source_claim_ids or set(ids) != set(existing_ids) or set(record.source_claim_ids) != set(previous.source_claim_ids):
+                    continue
                 existing_terms, current_terms = information_terms(existing), information_terms(detail)
                 shared_source = bool(set(existing_ids) & set(ids))
                 source_containment = shared_source and bool(existing_terms) and (
@@ -63,20 +67,19 @@ def ensure_information_gain(payload: schemas.GenerationPayload, stats: dict | No
                     duplicate_index = pos
                     break
             if duplicate_index < 0:
-                kept.append((detail, ids))
+                kept.append(record)
                 continue
-            existing, existing_ids = kept[duplicate_index]
+            existing, existing_ids = kept[duplicate_index].text, kept[duplicate_index].source_fact_ids
             existing_terms, current_terms = information_terms(existing), information_terms(detail)
             if existing_terms - current_terms and current_terms - existing_terms:
-                kept.append((detail, ids))
+                kept.append(record)
                 continue
             if information_score(detail, ids) > information_score(existing, existing_ids):
-                kept[duplicate_index] = (detail, list(dict.fromkeys([*existing_ids, *ids])))
-            else:
-                kept[duplicate_index] = (existing, list(dict.fromkeys([*existing_ids, *ids])))
+                kept[duplicate_index] = record
             if stats is not None:
                 stats["merged_detail_count"] = stats.get("merged_detail_count", 0) + 1
-        project["details"] = [item[0] for item in kept]
-        project["detail_fact_ids"] = [item[1] for item in kept]
-        project["source_fact_ids"] = list(dict.fromkeys(fact_id for _, ids in kept for fact_id in ids))
+        project["details"] = [row.text for row in kept]
+        project["detail_fact_ids"] = [row.source_fact_ids for row in kept]
+        project["detail_claim_ids"] = [row.source_claim_ids for row in kept]
+        _preserve_project_aggregates(project, kept, original_records)
     return updated

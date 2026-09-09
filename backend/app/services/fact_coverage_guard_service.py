@@ -326,7 +326,9 @@ def guard_fact_coverage(
             continue
 
         covered = {fact.fact_id for fact in facts if _fact_covered(fact, project)}
-        restore_order = sorted(
+        # Canonical body recovery belongs exclusively to the pre-presentation
+        # project projection plan. Legacy callers retain their existing API.
+        restore_order = [] if canonical_mode else sorted(
             (fact for fact in facts if fact.fact_id not in covered),
             key=lambda fact: {"high": 0, "medium": 1, "low": 2}[fact.importance],
         )

@@ -2,6 +2,7 @@ import re
 from collections import Counter
 
 from .. import schemas
+from .resume_fact_dedup_service import _detail_records, _preserve_project_aggregates
 
 
 DIMENSION_MARKERS = {
@@ -46,21 +47,19 @@ def narrative_order(meta: str) -> list[str]:
 def organize_adaptive_narrative(payload: schemas.GenerationPayload, stats: dict | None = None) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     for project in updated.resume_sections.projects:
-        details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
-        fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
-        records = [
-            (detail, fact_rows[index] if index < len(fact_rows) and isinstance(fact_rows[index], list) else [], index)
-            for index, detail in enumerate(details)
-        ]
+        original_records = _detail_records(project, include_empty=True)
+        records = [row for row in original_records if row.text]
         order = narrative_order(str(project.get("meta") or ""))
         rank = {dimension: index for index, dimension in enumerate(order)}
-        records.sort(key=lambda item: (rank.get(narrative_dimension(item[0]), len(rank)), item[2]))
+        records.sort(key=lambda item: (rank.get(narrative_dimension(item.text), len(rank)), item.original_index))
         if stats is not None:
             stats["reordered_detail_count"] = stats.get("reordered_detail_count", 0) + sum(
-                original_index != new_index for new_index, (_, _, original_index) in enumerate(records)
+                row.original_index != new_index for new_index, row in enumerate(records)
             )
-        project["details"] = [item[0] for item in records]
-        project["detail_fact_ids"] = [item[1] for item in records]
+        project["details"] = [row.text for row in records]
+        project["detail_fact_ids"] = [row.source_fact_ids for row in records]
+        project["detail_claim_ids"] = [row.source_claim_ids for row in records]
+        _preserve_project_aggregates(project, records, original_records)
     return updated
 
 

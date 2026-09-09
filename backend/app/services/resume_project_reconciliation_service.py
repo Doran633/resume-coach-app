@@ -13,6 +13,7 @@ from .experience_fact_ledger_service import build_experience_fact_ledger, fact_m
 from .project_hierarchy_service import merge_parent_child_projects
 from .resume_experience_entity_dedup_service import deduplicate_resume_experience_entities
 from .resume_experience_validity_service import ensure_resume_experience_validity
+from .resume_fact_dedup_service import DetailRecord, _detail_records, _preserve_project_aggregates
 from .canonical_semantic_state_service import (
     CanonicalScopedFactAccessStats,
     canonical_fact_scope_for_owner,
@@ -228,23 +229,35 @@ def _apply_detail_budget(
     scoped_access_stats: CanonicalScopedFactAccessStats | None = None,
 ) -> None:
     ledger = ledger or build_experience_fact_ledger(raw_input)
-    prepared: list[list[str]] = []
+    prepared: list[list[DetailRecord]] = []
+    original_rows: list[list[DetailRecord]] = []
     for project in projects:
-        details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
-        unique: list[str] = []
-        for detail in details:
+        records = _detail_records(project, include_empty=True)
+        unique: list[DetailRecord] = []
+        for record in records:
+            detail = record.text
+            if not detail:
+                continue
             # Reconciliation must not perform aggressive semantic deduplication;
             # the fact-aware dedup service handles that with source_fact_ids.
-            if not any(_similar(detail, existing) >= 0.94 for existing in unique):
-                unique.append(detail)
+            # Unknown or different field provenance is not mergeable here.
+            if not any(
+                _similar(detail, existing.text) >= 0.94
+                and record.source_fact_ids
+                and record.source_claim_ids
+                and set(record.source_fact_ids) == set(existing.source_fact_ids)
+                and set(record.source_claim_ids) == set(existing.source_claim_ids)
+                for existing in unique
+            ):
+                unique.append(record)
         source_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
         scope = canonical_fact_scope_for_owner(ownership_index, source_id) if ownership_index is not None else None
         local_facts = scope.eligible_facts(ledger) if scope is not None else ledger.for_experience(source_id)
         if scope is not None and scoped_access_stats is not None:
             scoped_access_stats.record_scope_read()
 
-        def priority(item: tuple[int, str]) -> tuple[int, int]:
-            index, detail = item
+        def priority(item: DetailRecord) -> tuple[int, int]:
+            detail = item.text
             ranked = sorted(((fact, fact_match_score(detail, fact)) for fact in local_facts), key=lambda pair: pair[1], reverse=True)
             if ranked and ranked[0][1] >= 0.45:
                 importance = {"high": 0, "medium": 1, "low": 2}[ranked[0][0].importance]
@@ -252,10 +265,11 @@ def _apply_detail_budget(
                 importance = 3
             if is_generic_detail(detail):
                 importance = 4
-            return importance, index
+            return importance, item.original_index
 
-        ordered = [detail for _, detail in sorted(enumerate(unique), key=priority)]
+        ordered = sorted(unique, key=priority)
         prepared.append(ordered[:MAX_PROJECT_DETAILS])
+        original_rows.append(records)
 
     allocations = [min(3, len(items)) for items in prepared]
     remaining = max(0, MAX_TOTAL_DETAILS - sum(allocations))
@@ -270,8 +284,12 @@ def _apply_detail_budget(
                     break
         if not changed:
             break
-    for project, items, limit in zip(projects, prepared, allocations):
-        project["details"] = items[:limit]
+    for project, items, records, limit in zip(projects, prepared, original_rows, allocations):
+        selected = items[:limit]
+        project["details"] = [item.text for item in selected]
+        project["detail_fact_ids"] = [item.source_fact_ids for item in selected]
+        project["detail_claim_ids"] = [item.source_claim_ids for item in selected]
+        _preserve_project_aggregates(project, selected, records)
 
 
 def _write_log(stats: ReconciliationStats) -> None:

@@ -82,7 +82,7 @@ def test_cross_owner_customer_technical_facts_are_removed_from_volunteer():
     assert stats.rejected_cross_owner_access_count == 1
 
 
-def test_coverage_recovers_an_omitted_local_high_value_fact_only():
+def test_canonical_coverage_reports_without_recovering_local_facts():
     build = build_canonical_semantic_build(RAW)
     _, customer_id, _ = _frozen_projects(build)
     payload = _payload([{
@@ -97,9 +97,10 @@ def test_coverage_recovers_an_omitted_local_high_value_fact_only():
         ownership_index=build.ownership_index, scoped_access_stats=stats, write_log=False,
     )
     detail_text = "\n".join(result.resume_sections.projects[0]["details"])
-    assert detail_text
-    assert "回归分析" not in detail_text
-    assert stats.local_fact_recovered_count > 0
+    # v0.9.9.3 moves Canonical recovery to the projection planner. An unbound
+    # intro/role is not evidence allowing Coverage to manufacture new rows.
+    assert detail_text == ""
+    assert stats.local_fact_recovered_count == 0
 
 
 def test_unowned_project_does_not_receive_scoped_facts():

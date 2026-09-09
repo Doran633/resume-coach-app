@@ -696,6 +696,7 @@ def create_generation(
         canonical_projection_plan,
         canonical_projection_freeze_stats,
         stage="generation_canonical_project_projection_activated",
+        payload=payload,
         request_id=request_id,
         attempt_id=request.attempt_id or "",
     )
@@ -935,6 +936,7 @@ def create_generation(
         stage="generation",
     )
     log_generation_stage(payload, "before_save")
+    projection_delivery_payload = payload
     payload = strip_project_hierarchy_metadata(payload)
     payload = strip_experience_slot_metadata(payload)
 
@@ -965,6 +967,7 @@ def create_generation(
         canonical_projection_plan,
         canonical_projection_freeze_stats,
         stage="generation_canonical_project_projection_saved",
+        payload=projection_delivery_payload,
         request_id=request_id,
         attempt_id=request.attempt_id or "",
         generation_result_id=result.id,
