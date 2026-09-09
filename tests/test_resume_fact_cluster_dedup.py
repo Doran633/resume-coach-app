@@ -22,7 +22,7 @@ def payload(details, *, intro="构建面向多段经历的简历生成系统。"
                 "name": "Resume Coach", "meta": "个人项目", "time": "2026",
                 "intro": intro, "role": role, "details": details,
                 "source_experience_id": "EXP-001",
-                "detail_fact_ids": detail_fact_ids or [[] for _ in details],
+                "detail_fact_ids": detail_fact_ids or [["EXP-001-FLEGACY"] for _ in details],
             }],
         ),
     )

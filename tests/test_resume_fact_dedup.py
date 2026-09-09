@@ -10,6 +10,7 @@ from app.services.resume_fact_dedup_service import deduplicate_resume_facts, sim
 
 def payload(details: list[str], second_project: bool = False) -> schemas.GenerationPayload:
     projects = [{"name": "Resume Coach", "meta": "项目经历", "time": "[待填写]", "intro": "开发 AI 简历定位平台", "role": "独立开发", "details": details, "source_experience_id": "EXP-001"}]
+    projects[0]["detail_fact_ids"] = [["EXP-001-FLEGACY"] for _ in details]
     if second_project:
         projects.append({"name": "RAG 助手", "meta": "项目经历", "time": "[待填写]", "intro": "开发文档问答工具", "role": "独立开发", "details": ["使用 RAG 完成文档检索与上下文构建"], "source_experience_id": "EXP-002"})
     return schemas.GenerationPayload(completeness_score=80, confirmed_facts=[], missing_questions=[], normal_version="", bold_version="", boundary_version="", recommended_version="", claims=[], interview_plan=[], knowledge_checklist=[], resume_sections=schemas.ResumeSections(projects=projects))

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .input_content_classification_service import strip_non_fact_fragments
+from .resume_fact_dedup_service import DetailRecord, _preserve_project_aggregates
 from .resume_visible_output_service import VISIBLE_VERSION_FIELDS
 
 
@@ -107,6 +108,46 @@ def _clean_list(values, stats: FirewallStats, field_name: str, experience_id: st
     return result
 
 
+def _id_row(rows, index: int) -> list[str]:
+    if not isinstance(rows, list) or index >= len(rows) or not isinstance(rows[index], list):
+        return []
+    return list(dict.fromkeys(str(item) for item in rows[index] if str(item or "").strip()))
+
+
+def _clean_detail_rows(project: dict, stats: FirewallStats, experience_id: str) -> tuple[list[DetailRecord], list[DetailRecord]]:
+    """Clean text and provenance as one row; never re-index a filtered details list."""
+    details = project.get("details") if isinstance(project.get("details"), list) else []
+    fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
+    claim_rows = project.get("detail_claim_ids") if isinstance(project.get("detail_claim_ids"), list) else []
+    original: list[DetailRecord] = []
+    retained: list[DetailRecord] = []
+    seen: set[tuple[str, tuple[str, ...], tuple[str, ...]]] = set()
+    for index, value in enumerate(details):
+        record = DetailRecord(
+            text=str(value or "").strip(),
+            source_fact_ids=_id_row(fact_rows, index),
+            source_claim_ids=_id_row(claim_rows, index),
+            original_index=index,
+        )
+        original.append(record)
+        cleaned = _clean_text(record.text, stats, "projects.details", experience_id)
+        if not cleaned:
+            continue
+        candidate = DetailRecord(
+            text=cleaned,
+            source_fact_ids=record.source_fact_ids,
+            source_claim_ids=record.source_claim_ids,
+            original_index=index,
+        )
+        # Equal text is only deduplicated where both attachment rows agree.
+        identity = (candidate.text, tuple(candidate.source_fact_ids), tuple(candidate.source_claim_ids))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        retained.append(candidate)
+    return retained, original
+
+
 def guard_resume_output(
     payload: schemas.GenerationPayload | dict,
     raw_input: str = "",
@@ -130,7 +171,20 @@ def guard_resume_output(
         experience_id = str(project.get("source_experience_id", ""))
         for key in ("name", "meta", "intro", "role"):
             project[key] = _clean_text(project.get(key), stats, f"projects.{key}", experience_id)
-        project["details"] = _clean_list(project.get("details"), stats, "projects.details", experience_id)
+        details, original_details = _clean_detail_rows(project, stats, experience_id)
+        project["details"] = [record.text for record in details]
+        project["detail_fact_ids"] = [record.source_fact_ids for record in details]
+        project["detail_claim_ids"] = [record.source_claim_ids for record in details]
+        if not project.get("role"):
+            project.pop("role_source_fact_ids", None)
+            project.pop("role_source_claim_ids", None)
+        _preserve_project_aggregates(project, details, original_details)
+        if not any((project.get("intro"), project.get("role"), project.get("details"))):
+            for key in (
+                "source_fact_ids", "role_source_fact_ids", "detail_fact_ids",
+                "source_claim_ids", "role_source_claim_ids", "detail_claim_ids",
+            ):
+                project.pop(key, None)
         projects.append(project)
     sections["projects"] = projects
     data["resume_sections"] = sections

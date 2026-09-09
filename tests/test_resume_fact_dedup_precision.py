@@ -19,7 +19,7 @@ def make_payload(details: list[str], *, meta: str = "项目经历", name: str = 
     project = {
         "name": name, "meta": meta, "time": "2026", "intro": "独立开发 AI 学习助手",
         "role": "独立开发者", "details": details, "source_experience_id": "EXP-001",
-        "detail_fact_ids": fact_ids or [[] for _ in details],
+        "detail_fact_ids": fact_ids or [["EXP-001-FLEGACY"] for _ in details],
     }
     return schemas.GenerationPayload(
         completeness_score=85, confirmed_facts=[], missing_questions=[], normal_version="", bold_version="",

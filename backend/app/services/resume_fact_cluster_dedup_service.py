@@ -6,7 +6,14 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .resume_fact_cluster_service import classify_fact_cluster
-from .resume_fact_dedup_service import information_score, similarity
+from .resume_fact_dedup_service import (
+    DetailRecord,
+    _detail_records,
+    _preserve_project_aggregates,
+    _provenance_is_mergeable,
+    information_score,
+    similarity,
+)
 from .resume_semantic_unit_service import fragment_reasons
 
 
@@ -66,28 +73,30 @@ def deduplicate_fact_clusters(
     preserved = 0
     for project in updated.resume_sections.projects:
         source_id = str(project.get("source_experience_id") or "")
-        details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
-        fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
-        before_total += len(details)
-        kept: list[tuple[str, list[str]]] = []
-        for index, detail in enumerate(details):
-            ids = [str(item) for item in fact_rows[index]] if index < len(fact_rows) and isinstance(fact_rows[index], list) else []
-            cluster_names.add((source_id, classify_fact_cluster(detail).name))
-            match = next((position for position, (existing, existing_ids) in enumerate(kept) if _is_duplicate(existing, detail, existing_ids, ids)), -1)
+        original_records = _detail_records(project, include_empty=True)
+        incoming = [record for record in original_records if record.text]
+        before_total += len(incoming)
+        kept: list[DetailRecord] = []
+        for candidate in incoming:
+            cluster_names.add((source_id, classify_fact_cluster(candidate.text).name))
+            match = next((
+                position for position, existing in enumerate(kept)
+                if _provenance_is_mergeable(existing, candidate)
+                and _is_duplicate(existing.text, candidate.text, existing.source_fact_ids, candidate.source_fact_ids)
+            ), -1)
             if match < 0:
-                kept.append((detail, ids))
+                kept.append(candidate)
                 preserved += 1
                 continue
             duplicate_count += 1
             affected.append(source_id)
-            existing, existing_ids = kept[match]
-            if information_score(detail, ids) > information_score(existing, existing_ids):
-                kept[match] = (detail, list(dict.fromkeys([*existing_ids, *ids])))
-            else:
-                kept[match] = (existing, list(dict.fromkeys([*existing_ids, *ids])))
-        project["details"] = [item[0] for item in kept]
-        project["detail_fact_ids"] = [item[1] for item in kept]
-        project["source_fact_ids"] = list(dict.fromkeys(fact_id for _, ids in kept for fact_id in ids))
+            existing = kept[match]
+            if information_score(candidate.text, candidate.source_fact_ids) > information_score(existing.text, existing.source_fact_ids):
+                kept[match] = candidate
+        project["details"] = [item.text for item in kept]
+        project["detail_fact_ids"] = [item.source_fact_ids for item in kept]
+        project["detail_claim_ids"] = [item.source_claim_ids for item in kept]
+        _preserve_project_aggregates(project, kept, original_records)
         after_total += len(kept)
 
     all_details = [str(detail) for project in updated.resume_sections.projects for detail in project.get("details", []) or []]

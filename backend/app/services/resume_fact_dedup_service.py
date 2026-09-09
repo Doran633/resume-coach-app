@@ -99,6 +99,7 @@ def _merge(left: str, right: str) -> str:
 class DetailRecord:
     text: str
     source_fact_ids: list[str] = field(default_factory=list)
+    source_claim_ids: list[str] = field(default_factory=list)
     original_index: int = 0
 
 
@@ -163,6 +164,7 @@ def _merge_records(left: DetailRecord, right: DetailRecord) -> DetailRecord:
     return DetailRecord(
         text=text,
         source_fact_ids=list(dict.fromkeys([*left.source_fact_ids, *right.source_fact_ids])),
+        source_claim_ids=list(dict.fromkeys([*left.source_claim_ids, *right.source_claim_ids])),
         original_index=min(left.original_index, right.original_index),
     )
 
@@ -187,14 +189,76 @@ def _is_high_value(text: str) -> bool:
     return any(term.lower() in text.lower() for term in HIGH_VALUE_TERMS)
 
 
-def _detail_records(project: dict) -> list[DetailRecord]:
-    details = [str(item).strip() for item in project.get("details", []) if str(item).strip()]
+def _detail_records(project: dict, *, include_empty: bool = False) -> list[DetailRecord]:
+    details = project.get("details") if isinstance(project.get("details"), list) else []
     fact_ids = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
+    claim_ids = project.get("detail_claim_ids") if isinstance(project.get("detail_claim_ids"), list) else []
     records: list[DetailRecord] = []
-    for index, text in enumerate(details):
+    for index, value in enumerate(details):
+        text = str(value or "").strip()
+        if not text and not include_empty:
+            continue
         ids = fact_ids[index] if index < len(fact_ids) and isinstance(fact_ids[index], list) else []
-        records.append(DetailRecord(text=text, source_fact_ids=[str(item) for item in ids], original_index=index))
+        claims = claim_ids[index] if index < len(claim_ids) and isinstance(claim_ids[index], list) else []
+        records.append(DetailRecord(
+            text=text,
+            source_fact_ids=[str(item) for item in ids if str(item or "").strip()],
+            source_claim_ids=[str(item) for item in claims if str(item or "").strip()],
+            original_index=index,
+        ))
     return records
+
+
+def _provenance_is_mergeable(left: DetailRecord, right: DetailRecord) -> bool:
+    """Only merge rows when their explicit field provenance proves equivalence."""
+    left_facts, right_facts = tuple(left.source_fact_ids), tuple(right.source_fact_ids)
+    if not left_facts or not right_facts or not (set(left_facts) & set(right_facts)):
+        return False
+    left_claims, right_claims = tuple(left.source_claim_ids), tuple(right.source_claim_ids)
+    return not left_claims or not right_claims or bool(set(left_claims) & set(right_claims))
+
+
+def _preserve_project_aggregates(
+    project: dict,
+    records: list[DetailRecord],
+    original_records: list[DetailRecord],
+) -> None:
+    """Keep project aggregates separate from field rows while dropping deleted rows' orphans."""
+    surviving_facts = {fact_id for record in records for fact_id in record.source_fact_ids}
+    surviving_claims = {claim_id for record in records for claim_id in record.source_claim_ids}
+    role_facts = {
+        str(item) for item in project.get("role_source_fact_ids", [])
+        if str(item or "").strip()
+    } if isinstance(project.get("role_source_fact_ids"), list) else set()
+    role_claims = {
+        str(item) for item in project.get("role_source_claim_ids", [])
+        if str(item or "").strip()
+    } if isinstance(project.get("role_source_claim_ids"), list) else set()
+    surviving_facts.update(role_facts)
+    surviving_claims.update(role_claims)
+    retained_indices = {record.original_index for record in records}
+    removed_facts = {
+        fact_id for record in original_records if record.original_index not in retained_indices
+        for fact_id in record.source_fact_ids
+    }
+    removed_claims = {
+        claim_id for record in original_records if record.original_index not in retained_indices
+        for claim_id in record.source_claim_ids
+    }
+    for aggregate_key, removed, surviving in (
+        ("source_fact_ids", removed_facts, surviving_facts),
+        ("source_claim_ids", removed_claims, surviving_claims),
+    ):
+        existing = project.get(aggregate_key)
+        values = existing if isinstance(existing, list) else []
+        retained = [
+            str(item) for item in values
+            if str(item or "").strip() and (str(item) not in removed or str(item) in surviving)
+        ]
+        # A surviving field row is direct evidence that its attachment belongs
+        # to this project aggregate. This does not make the aggregate a field
+        # binding in the reverse direction.
+        project[aggregate_key] = list(dict.fromkeys([*retained, *sorted(surviving)]))
 
 
 def _write_log(stats: DedupStats) -> None:
@@ -213,7 +277,8 @@ def deduplicate_resume_facts(payload: schemas.GenerationPayload, *, stage: str =
     for project in updated.resume_sections.projects:
         source_id = str(project.get("source_experience_id") or "")
         stats = DedupStats(stage=stage, generation_result_id=generation_result_id, source_experience_id=source_id)
-        incoming = _detail_records(project)
+        original_records = _detail_records(project, include_empty=True)
+        incoming = [record for record in original_records if record.text]
         stats.details_before = len(incoming)
         intro_role = [str(project.get("intro") or ""), str(project.get("role") or "")]
         unique: list[DetailRecord] = []
@@ -228,6 +293,8 @@ def deduplicate_resume_facts(payload: schemas.GenerationPayload, *, stage: str =
             matched_reason = ""
             matched_score = 0.0
             for index, existing in enumerate(unique):
+                if not _provenance_is_mergeable(existing, candidate):
+                    continue
                 stats.compared_pair_count += 1
                 score = similarity(existing.text, candidate.text)
                 left_core, right_core = _core(existing.text), _core(candidate.text)
@@ -277,11 +344,12 @@ def deduplicate_resume_facts(payload: schemas.GenerationPayload, *, stage: str =
         filtered = filtered[:8]
         project["details"] = [record.text for record in filtered]
         project["detail_fact_ids"] = [record.source_fact_ids for record in filtered]
-        project["source_fact_ids"] = list(dict.fromkeys(fact_id for record in filtered for fact_id in record.source_fact_ids))
+        project["detail_claim_ids"] = [record.source_claim_ids for record in filtered]
+        _preserve_project_aggregates(project, filtered, original_records)
         stats.details_after = len(filtered)
         stats.retained_unique_fact_count = len(filtered)
         stats.preserved_high_value_fact_count = sum(_is_high_value(record.text) for record in filtered)
-        stats.source_fact_ids = project["source_fact_ids"]
+        stats.source_fact_ids = list(project.get("source_fact_ids") or [])
         stats.merged_source_fact_ids = stats.source_fact_ids
         if write_log:
             _write_log(stats)

@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.9.2：Presentation Field / Provenance Consistency
+
+- `resume_fact_dedup`、`resume_dedup_quality`、`resume_fact_cluster_dedup` 与输出防火墙均按原始 detail 索引同时处理正文、Fact 行和 Claim 行，不再先过滤文本再读取错位附件。
+- 去重只会合并具有可验证重叠字段 Fact 来源的行；同文但来源不同或没有字段来源的行保持独立，不把项目聚合 ID 当作字段级证明。
+- 详情删除后，仅属于已删除详情且没有其他存续 detail 或 role 承载的聚合来源会被移除；存续 role 和 detail 的合法来源不再被仅按 details 重建的逻辑覆盖。
+- 本版本不补造 attachment、不选择未投影 Fact、不改 owner、type、eligibility 或语义内容；Coverage、Gate、Router 与 Observer 继续消费修正后的附件状态。
+
 ## v0.9.9.1：Post-Commit Semantic Rebuild Cutoff
 
 - Canonical 生成路径在 Owner Freeze 后不再调用不确定表达清理、项目特异性补写、弱履历补强、语义单元补齐、摘要补写和文本完整性补写等旧的原文语义重建服务。
