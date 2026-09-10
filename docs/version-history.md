@@ -827,3 +827,8 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - Canonical Coverage 仅验证已有附件，不再依据文本相似度猜测 detail 的 Fact binding。
 - Canonical Entity Dedup 与 Reconciliation 不再在后处理合并项目、改名或建立父子项目关系；Validity 继续使用同一份 Canonical Build 执行空壳清理。
 - Section Integrity 清理空详情时同步保留 Fact / Claim 行的原始对应关系；项目聚合来源不再被视为 intro 或 role 的字段级证明。
+## v0.9.10.1：Initial Projection Duplicate Suppression
+
+- Resume Section Fallback 的 Canonical 候选构造在已知 intro / detail 的精确 Fact 与 Claim lineage 时，抑制完全重复的 role。
+- 不使用项目聚合来源猜测字段来源；相似文本、不同 Fact、不同 Claim 或来源不明的 role 继续保留。
+- Fallback 候选同步写入现有的 Claim attachment 行，并在既有脱敏日志记录重复 role 抑制数量。

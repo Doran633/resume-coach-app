@@ -1,6 +1,6 @@
 # Resume Coach App
 
-## 当前架构：v0.9.10
+## 当前架构：v0.9.10.1
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -53,6 +53,7 @@ raw_input
 | v0.9.9.2 | Presentation Field / Provenance Consistency | 去重与输出防火墙按原始详情索引同步正文、Fact 行和 Claim 行；项目聚合来源不再被详情重建错误覆盖。 |
 | v0.9.9.3 | Canonical Fact Projection Completeness | 已绑定项目的遗漏 eligible Fact 仅在同 owner、唯一目标和精确字段证据成立时由 Projection Planner 补入；Coverage 不再作为第二个正文写入者，展示排序与预算同步维护 Fact / Claim 行。 |
 | v0.9.10 | Post-Commit Authority Closure | 初始投影完成后，Boundary、Coverage、Role Recovery 与 Entity Dedup 不再补写正文、猜测字段来源、合并项目或改名；后处理只做受限清理、验证与附件同步。 |
+| v0.9.10.1 | Initial Projection Duplicate Suppression | Section Fallback 在明确同 owner、同 Fact/Claim 且完全同文时，不再把同一表达重复写入 role；字段 Fact/Claim 行在候选构造时同步建立。 |
 
 后续尚未实施的架构阶段：
 

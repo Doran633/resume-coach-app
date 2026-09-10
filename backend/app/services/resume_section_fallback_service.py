@@ -111,6 +111,7 @@ class FallbackStats:
         self.internal_fallback_text_removed_count = 0
         self.role_source_experience_ids: list[str] = []
         self.role_source_fact_ids: list[str] = []
+        self.duplicate_role_suppressed_count = 0
         self.fallback_candidate_rejected_count = 0
         self.fallback_bindings: list[dict] = []
 
@@ -165,6 +166,7 @@ def _write_fallback_log(stats: FallbackStats):
             "internal_fallback_text_removed_count": stats.internal_fallback_text_removed_count,
             "role_source_experience_ids": sorted(set(stats.role_source_experience_ids)),
             "role_source_fact_ids": sorted(set(stats.role_source_fact_ids)),
+            "duplicate_role_suppressed_count": stats.duplicate_role_suppressed_count,
             "fallback_candidate_rejected_count": stats.fallback_candidate_rejected_count,
             "fallback_bindings": stats.fallback_bindings,
             "generation_result_id": stats.generation_result_id,
@@ -547,6 +549,29 @@ def _projects_from_identities(
             ledger=ledger,
             facts=local_facts if canonical_mode else None,
         )
+        fact_by_id = {fact.fact_id: fact for fact in local_facts}
+        role_claim_ids = [
+            fact_by_id[fact_id].claim_id
+            for fact_id in role_fact_ids
+            if fact_id in fact_by_id and fact_by_id[fact_id].claim_id
+        ]
+        intro_fact_ids = [local_facts[0].fact_id]
+        intro_claim_ids = [local_facts[0].claim_id] if local_facts[0].claim_id else []
+        role_is_exact_duplicate = bool(
+            role
+            and role_fact_ids
+            and role_claim_ids
+            and _normalized_projection_text(role) == _normalized_projection_text(details[0])
+            and set(role_fact_ids) == set(intro_fact_ids)
+            and set(role_claim_ids) == set(intro_claim_ids)
+        )
+        if role_is_exact_duplicate:
+            # This candidate construction knows the exact intro lineage.  Do
+            # not use project aggregates as field evidence in later stages.
+            role = ""
+            role_fact_ids = []
+            role_claim_ids = []
+            stats.duplicate_role_suppressed_count += 1
         stats.role_fallback_triggered += 1
         if role:
             stats.role_recovered_from_fact_count += 1
@@ -572,8 +597,11 @@ def _projects_from_identities(
                 "source_binding_confidence": 1.0,
                 "source_binding_locked": False,
                 "source_fact_ids": [fact.fact_id for fact in local_facts[:6]],
+                "source_claim_ids": [fact.claim_id for fact in local_facts[:6] if fact.claim_id],
                 "detail_fact_ids": [[fact.fact_id] for fact in local_facts[:6]],
+                "detail_claim_ids": [[fact.claim_id] if fact.claim_id else [] for fact in local_facts[:6]],
                 "role_source_fact_ids": role_fact_ids,
+                "role_source_claim_ids": role_claim_ids,
             }
         if not is_valid_fallback_candidate(candidate, "" if canonical_mode else raw_input):
             stats.fallback_candidate_rejected_count += 1
@@ -592,6 +620,34 @@ def _projects_from_identities(
         if canonical_mode and recovery_stats is not None:
             recovery_stats.local_fact_detail_recovered_count += len(local_facts[:6])
     return projects
+
+
+def _normalized_projection_text(value: object) -> str:
+    """Compare exact display wording without treating merely similar text as equal."""
+    return re.sub(r"[\s，,。；;：:、/\\|｜（）()\[\]【】《》\"'`~\-—–_]+", "", _text(value)).lower()
+
+
+def _suppress_exact_detail_role_duplicate(
+    project: dict,
+    role: str,
+    role_fact_ids: list[str],
+    role_claim_ids: list[str],
+) -> bool:
+    """Suppress only an exact, field-proven detail/role duplicate."""
+    if not role or not role_fact_ids or not role_claim_ids:
+        return False
+    detail_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
+    claim_rows = project.get("detail_claim_ids") if isinstance(project.get("detail_claim_ids"), list) else []
+    for index, detail in enumerate(project.get("details", []) or []):
+        detail_facts = detail_rows[index] if index < len(detail_rows) and isinstance(detail_rows[index], list) else []
+        detail_claims = claim_rows[index] if index < len(claim_rows) and isinstance(claim_rows[index], list) else []
+        if (
+            _normalized_projection_text(role) == _normalized_projection_text(detail)
+            and set(role_fact_ids) == {str(item) for item in detail_facts if str(item or "")}
+            and set(role_claim_ids) == {str(item) for item in detail_claims if str(item or "")}
+        ):
+            return True
+    return False
 
 
 def _merge_missing_projects(
@@ -773,10 +829,26 @@ def fill_resume_sections(
         ) if source_id and ledger and (not canonical_mode or scope is not None) else ("", [])
         project["role"] = recovered
         if recovered:
+            fact_by_id = {
+                fact.fact_id: fact
+                for fact in (scope.eligible_facts(ledger) if scope is not None and ledger is not None else [])
+            }
+            claim_ids = [
+                fact_by_id[fact_id].claim_id
+                for fact_id in fact_ids
+                if fact_id in fact_by_id and fact_by_id[fact_id].claim_id
+            ]
+            if canonical_mode and _suppress_exact_detail_role_duplicate(project, recovered, fact_ids, claim_ids):
+                project["role"] = ""
+                project.pop("role_source_fact_ids", None)
+                project.pop("role_source_claim_ids", None)
+                stats.duplicate_role_suppressed_count += 1
+                continue
             stats.role_recovered_from_fact_count += 1
             stats.role_source_experience_ids.append(source_id)
             stats.role_source_fact_ids.extend(fact_ids)
             project["role_source_fact_ids"] = fact_ids
+            project["role_source_claim_ids"] = claim_ids
             if canonical_mode and recovery_stats is not None:
                 recovery_stats.local_role_recovered_count += 1
         else:
