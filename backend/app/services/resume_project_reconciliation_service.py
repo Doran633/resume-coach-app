@@ -391,15 +391,16 @@ def reconcile_resume_projects(
     if comprehensive and concrete:
         stats.comprehensive_projects_removed = len(comprehensive)
 
-    concrete = merge_parent_child_projects(
-        concrete,
-        "" if canonical_mode else raw_input,
-        stage=f"{stage}_reconciliation",
-        generation_result_id=generation_result_id,
-        write_log=write_log,
-        identities=identities if canonical_mode else None,
-        require_same_frozen_owner=canonical_mode,
-    )
+    if not canonical_mode:
+        concrete = merge_parent_child_projects(
+            concrete,
+            raw_input,
+            stage=f"{stage}_reconciliation",
+            generation_result_id=generation_result_id,
+            write_log=write_log,
+            identities=None,
+            require_same_frozen_owner=False,
+        )
     _apply_detail_budget(
         concrete,
         "" if canonical_mode else raw_input,
@@ -413,23 +414,23 @@ def reconcile_resume_projects(
     stats.projects_after = len(concrete)
     stats.project_names = [str(item.get("name") or "") for item in concrete]
     updated.resume_sections.projects = concrete
-    updated = deduplicate_resume_experience_entities(
-        updated,
-        "" if canonical_mode else raw_input,
-        stage=f"{stage}_reconciliation",
-        generation_result_id=generation_result_id,
-        write_log=write_log,
-        apply_hierarchy=False,
-        semantic_build=semantic_build,
-        ownership_index=ownership,
-        scoped_access_stats=scoped_access_stats,
-    )
+    if not canonical_mode:
+        updated = deduplicate_resume_experience_entities(
+            updated,
+            raw_input,
+            stage=f"{stage}_reconciliation",
+            generation_result_id=generation_result_id,
+            write_log=write_log,
+            apply_hierarchy=False,
+        )
     updated = ensure_resume_experience_validity(
         updated,
         "" if canonical_mode else raw_input,
         stage=f"{stage}_reconciliation",
         generation_result_id=generation_result_id,
         write_log=write_log,
+        semantic_build=semantic_build,
+        ownership_index=ownership,
     )
     stats.projects_after = len(updated.resume_sections.projects)
     if write_log:

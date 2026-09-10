@@ -250,7 +250,13 @@ def guard_fact_coverage(
                     moves.append((best.experience_id, detail, best.fact_id))
                     continue
             kept.append(detail)
-            detail_fact_ids.append(bound_fact_ids or ([current_best.fact_id] if current_best and current_score >= 0.45 else []))
+            # In Canonical mode Coverage validates attachments; it does not
+            # infer a new field attachment from lexical similarity.
+            detail_fact_ids.append(
+                bound_fact_ids
+                if canonical_mode
+                else (bound_fact_ids or ([current_best.fact_id] if current_best and current_score >= 0.45 else []))
+            )
             detail_claim_ids.append(bound_claim_ids)
         project["details"] = kept
         project["detail_fact_ids"] = detail_fact_ids

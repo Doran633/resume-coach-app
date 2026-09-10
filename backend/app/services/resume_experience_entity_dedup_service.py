@@ -357,6 +357,16 @@ def deduplicate_resume_experience_entities(
         project_count_before=len(projects),
     )
 
+    # The Canonical pipeline has already completed its one permitted project
+    # projection before this late presentation pass.  Keep this legacy merger
+    # available to non-Canonical callers, but do not rename, merge, or move
+    # Canonical projects after the projection commit.
+    if canonical_mode:
+        stats.project_count_after = len(projects)
+        if write_log:
+            _write_log(stats)
+        return updated
+
     if apply_hierarchy:
         projects = merge_parent_child_projects(
             projects,

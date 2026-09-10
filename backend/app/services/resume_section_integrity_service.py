@@ -26,7 +26,22 @@ def ensure_resume_section_integrity(payload: schemas.GenerationPayload | dict) -
         project = dict(raw_project)
         for key in ("name", "meta", "intro", "role"):
             project[key] = _clean(project.get(key, ""))
-        project["details"] = [cleaned for item in project.get("details", []) if (cleaned := _clean(item))]
+        details = project.get("details") if isinstance(project.get("details"), list) else []
+        fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
+        claim_rows = project.get("detail_claim_ids") if isinstance(project.get("detail_claim_ids"), list) else []
+        retained = []
+        for index, item in enumerate(details):
+            cleaned = _clean(item)
+            if not cleaned:
+                continue
+            retained.append((
+                cleaned,
+                fact_rows[index] if index < len(fact_rows) and isinstance(fact_rows[index], list) else [],
+                claim_rows[index] if index < len(claim_rows) and isinstance(claim_rows[index], list) else [],
+            ))
+        project["details"] = [item[0] for item in retained]
+        project["detail_fact_ids"] = [item[1] for item in retained]
+        project["detail_claim_ids"] = [item[2] for item in retained]
         projects.append(project)
     updated.resume_sections.projects = projects
     return updated

@@ -286,21 +286,10 @@ def guard_experience_boundaries(
             if _has_metric_contamination(cleaned, related_raw_text):
                 stats.fixed(f"projects[{index}].{key}")
                 cleaned = ""
-            if cleaned:
-                guarded[key] = cleaned
-            elif key == "intro":
-                resume_ready = [fact.resume_ready_text for fact in local_facts if fact.resume_ready_text]
-                guarded[key] = resume_ready[0] if resume_ready else ""
-            else:
-                guarded[key], role_fact_ids = resolve_role_for_experience(
-                    "" if canonical_mode else raw_input,
-                    segment.experience_id,
-                    details=guarded.get("details", []),
-                    intro=str(guarded.get("intro") or ""),
-                    ledger=ledger,
-                )
-                if role_fact_ids:
-                    guarded["role_source_fact_ids"] = role_fact_ids
+            # A Canonical Boundary Guard may remove unsupported wording, but
+            # the projection phase is the only Canonical body writer.  Do not
+            # refill a cleaned field from local facts here.
+            guarded[key] = cleaned
         details = []
         original_details = guarded.get("details", []) or []
         existing_fact_rows = guarded.get("detail_fact_ids") if isinstance(guarded.get("detail_fact_ids"), list) else []
@@ -342,8 +331,11 @@ def guard_experience_boundaries(
                     continue
             details.append(detail_text)
             kept_fact_rows.append(fact_ids)
-        guarded["details"] = _dedupe(details)
-        guarded["detail_fact_ids"] = kept_fact_rows[:len(guarded["details"])]
+        # Keep each retained row and its provenance together.  A later,
+        # provenance-aware repair may remove an exact duplicate; this guard
+        # must not re-index attachments by text alone.
+        guarded["details"] = details
+        guarded["detail_fact_ids"] = kept_fact_rows
         guarded_projects.append(guarded)
 
     by_source = {

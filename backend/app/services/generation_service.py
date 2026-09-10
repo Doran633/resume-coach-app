@@ -725,15 +725,6 @@ def create_generation(
         scoped_access_stats=scoped_fact_access_stats,
     )
     mutation_tracer.checkpoint(payload, "after_boundary_guard", parent_stage="guard_experience_boundaries")
-    payload = resolve_resume_roles(
-        payload,
-        "",
-        stage="generation",
-        semantic_build=semantic_build,
-        ownership_index=semantic_build.ownership_index,
-        recovery_stats=fallback_recovery_stats,
-    )
-    mutation_tracer.checkpoint(payload, "after_role_resolution", parent_stage="resolve_resume_roles")
     payload = sanitize_resume_body(payload, semantic_safe=True)
     mutation_tracer.checkpoint(payload, "after_body_sanitizer", parent_stage="sanitize_resume_body")
     payload = reconcile_resume_projects(
@@ -759,12 +750,6 @@ def create_generation(
     )
     mutation_tracer.checkpoint(payload, "after_fact_coverage", parent_stage="guard_fact_coverage")
     log_generation_stage(payload, "after_fact_coverage")
-    payload = guard_experience_boundaries(
-        payload, "", stage="generation", semantic_build=semantic_build,
-        ownership_index=semantic_build.ownership_index,
-        scoped_access_stats=scoped_fact_access_stats,
-    )
-    mutation_tracer.checkpoint(payload, "after_second_boundary_guard", parent_stage="guard_experience_boundaries")
     narrative_changes: dict[str, int] = {}
     payload = layer_resume_sections(payload, stage="generation")
     payload = ensure_resume_fact_increment(payload, narrative_changes)
@@ -786,14 +771,6 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_narrative_cleanup", parent_stage="narrative_quality")
     log_generation_stage(payload, "after_dedup")
     payload = guard_resume_output(payload, stage="generation")
-    payload = resolve_resume_roles(
-        payload,
-        "",
-        stage="before_save",
-        semantic_build=semantic_build,
-        ownership_index=semantic_build.ownership_index,
-        recovery_stats=fallback_recovery_stats,
-    )
     payload = guard_resume_output(payload, stage="before_save")
     payload = professionalize_resume_language(
         payload,

@@ -350,14 +350,16 @@ class CanonicalPresentationView:
             return tuple(dict.fromkeys(str(item) for item in value if str(item or "")))
 
         if field_name == "role":
-            return ids(project.get("role_source_fact_ids")) or ids(project.get("source_fact_ids"))
+            return ids(project.get("role_source_fact_ids"))
         if field_name == "details" and detail_index is not None:
             rows = project.get("detail_fact_ids")
             if isinstance(rows, list) and detail_index < len(rows):
                 return ids(rows[detail_index])
             return ()
+        # source_fact_ids is an aggregate project lineage, not proof that a
+        # particular intro field expresses every listed fact.
         if field_name == "intro":
-            return ids(project.get("source_fact_ids"))
+            return ()
         return ()
 
     def permits_project_field(

@@ -820,3 +820,10 @@ v0.3 建议继续围绕“输出质量优化”迭代。
 - 新增运行 SLO，覆盖成功率、P50/P90、队列、Redis、Fallback、Experience ID、事实覆盖、DOCX、删除、成本、备份、磁盘和证书。
 - 使用根目录 `VERSION`、`BUILD_COMMIT` 和 `BUILD_TIME` 统一前后端发布身份；上线检查会阻止版本错配、缺少当前 commit 黄金回归、烟测过期或 SLO critical 的发布。
 - 监控只发现和报告问题，不修改用户结果，不记录用户正文或敏感凭据。
+## v0.9.10：Post-Commit Authority Closure
+
+- 将 Canonical 生产链路区分为语义权威冻结与初始投影完成两个边界。
+- 初始投影完成后，Boundary Guard 仅清理污染，不再从本地 Fact 回填 intro 或 role；Role Recovery 不再在生成后段调用。
+- Canonical Coverage 仅验证已有附件，不再依据文本相似度猜测 detail 的 Fact binding。
+- Canonical Entity Dedup 与 Reconciliation 不再在后处理合并项目、改名或建立父子项目关系；Validity 继续使用同一份 Canonical Build 执行空壳清理。
+- Section Integrity 清理空详情时同步保留 Fact / Claim 行的原始对应关系；项目聚合来源不再被视为 intro 或 role 的字段级证明。
