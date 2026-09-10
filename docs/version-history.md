@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.11.1：Canonical Experience Boundary Qualification
+
+- 无显式标题的 Semantic Experience 边界现在需要独立经历锚点：明确的新项目、产品或活动实体；新组织及其角色；明确时间范围；或显式经历类型标签。
+- 标点、自然段、动作、技术栈、结果、指标、GitHub 与上线只保留为边界置信度信号，不能单独创建新的 `experience_id` 或 owner scope。
+- 未获资格的候选片段并回前一经历，保留完整正文和 source span，因此后续 Claim、Fact 与 Canonical Projection 都继续归属原 owner。
+- `experience_segmentation.jsonl` 新增脱敏的弱边界并回数量和原因汇总，不记录新增正文或标题内容。
+- 显式标题路径保持最高优先级；命名项目、组织角色、竞赛、科研和校园活动的真实多经历仍按原有语义边界拆分。
+
 ## v0.9.11：Immutable Delivery Revision
 
 - 最终 Ownerless Containment 现在位于 Delivery Gate 的最终复查之前；Gate 检查的是准备持久化的 Canonical 交付语义内容，而不是其早期快照。

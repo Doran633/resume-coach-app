@@ -71,6 +71,36 @@ EXPLICIT_HEADING_PATTERN = re.compile(
     r")\s*$"
 )
 
+# An implicit split needs evidence that the following clause introduces a new
+# experience, not merely another action or outcome from the current one.
+INLINE_EXPERIENCE_TYPE_LABEL = re.compile(
+    r"^\s*(?:项目|实习|科研|研究|竞赛|比赛|开源|校园|社团)(?:经历)?\s*[:：]"
+)
+TIME_RANGE_PATTERN = re.compile(
+    r"(?<!\d)(?:19|20)\d{2}\s*(?:年|[./-])\s*\d{1,2}\s*(?:月)?"
+    r"\s*(?:至|到|[-~～])\s*(?:(?:19|20)\d{2}\s*(?:年|[./-])\s*)?\d{1,2}\s*(?:月)?"
+)
+PROJECT_ENTITY_PATTERN = re.compile(
+    r"(?:独立(?:设计并)?开发|从零(?:设计并)?开发|做过|开发(?:了|过)?|设计(?:了|过)?|搭建(?:了)?)"
+    r"\s*(?:一个|一套)?\s*(?P<entity>[^，。；;\n]{2,40}(?:项目|系统|平台|网站|工具|助手|应用|小程序))"
+)
+PRODUCT_IDENTIFIER_PATTERN = re.compile(
+    r"(?:独立(?:设计并)?开发|从零(?:设计并)?开发|做过|开发(?:了|过)?|设计(?:了|过)?|搭建(?:了)?)"
+    r"\s*(?P<entity>[A-Z][A-Za-z0-9_-]*(?:\s+[A-Z][A-Za-z0-9_-]*)+)"
+)
+ACTIVITY_ENTITY_PATTERN = re.compile(
+    r"(?:参加|参与|组织|加入|担任|^是)\s*(?P<entity>[^，。；;\n]{2,40}(?:竞赛|比赛|活动|计划|实践队))"
+)
+NAMED_ORGANIZATION_PATTERN = re.compile(
+    r"(?P<entity>[^，。；;\n]{2,40}(?:协会|社团|学生会))"
+)
+ORGANIZATION_ROLE_PATTERN = re.compile(
+    r"(?:在|于|加入|参与|担任|作为)\s*(?:[^，。；;\n]{2,40}"
+    r"(?:公司|企业|实验室|课题组|协会|社团|学生会|学院))"
+    r"[^，。；;\n]{0,28}(?:实习|担任|负责|成员|干事|开发|研究)"
+)
+GENERIC_ENTITY_NAMES = {"项目", "系统", "平台", "网站", "工具", "助手", "应用", "小程序", "活动", "比赛", "竞赛", "计划"}
+
 
 @dataclass
 class SemanticExperienceSegment:
@@ -107,6 +137,8 @@ class SemanticSegmentationResult:
     explicit_boundary_count: int = 0
     expected_experience_count: int = 0
     boundary_loss_detected: bool = False
+    weak_boundary_merged_count: int = 0
+    weak_boundary_reason_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -302,13 +334,38 @@ def _has_start_signal(text: str) -> bool:
     )
 
 
+def _has_independent_experience_anchor(text: str) -> tuple[bool, str]:
+    """Return only structural evidence suitable for an implicit experience split."""
+    if INLINE_EXPERIENCE_TYPE_LABEL.search(text):
+        return True, "explicit_experience_type_label"
+    if TIME_RANGE_PATTERN.search(text):
+        return True, "time_range"
+    if ORGANIZATION_ROLE_PATTERN.search(text):
+        return True, "organization_role"
+    if NAMED_ORGANIZATION_PATTERN.search(text) and _has_start_signal(text):
+        return True, "named_organization"
+
+    for pattern, reason in (
+        (PROJECT_ENTITY_PATTERN, "named_project_or_product"),
+        (PRODUCT_IDENTIFIER_PATTERN, "named_product_identifier"),
+        (ACTIVITY_ENTITY_PATTERN, "named_activity"),
+    ):
+        match = pattern.search(text)
+        if not match:
+            continue
+        entity = re.sub(r"^(?:一个|一套)", "", match.group("entity").strip())
+        if entity not in GENERIC_ENTITY_NAMES:
+            return True, reason
+    return False, ""
+
+
 def _boundary_score(previous: str, current: str, punctuation: str) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
     if punctuation in {"；", ";", "。", "\n", "\n\n"}:
         score += 0.15
         reasons.append("完整标点边界")
-    if punctuation == "\n\n" and len(previous) >= 30 and len(current) >= 30:
+    if punctuation == "\n\n":
         score += 0.35
         reasons.append("独立自然段强边界")
     if _has_start_signal(current):
@@ -529,6 +586,8 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
     grouped: list[dict] = []
     semantic_boundaries = 0
     low_confidence = 0
+    weak_boundary_merged_count = 0
+    weak_boundary_reason_counts: dict[str, int] = {}
     questions: list[str] = []
     for clause, start, end, punctuation in clauses:
         if not grouped:
@@ -543,11 +602,16 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
             continue
         previous = grouped[-1]["raw_text"]
         score, reasons = _boundary_score(previous, clause, punctuation)
-        should_split = score >= AUTO_SPLIT_THRESHOLD or (
+        has_anchor, anchor_reason = _has_independent_experience_anchor(clause)
+        # Punctuation, actions, results, and topic shifts are useful boundary
+        # signals, but they cannot create an owner scope on their own.
+        score_allows_split = score >= AUTO_SPLIT_THRESHOLD or (
             score >= CAUTIOUS_SPLIT_THRESHOLD
-            and _has_start_signal(clause)
-            and bool(_themes(previous).isdisjoint(_themes(clause)))
+            and (_has_start_signal(clause) or punctuation == "\n\n")
+        ) or (
+            score >= 0.40 and anchor_reason == "explicit_experience_type_label"
         )
+        should_split = score_allows_split and has_anchor
         if should_split:
             grouped.append({
                 "raw_text": clause,
@@ -563,7 +627,13 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
         else:
             grouped[-1]["raw_text"] = f"{grouped[-1]['raw_text']}；{clause}"
             grouped[-1]["end_offset"] = end
-            if CAUTIOUS_SPLIT_THRESHOLD <= score < AUTO_SPLIT_THRESHOLD:
+            if score_allows_split and not has_anchor:
+                weak_boundary_merged_count += 1
+                weak_boundary_reason_counts["missing_independent_experience_anchor"] = (
+                    weak_boundary_reason_counts.get("missing_independent_experience_anchor", 0) + 1
+                )
+                grouped[-1]["segmentation_reasons"].append("弱边界并回：缺少独立经历锚点")
+            elif CAUTIOUS_SPLIT_THRESHOLD <= score < AUTO_SPLIT_THRESHOLD:
                 low_confidence += 1
                 questions.append(f"“{_infer_title(clause, _infer_type(clause))}”是否需要作为单独经历展示？")
 
@@ -601,6 +671,8 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
         low_confidence_segment_count=low_confidence,
         clarification_questions=list(dict.fromkeys(questions))[:4],
         expected_experience_count=len(segments),
+        weak_boundary_merged_count=weak_boundary_merged_count,
+        weak_boundary_reason_counts=weak_boundary_reason_counts,
     )
     if write_log:
         write_segmentation_log(result, len(source), stage=stage)
@@ -623,6 +695,8 @@ def write_segmentation_log(result: SemanticSegmentationResult, raw_input_length:
             "total_segments": len(result.segments),
             "discarded_context_count": result.discarded_context_count,
             "merged_segment_count": result.merged_segment_count,
+            "weak_boundary_merged_count": result.weak_boundary_merged_count,
+            "weak_boundary_reason_counts": result.weak_boundary_reason_counts,
             "low_confidence_segment_count": result.low_confidence_segment_count,
             "segments": [
                 {

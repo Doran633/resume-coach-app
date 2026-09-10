@@ -1,6 +1,6 @@
 # Resume Coach App
 
-## 当前架构：v0.9.11
+## 当前架构：v0.9.11.1
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -21,7 +21,7 @@ raw_input
 
 核心职责如下：
 
-- **Semantic Compilation**：同一次请求只构建一套 Experience Identity、Claim Resolution 和 Fact Ledger，形成请求级 CanonicalSemanticBuild。
+- **Semantic Compilation**：同一次请求只构建一套 Experience Identity、Claim Resolution 和 Fact Ledger，形成请求级 CanonicalSemanticBuild。无显式标题的后续片段还必须具备独立实体、组织角色、时间范围或经历类型标签，才能创建新的 Experience owner scope；动作、技术、结果和标点只作为辅助信号。
 - **Canonical Consumer Views**：Planner、Guard 和未来 Repair 只能通过按 `experience_id` 限定的只读视图读取允许的 Claim、Fact 和技能证据，不重新理解完整 `raw_input`。
 - **Display Name Qualification**：Canonical Projection 只使用具有显式标题来源或同 owner 已确认 Claim 证明的名称；结构标签、说明或否定内容不能作为名称。名称不明时保留本 owner 的事实并请求补充名称，不吞掉经历。
 - **Owner / Type Freeze**：经历类型、事实归属和项目归属在生成链路中冻结；后续模块只能验证、删除污染或使用同 owner 事实，不能跨经历重绑。
@@ -59,6 +59,7 @@ raw_input
 | v0.9.10 | Post-Commit Authority Closure | 初始投影完成后，Boundary、Coverage、Role Recovery 与 Entity Dedup 不再补写正文、猜测字段来源、合并项目或改名；后处理只做受限清理、验证与附件同步。 |
 | v0.9.10.1 | Initial Projection Duplicate Suppression | Section Fallback 在明确同 owner、同 Fact/Claim 且完全同文时，不再把同一表达重复写入 role；字段 Fact/Claim 行在候选构造时同步建立。 |
 | v0.9.11 | Immutable Delivery Revision | Final Gate 检查实际持久化语义内容；GenerationResult 成为唯一不可变交付 revision，页面和 DOCX 读取同一内容，DOCX 不再静默裁剪项目或详情。 |
+| v0.9.11.1 | Canonical Experience Boundary Qualification | 无显式标题的候选边界需同时具备既有边界条件和独立经历锚点；不合格的动作/结果尾部片段并回前一经历，不再创建额外 owner、Claim、Fact 或待补充项目。 |
 
 后续尚未实施的架构阶段：
 
