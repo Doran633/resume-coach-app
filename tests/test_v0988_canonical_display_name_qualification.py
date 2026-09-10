@@ -46,7 +46,7 @@ def test_explicit_heading_name_is_qualified_without_becoming_a_new_fact():
 
     assert decision.qualified
     assert decision.display_name == "论文阅读助手"
-    assert decision.candidate_source == "canonical_project_name"
+    assert decision.candidate_source == "explicit_heading_name"
     assert decision.reason_codes == ("explicit_heading_name",)
     assert decision.source_span == build.identities[0].source_span
     assert views.planner_view.display_name_qualification_for_owner("EXP-001") is decision
@@ -186,4 +186,4 @@ def test_qualification_log_is_aggregate_only(tmp_path, monkeypatch):
     assert "论文阅读助手" not in content
     assert "FastAPI" not in content
     assert row["qualified_name_count"] == 1
-    assert row["candidate_source_counts"] == {"canonical_project_name": 1}
+    assert row["candidate_source_counts"] == {"explicit_heading_name": 1}

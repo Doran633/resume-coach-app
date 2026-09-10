@@ -369,9 +369,13 @@ def _project_canonical_semantic_state(
     identities: tuple[ExperienceIdentity, ...],
     experience_type_decisions: tuple[CanonicalExperienceTypeDecision, ...],
     ledger: ExperienceFactLedger,
+    display_name_qualifications: tuple[CanonicalDisplayNameQualification, ...] = (),
     experience_input_id: int | None = None,
 ) -> CanonicalSemanticState:
     type_decisions = {item.experience_id: item for item in experience_type_decisions}
+    name_qualifications = {
+        item.experience_id: item for item in display_name_qualifications
+    }
     source = CanonicalSemanticSource(
         experience_input_id=experience_input_id,
         raw_input_hash=raw_input_hash,
@@ -379,8 +383,13 @@ def _project_canonical_semantic_state(
     experiences = tuple(
         CanonicalExperience(
             experience_id=identity.experience_id,
-            canonical_name=identity.canonical_project_name or identity.title,
-            aliases=tuple(identity.project_aliases),
+            canonical_name=(
+                name_qualifications.get(identity.experience_id).display_name
+                if name_qualifications.get(identity.experience_id) is not None
+                and name_qualifications[identity.experience_id].qualified
+                else ""
+            ),
+            aliases=(),
             preliminary_experience_type=identity.declared_experience_type or identity.experience_type,
             canonical_experience_type=type_decisions[identity.experience_id].canonical_experience_type,
             type_source=type_decisions[identity.experience_id].type_source,
@@ -463,6 +472,7 @@ def build_canonical_semantic_build(
         identities=identities,
         experience_type_decisions=experience_type_decisions,
         ledger=ledger,
+        display_name_qualifications=display_name_qualifications,
     )
     ownership_index = _build_ownership_index(
         ledger if state.validation.valid else ExperienceFactLedger()
@@ -492,6 +502,7 @@ def build_canonical_semantic_state_from_build(
         identities=build.identities,
         experience_type_decisions=build.experience_type_decisions,
         ledger=build.ledger,
+        display_name_qualifications=build.display_name_qualifications,
         experience_input_id=experience_input_id,
     )
     build.state = state

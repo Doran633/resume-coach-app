@@ -120,7 +120,7 @@ def test_pending_name_keeps_project_and_attachments_without_raw_inference():
     resolved = title_service.resolve_canonical_resume_titles(payload, views.planner_view)
     resolved_project = resolved.resume_sections.projects[0]
 
-    assert resolved_project["name"] == "[待填写]"
+    assert resolved_project["name"] == "[待补充经历名称]"
     assert _attachments(resolved_project) == before
 
 

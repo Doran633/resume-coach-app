@@ -152,9 +152,8 @@ def resolve_canonical_resume_titles(
 
     The legacy resolver above remains available to legacy callers.  Canonical
     generation must not re-read raw input or rebuild Identity, Claim, or Fact
-    state merely to format a title.  The deep copy deliberately preserves every
-    existing provenance attachment while this function limits itself to filling
-    an absent display name from the owner-scoped qualification.
+    state merely to format a title. The compiled qualification is the sole
+    display-name authority: LLM or legacy project names cannot bypass it.
     """
     updated = payload.model_copy(deep=True)
     for project in updated.resume_sections.projects:
@@ -166,11 +165,12 @@ def resolve_canonical_resume_titles(
         if planner_view.owner_scope(owner) is None:
             continue
         qualification = planner_view.display_name_qualification_for_owner(owner)
-        current_name = str(project.get("name") or "").strip()
-        if (
-            qualification is not None
-            and qualification.qualified
-            and current_name in {"", "[待填写]", "项目实践"}
-        ):
+        if qualification is not None and qualification.qualified:
             project["name"] = qualification.display_name
+        elif qualification is not None:
+            project["name"] = "[待补充经历名称]"
+            question = "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"
+            if question not in updated.missing_questions:
+                updated.missing_questions.append(question)
+    updated.missing_questions = updated.missing_questions[:8]
     return updated

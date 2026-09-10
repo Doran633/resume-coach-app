@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.11.2：Canonical Experience Display Name Authority
+
+- 每个 Canonical owner 在同一次 Semantic Compilation 中只产生一个展示名称资格结果；资格结果包含脱敏来源类别、owner source span、状态、原因、Claim lineage 和 fingerprint，不新增名称状态真源。
+- `Identity.title`、`canonical_project_name` 与 alias 现在只是未受信候选。只有显式经历标题、明确命名结构、同 owner 的明确项目/产品/活动实体，或同 owner eligible Claim 中的明确实体，才能获得展示资格。
+- 总结性描述、技术栈、职责、结果、GitHub、指令、否定/不确定/planned 表述和结构标签不能自行成为项目名称；“没有边界的检索工具”这类正常产品名不会因包含单个词而被误拒。
+- Canonical Title Resolver 现在无条件服从编译期资格结果，覆盖未经资格的既有 `project.name`，同时原样保留 Fact / Claim attachment、owner、type 和正文。名称未知时使用既有待补充名称与事实中立问题，不删除经历。
+- 只读审计确认：Canonical Project Projection 和 Canonical Title Resolver 已消费资格结果；Experience Validity、Entity Dedup、Project Reconciliation 的旧名称写入分支在 Canonical 路径不可达。legacy 分支保留兼容，后续不得将其重新接回 Canonical 链路。
+
 ## v0.9.11.1：Canonical Experience Boundary Qualification
 
 - 无显式标题的 Semantic Experience 边界现在需要独立经历锚点：明确的新项目、产品或活动实体；新组织及其角色；明确时间范围；或显式经历类型标签。

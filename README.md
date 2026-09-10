@@ -1,6 +1,6 @@
 # Resume Coach App
 
-## 当前架构：v0.9.11.1
+## 当前架构：v0.9.11.2
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -23,7 +23,7 @@ raw_input
 
 - **Semantic Compilation**：同一次请求只构建一套 Experience Identity、Claim Resolution 和 Fact Ledger，形成请求级 CanonicalSemanticBuild。无显式标题的后续片段还必须具备独立实体、组织角色、时间范围或经历类型标签，才能创建新的 Experience owner scope；动作、技术、结果和标点只作为辅助信号。
 - **Canonical Consumer Views**：Planner、Guard 和未来 Repair 只能通过按 `experience_id` 限定的只读视图读取允许的 Claim、Fact 和技能证据，不重新理解完整 `raw_input`。
-- **Display Name Qualification**：Canonical Projection 只使用具有显式标题来源或同 owner 已确认 Claim 证明的名称；结构标签、说明或否定内容不能作为名称。名称不明时保留本 owner 的事实并请求补充名称，不吞掉经历。
+- **Display Name Qualification**：每个 owner 在 Semantic Compilation 中只形成一个名称资格结果。显式标题、明确命名结构和同 owner 的明确产品实体可展示；Identity 标题、alias、总结说明、技术栈、职责和结果都只是候选，不能绕过资格进入项目名称。名称不明时保留本 owner 的事实并请求补充名称，不吞掉经历。
 - **Owner / Type Freeze**：经历类型、事实归属和项目归属在生成链路中冻结；后续模块只能验证、删除污染或使用同 owner 事实，不能跨经历重绑。
 - **Delivery Gate**：仅检查交付质量，不再恢复项目、补写事实、重建语义或修改 payload。
 - **Quality Repair Router**：仅处理证据充分的局部冗余，例如同一 owner、同一 Fact binding 的完全重复字段；不会创建事实、项目、技能或职责。
@@ -60,6 +60,7 @@ raw_input
 | v0.9.10.1 | Initial Projection Duplicate Suppression | Section Fallback 在明确同 owner、同 Fact/Claim 且完全同文时，不再把同一表达重复写入 role；字段 Fact/Claim 行在候选构造时同步建立。 |
 | v0.9.11 | Immutable Delivery Revision | Final Gate 检查实际持久化语义内容；GenerationResult 成为唯一不可变交付 revision，页面和 DOCX 读取同一内容，DOCX 不再静默裁剪项目或详情。 |
 | v0.9.11.1 | Canonical Experience Boundary Qualification | 无显式标题的候选边界需同时具备既有边界条件和独立经历锚点；不合格的动作/结果尾部片段并回前一经历，不再创建额外 owner、Claim、Fact 或待补充项目。 |
+| v0.9.11.2 | Canonical Experience Display Name Authority | 编译期为每个 owner 选择唯一、可追溯的展示名称；Identity 标题、alias 和已有项目名不能绕过资格，未知名称保留经历并进入待补充状态。 |
 
 后续尚未实施的架构阶段：
 
@@ -77,6 +78,7 @@ raw_input
 - [Post-Commit Semantic Rebuild Cutoff](docs/post-commit-semantic-rebuild-cutoff.md) 说明 Commit 后旧语义重建服务在 Canonical 生产路径中的切断边界。
 - [Presentation Field / Provenance Consistency](docs/presentation-field-provenance-consistency.md) 说明正文变换如何与 Fact / Claim attachment 同步，及字段级附件和项目级聚合集合的区别。
 - [Canonical Fact Projection Completeness](docs/canonical-fact-projection-completeness.md) 说明已有冻结项目的受限事实投影、Coverage 的只读边界，以及展示排序和附件同步契约。
+- [Canonical Experience Display Name Authority](docs/canonical-experience-display-name-authority.md) 说明展示名称的候选来源、资格排序与下游强制消费边界。
 - [Immutable Delivery Revision](docs/immutable-delivery-revision.md) 说明最终 Gate、确定性 revision、数据库读取和完整 DOCX 渲染的一致性契约。
 - Canonical State、Ownership、Consumer Views、Delivery Gate、Repair Router 都输出脱敏聚合日志，不记录用户正文、Cookie、API Key 或原始 IP。
 - shallow smoke 检查网站、法律页面、健康接口、Cookie、安全响应头和版本一致性；full smoke 显式调用模型，并在 finally 中清理测试数据。
