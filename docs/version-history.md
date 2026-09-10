@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.11：Immutable Delivery Revision
+
+- 最终 Ownerless Containment 现在位于 Delivery Gate 的最终复查之前；Gate 检查的是准备持久化的 Canonical 交付语义内容，而不是其早期快照。
+- 新增请求级 Immutable Delivery Revision：仅确定性剥离已登记的内部控制 metadata，序列化结果直接写入 `GenerationResult.result_json`，提交后重新读取并校验 fingerprint。
+- 同步生成响应和异步任务轮询都从已保存 revision 返回；revision 建立后，后续只允许日志、关联记录和文件记录写入，不允许语义写入。
+- DOCX 保持单向读取 `GenerationResult.result_json`，移除项目和详情的静默数量裁剪，所有有效项目与详情按 Word 正常分页渲染。
+- 如果历史 payload 需要 DOCX 在导出时删除项目或正文才能交付，DOCX 现在明确拒绝导出而非静默改写；不会重新解释或修复语义。
+
 ## v0.9.9.3：Canonical Fact Projection Completeness
 
 - Canonical Project Projection Planner 现在可为唯一对应、已冻结 owner-bound 项目补入本 owner 的遗漏 eligible Fact；只使用 Ledger 既有 `resume_ready_text`，同时写入精确 detail Fact / Claim 行。

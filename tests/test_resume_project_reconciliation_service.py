@@ -2,6 +2,8 @@ from pathlib import Path
 import sys
 import tempfile
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -10,6 +12,7 @@ from app import schemas  # noqa: E402
 from app import models  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
+from app.services.docx_service import DocxRenderSourceError  # noqa: E402
 from app.services.experience_identity_service import build_experience_identities  # noqa: E402
 from app.services.resume_project_reconciliation_service import reconcile_resume_projects  # noqa: E402
 from docx import Document  # noqa: E402
@@ -122,7 +125,7 @@ def test_total_detail_budget_is_bounded_without_emptying_projects():
     assert all(items for items in details)
 
 
-def test_historical_payload_docx_removes_comprehensive_project():
+def test_historical_payload_docx_rejects_comprehensive_project_instead_of_silent_cleanup():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()
@@ -150,23 +153,16 @@ def test_historical_payload_docx_removes_comprehensive_project():
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             docx_service.OUTPUT_DIR = Path(tmpdir)
-            response = docx_service.create_docx(
-                db,
-                schemas.DocxCreate(
-                    anonymous_user_id="u-test",
-                    session_id="s-test",
-                    generation_result_id=502,
-                ),
-            )
-            document_text = "\n".join(
-                paragraph.text for paragraph in Document(Path(tmpdir) / response.file_name).paragraphs
-            )
-            assert "综合经历项目" not in document_text
-            assert "AI RAG 助手" in document_text
-            assert "AI 简历定位与包装网站" in document_text
-            assert "企业级 Agent 助手 RAG 模块优化" in document_text
-            assert "0.4315" in document_text and "0.7258" in document_text
-            assert "BAAI/bge-m3" in document_text
+            with pytest.raises(DocxRenderSourceError):
+                docx_service.create_docx(
+                    db,
+                    schemas.DocxCreate(
+                        anonymous_user_id="u-test",
+                        session_id="s-test",
+                        generation_result_id=502,
+                    ),
+                )
+            assert db.query(models.GeneratedFile).filter_by(generation_result_id=502).count() == 0
         finally:
             docx_service.OUTPUT_DIR = original_output_dir
     db.close()
@@ -177,5 +173,5 @@ if __name__ == "__main__":
     test_comprehensive_project_is_removed_and_details_are_recovered()
     test_reconciliation_is_idempotent()
     test_total_detail_budget_is_bounded_without_emptying_projects()
-    test_historical_payload_docx_removes_comprehensive_project()
+    test_historical_payload_docx_rejects_comprehensive_project_instead_of_silent_cleanup()
     print("resume project reconciliation tests passed")

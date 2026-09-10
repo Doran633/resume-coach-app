@@ -2,12 +2,15 @@ from pathlib import Path
 import sys
 import tempfile
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import models, schemas  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
+from app.services.docx_service import DocxRenderSourceError  # noqa: E402
 from app.services.input_content_classification_service import classify_input_content  # noqa: E402
 from app.services.resume_output_firewall_service import guard_resume_output  # noqa: E402
 from docx import Document  # noqa: E402
@@ -66,7 +69,7 @@ def test_real_internship_job_title_is_not_removed():
     assert "AI Agent 开发实习生" in project_text(result)
 
 
-def test_historical_docx_removes_instruction_leakage():
+def test_historical_docx_rejects_instruction_leakage_instead_of_silent_cleanup():
     dirty = guard_resume_output(payload([
         "技术动作：我独立完成回归分析工具，希望包装得更适合 AI Agent 岗位，但不要写成无法解释的内容"
     ]), RAW, write_log=False)
@@ -82,11 +85,10 @@ def test_historical_docx_removes_instruction_leakage():
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             docx_service.OUTPUT_DIR = Path(tmpdir)
-            response = docx_service.create_docx(db, schemas.DocxCreate(
-                anonymous_user_id="u", session_id="s", generation_result_id=806))
-            text = "\n".join(p.text for p in Document(Path(tmpdir) / response.file_name).paragraphs)
-            for phrase in ["技术动作", "希望包装", "不要写成", "无法解释"]:
-                assert phrase not in text, f"DOCX still contains {phrase.encode('unicode_escape')}: {text.encode('unicode_escape')}"
+            with pytest.raises(DocxRenderSourceError):
+                docx_service.create_docx(db, schemas.DocxCreate(
+                    anonymous_user_id="u", session_id="s", generation_result_id=806))
+            assert db.query(models.GeneratedFile).filter_by(generation_result_id=806).count() == 0
         finally:
             docx_service.OUTPUT_DIR = old_output
             db.close()
@@ -97,5 +99,5 @@ if __name__ == "__main__":
     test_mixed_fact_and_instruction_keeps_only_fact()
     test_target_intent_and_template_residue_do_not_reach_resume()
     test_real_internship_job_title_is_not_removed()
-    test_historical_docx_removes_instruction_leakage()
+    test_historical_docx_rejects_instruction_leakage_instead_of_silent_cleanup()
     print("resume output firewall tests passed")

@@ -2,12 +2,15 @@ from pathlib import Path
 import sys
 import tempfile
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import models, schemas  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
+from app.services.docx_service import DocxRenderSourceError  # noqa: E402
 from app.services.resume_delivery_quality_gate_service import ensure_resume_delivery_quality  # noqa: E402
 from app.services.resume_skill_evidence_guard_service import guard_resume_skill_evidence  # noqa: E402
 from app.services.resume_skill_taxonomy_service import calibrate_resume_skill_taxonomy  # noqa: E402
@@ -37,7 +40,7 @@ def payload():
     )
 
 
-def test_historical_docx_is_delivery_ready():
+def test_historical_docx_rejects_saved_content_that_requires_export_time_cleanup():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()
@@ -53,17 +56,10 @@ def test_historical_docx_is_delivery_ready():
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             docx_service.OUTPUT_DIR = Path(tmpdir)
-            response = docx_service.create_docx(db, schemas.DocxCreate(
-                anonymous_user_id="u", session_id="s", generation_result_id=953))
-            text = "\n".join(p.text for p in Document(Path(tmpdir) / response.file_name).paragraphs)
-            assert "Docker" not in text and "如掌握" not in text
-            assert "编程语言：" in text and "Python" in text and "TypeScript" in text
-            assert "工程化与部署：" in text and "Git" in text
-            assert "\nPython\n" not in f"\n{text}\n"
-            assert "raw_text" not in text and "explicit_metrics" not in text
-            assert "如何在“ ” “" not in text
-            assert not ("找到边界" in text and "表达强度" not in text)
-            assert "Experience ID" in text and "Fact Ledger" in text
+            with pytest.raises(DocxRenderSourceError):
+                docx_service.create_docx(db, schemas.DocxCreate(
+                    anonymous_user_id="u", session_id="s", generation_result_id=953))
+            assert db.query(models.GeneratedFile).filter_by(generation_result_id=953).count() == 0
         finally:
             docx_service.OUTPUT_DIR = old_output
             db.close()

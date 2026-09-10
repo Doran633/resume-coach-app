@@ -57,12 +57,10 @@ from .resume_experience_validity_service import ensure_resume_experience_validit
 from .resume_delivery_quality_gate_service import (
     validate_resume_delivery_quality,
 )
-from .project_hierarchy_service import strip_project_hierarchy_metadata
 from .experience_slot_service import (
     bind_projects_to_experience_slots,
     contain_ownerless_projects,
     freeze_canonical_projection_candidates,
-    strip_experience_slot_metadata,
     write_owner_delivery_contract_log,
 )
 from .input_semantic_role_service import write_semantic_role_log
@@ -97,6 +95,12 @@ from .canonical_project_projection_service import (
     append_canonical_project_projection_candidates,
     plan_canonical_project_projections,
     write_canonical_project_projection_log,
+)
+from .immutable_delivery_revision_service import (
+    build_immutable_delivery_revision,
+    revision_matches_serialized_payload,
+    revision_preserves_visible_delivery,
+    write_immutable_delivery_revision_log,
 )
 from .resource_protection_service import resource_protection
 
@@ -868,14 +872,6 @@ def create_generation(
         attempt_id=request.attempt_id or "",
     )
     mutation_tracer.checkpoint(payload, "after_quality_repair_router", parent_stage="resume_quality_repair_router")
-    repair_recheck_evaluation = validate_resume_delivery_quality(
-        payload,
-        consumer_views=consumer_views,
-        skill_evidence=skill_evidence,
-        stage="after_quality_repair",
-        mutation_tracer=mutation_tracer,
-        access_stats=consumer_view_access_stats,
-    )
     payload, owner_delivery_post_repair_stats = contain_ownerless_projects(
         payload,
         semantic_build.ownership_index,
@@ -885,10 +881,18 @@ def create_generation(
         return_stats=True,
     )
     mutation_tracer.checkpoint(payload, "after_quality_repair_owner_delivery_contract", parent_stage="ownerless_project_containment")
+    repair_recheck_evaluation = validate_resume_delivery_quality(
+        payload,
+        consumer_views=consumer_views,
+        skill_evidence=skill_evidence,
+        stage="after_final_owner_delivery_contract",
+        mutation_tracer=mutation_tracer,
+        access_stats=consumer_view_access_stats,
+    )
     projection_observer.checkpoint(
         payload,
         "before_persistence",
-        parent_stage="final_ownerless_project_containment",
+        parent_stage="final_delivery_gate_recheck",
         containment_stats=owner_delivery_post_repair_stats,
     )
     final_quality_issues = list(repair_recheck_evaluation.issues)
@@ -913,24 +917,50 @@ def create_generation(
         stage="generation",
     )
     log_generation_stage(payload, "before_save")
+    # Projection retention is a semantic-pipeline measurement.  The immutable
+    # delivery revision intentionally removes slot-lock implementation fields,
+    # so it cannot serve as the evidence source for that measurement.
     projection_delivery_payload = payload
-    payload = strip_project_hierarchy_metadata(payload)
-    payload = strip_experience_slot_metadata(payload)
+    revision = build_immutable_delivery_revision(
+        payload,
+        gate_passed=repair_recheck_evaluation.stats.gate_passed,
+    )
+    if not revision_preserves_visible_delivery(payload, revision):
+        raise GenerationServiceError("Immutable delivery revision changed visible content.")
+    payload = revision.payload
 
     result = models.GenerationResult(
         experience_input_id=experience.id,
         completeness_score=payload.completeness_score,
-        result_json=payload.model_dump_json(),
+        result_json=revision.serialized_payload,
     )
     db.add(result)
     db.commit()
     db.refresh(result)
+    persisted_payload = get_generation_payload(db, result.id)
+    persisted_fingerprint_match = bool(
+        persisted_payload
+        and revision_matches_serialized_payload(revision, result.result_json)
+    )
+    if not persisted_fingerprint_match:
+        raise GenerationServiceError("Immutable delivery revision did not match persisted result.")
     write_quality_repair_router_log(
         quality_repair_result,
         request_id=request_id,
         attempt_id=request.attempt_id or "",
         generation_result_id=result.id,
         stage="generation_quality_repair_saved",
+    )
+    write_immutable_delivery_revision_log(
+        revision,
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
+        persisted_fingerprint_match=persisted_fingerprint_match,
+        response_fingerprint_match=revision_matches_serialized_payload(
+            revision,
+            persisted_payload.model_dump_json() if persisted_payload else "",
+        ),
     )
     write_canonical_consumer_views_log(
         consumer_views,
@@ -1053,7 +1083,7 @@ def create_generation(
     return schemas.GenerateResponse(
         experience_input_id=experience.id,
         generation_result_id=result.id,
-        result=payload,
+        result=persisted_payload,
     )
 
 

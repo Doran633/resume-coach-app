@@ -2,6 +2,8 @@ from pathlib import Path
 import sys
 import tempfile
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
@@ -12,6 +14,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 from app import models, schemas  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.services import docx_service  # noqa: E402
+from app.services.docx_service import DocxRenderSourceError  # noqa: E402
 from app.services.experience_boundary_guard_service import guard_experience_boundaries  # noqa: E402
 from app.services.long_input_service import analyze_long_input  # noqa: E402
 from app.services.resume_output_firewall_service import guard_resume_output  # noqa: E402
@@ -108,7 +111,7 @@ def test_section_fallback_cleans_historical_internal_role():
     assert "RAG" in result.resume_sections.projects[0]["role"]
 
 
-def test_historical_docx_removes_internal_role_or_omits_empty_role_line():
+def test_historical_docx_rejects_internal_role_instead_of_silent_cleanup():
     raw = "项目经历：完成课程展示。"
     dirty = payload([project()])
     engine = create_engine("sqlite:///:memory:")
@@ -122,11 +125,10 @@ def test_historical_docx_removes_internal_role_or_omits_empty_role_line():
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             docx_service.OUTPUT_DIR = Path(tmpdir)
-            response = docx_service.create_docx(db, schemas.DocxCreate(
-                anonymous_user_id="u", session_id="s", generation_result_id=956))
-            text = "\n".join(paragraph.text for paragraph in Document(Path(tmpdir) / response.file_name).paragraphs)
-            assert all(marker not in text for marker in FORBIDDEN)
-            assert "具体职责以" not in text and "相关任务" not in text
+            with pytest.raises(DocxRenderSourceError):
+                docx_service.create_docx(db, schemas.DocxCreate(
+                    anonymous_user_id="u", session_id="s", generation_result_id=956))
+            assert db.query(models.GeneratedFile).filter_by(generation_result_id=956).count() == 0
         finally:
             docx_service.OUTPUT_DIR = old_output
             db.close()

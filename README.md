@@ -1,6 +1,6 @@
 # Resume Coach App
 
-## 当前架构：v0.9.10.1
+## 当前架构：v0.9.11
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -12,8 +12,11 @@ raw_input
   -> Owner / Type / Fact Scope Freeze
   -> Delivery Gate（只读验证）
   -> Quality Repair Router（确定性局部清理）
+  -> Final Ownerless Containment
+  -> Delivery Gate Final Recheck（只读）
+  -> Immutable Delivery Revision
   -> Persisted GenerationResult
-  -> DOCX One-way Renderer
+  -> Web / DOCX One-way Renderer
 ```
 
 核心职责如下：
@@ -24,7 +27,8 @@ raw_input
 - **Owner / Type Freeze**：经历类型、事实归属和项目归属在生成链路中冻结；后续模块只能验证、删除污染或使用同 owner 事实，不能跨经历重绑。
 - **Delivery Gate**：仅检查交付质量，不再恢复项目、补写事实、重建语义或修改 payload。
 - **Quality Repair Router**：仅处理证据充分的局部冗余，例如同一 owner、同一 Fact binding 的完全重复字段；不会创建事实、项目、技能或职责。
-- **DOCX One-way Renderer**：DOCX 只消费已保存的 `GenerationResult.result_json`，进行确定性文本清理后渲染，不再读取原始输入或重跑语义生成链路。
+- **Immutable Delivery Revision**：最终 containment 与 Gate 复查后，确定性序列化唯一交付 payload；数据库、同步响应、任务轮询和 DOCX 都消费该 revision，之后不存在语义写入者。
+- **DOCX One-way Renderer**：DOCX 只消费已保存的 `GenerationResult.result_json`，进行确定性文本清理后完整渲染，不再读取原始输入或重跑语义生成链路，也不会静默裁剪项目或详情。
 
 ### v0.9 架构迁移记录
 
@@ -54,11 +58,11 @@ raw_input
 | v0.9.9.3 | Canonical Fact Projection Completeness | 已绑定项目的遗漏 eligible Fact 仅在同 owner、唯一目标和精确字段证据成立时由 Projection Planner 补入；Coverage 不再作为第二个正文写入者，展示排序与预算同步维护 Fact / Claim 行。 |
 | v0.9.10 | Post-Commit Authority Closure | 初始投影完成后，Boundary、Coverage、Role Recovery 与 Entity Dedup 不再补写正文、猜测字段来源、合并项目或改名；后处理只做受限清理、验证与附件同步。 |
 | v0.9.10.1 | Initial Projection Duplicate Suppression | Section Fallback 在明确同 owner、同 Fact/Claim 且完全同文时，不再把同一表达重复写入 role；字段 Fact/Claim 行在候选构造时同步建立。 |
+| v0.9.11 | Immutable Delivery Revision | Final Gate 检查实际持久化语义内容；GenerationResult 成为唯一不可变交付 revision，页面和 DOCX 读取同一内容，DOCX 不再静默裁剪项目或详情。 |
 
 后续尚未实施的架构阶段：
 
-- **Phase 8.4 Scoped Professionalization**：对每个字段限定可用于书面化改写的事实范围，改写后重新校验 provenance。
-- **Phase 8.5 Immutable Delivery Revision**：保存最终不可变 revision，让网页与 DOCX 都单向消费同一交付版本。
+- **Phase 8.4 Scoped Professionalization**：在已完成冻结的事实范围内，对每个字段限定可用于书面化改写的内容，并在改写后重新校验 provenance。
 
 后续阶段不得重新授予 Commit 后模块读取完整 `raw_input`、创建具体事实、重绑 owner 或改写 type 的权限。
 
@@ -72,6 +76,7 @@ raw_input
 - [Post-Commit Semantic Rebuild Cutoff](docs/post-commit-semantic-rebuild-cutoff.md) 说明 Commit 后旧语义重建服务在 Canonical 生产路径中的切断边界。
 - [Presentation Field / Provenance Consistency](docs/presentation-field-provenance-consistency.md) 说明正文变换如何与 Fact / Claim attachment 同步，及字段级附件和项目级聚合集合的区别。
 - [Canonical Fact Projection Completeness](docs/canonical-fact-projection-completeness.md) 说明已有冻结项目的受限事实投影、Coverage 的只读边界，以及展示排序和附件同步契约。
+- [Immutable Delivery Revision](docs/immutable-delivery-revision.md) 说明最终 Gate、确定性 revision、数据库读取和完整 DOCX 渲染的一致性契约。
 - Canonical State、Ownership、Consumer Views、Delivery Gate、Repair Router 都输出脱敏聚合日志，不记录用户正文、Cookie、API Key 或原始 IP。
 - shallow smoke 检查网站、法律页面、健康接口、Cookie、安全响应头和版本一致性；full smoke 显式调用模型，并在 finally 中清理测试数据。
 

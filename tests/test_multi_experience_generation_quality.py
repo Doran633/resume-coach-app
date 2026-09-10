@@ -95,7 +95,6 @@ def build_multi_project_payload(project_count: int = 3):
 
 def test_fallback_keeps_two_project_experiences():
     payload = fill_resume_sections(build_multi_project_payload(2), write_log=False)
-
     assert len(payload.resume_sections.projects) >= 2
     assert payload.resume_sections.projects[0]["name"] == "AI 复习辅助系统"
     assert payload.resume_sections.projects[1]["name"] == "开源简历包装 Skill"
@@ -164,6 +163,13 @@ def test_multi_project_docx_contains_multiple_project_names():
     db = SessionLocal()
 
     payload = fill_resume_sections(build_multi_project_payload(2), write_log=False)
+    # This test verifies DOCX renders multiple already-formal projects.  Avoid
+    # depending on export-time removal of a coaching marker in legacy text.
+    for project in payload.resume_sections.projects:
+        project["details"] = [
+            detail.replace("Claim 风险规则", "风险校验规则")
+            for detail in project.get("details", [])
+        ]
     db.add(models.ExperienceInput(
         id=1,
         anonymous_user_id=1,

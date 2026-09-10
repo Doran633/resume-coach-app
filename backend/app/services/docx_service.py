@@ -42,6 +42,8 @@ class DocxOneWayRenderStats:
     semantic_rebuild_attempt_count: int = 0
     removed_field_count: int = 0
     rendered_project_count: int = 0
+    rendered_detail_count: int = 0
+    delivery_content_match: bool = True
     passed: bool = False
 
 
@@ -55,6 +57,17 @@ def _visible_field_count(payload: schemas.GenerationPayload) -> int:
         count += sum(bool(str(project.get(key) or "").strip()) for key in ("name", "position", "meta", "time", "intro", "role"))
         count += sum(bool(str(value or "").strip()) for value in project.get("details", []) or [])
     return count
+
+
+def _delivery_project_shape(payload: schemas.GenerationPayload) -> tuple[int, int, int]:
+    """Count visible project fields without treating typography cleanup as semantic repair."""
+    projects = payload.resume_sections.projects
+    detail_count = sum(len(project.get("details", []) or []) for project in projects)
+    field_count = sum(
+        sum(bool(str(project.get(key) or "").strip()) for key in ("name", "meta", "time", "intro", "role"))
+        for project in projects
+    ) + detail_count
+    return len(projects), detail_count, field_count
 
 
 def _write_one_way_render_log(stats: DocxOneWayRenderStats) -> None:
@@ -142,12 +155,6 @@ def _setup(doc: Document) -> None:
     normal.font.size = Pt(9.2)
 
 
-def _project_detail_limit(project_count: int) -> int:
-    if project_count <= 3:
-        return 8
-    return 5
-
-
 def _group_experiences(projects: list[dict]) -> list[tuple[str, list[dict]]]:
     return route_resume_projects(projects)
 
@@ -172,7 +179,16 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     # DOCX is a one-way delivery renderer. Semantic compilation and all factual
     # decisions were completed before this payload was persisted.
     payload = normalize_resume_section_schema(payload)
+    source_project_shape = _delivery_project_shape(payload)
     payload = prepare_docx_delivery(payload, generation_result_id=request.generation_result_id)
+    prepared_project_shape = _delivery_project_shape(payload)
+    if prepared_project_shape != source_project_shape:
+        render_stats.delivery_content_match = False
+        render_stats.removed_field_count = max(0, fields_before - _visible_field_count(payload))
+        _write_one_way_render_log(render_stats)
+        raise DocxRenderSourceError(
+            "当前保存的简历结果包含无法直接交付的内容，无法在导出时静默删改，请返回结果页补充并重新生成。"
+        )
     payload = ensure_paired_symbol_integrity(
         payload, stage="docx_export", generation_result_id=request.generation_result_id,
     )
@@ -184,6 +200,9 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
     )
     render_stats.removed_field_count = max(0, fields_before - _visible_field_count(payload))
     render_stats.rendered_project_count = len(payload.resume_sections.projects)
+    render_stats.rendered_detail_count = sum(
+        len(project.get("details", []) or []) for project in payload.resume_sections.projects
+    )
     if not render_stats.rendered_project_count:
         _write_one_way_render_log(render_stats)
         raise DocxRenderSourceError("当前保存的简历结果没有可导出的有效经历，请返回结果页补充并重新生成。")
@@ -226,8 +245,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
         for item in payload.resume_sections.skills:
             _bullet(doc, item, bold_label=True)
 
-    projects = payload.resume_sections.projects[:5]
-    detail_limit = _project_detail_limit(len(projects))
+    projects = payload.resume_sections.projects
     for heading, group in _group_experiences(projects):
         _heading(doc, heading)
         for project in group:
@@ -244,7 +262,7 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
             details = [str(item) for item in project.get("details", []) if str(item).strip()]
             if details:
                 _bullet(doc, "技术细节：", bold_label=True)
-                for detail in details[:detail_limit]:
+                for detail in details:
                     _bullet(doc, detail, level=1)
 
     path = _next_path("resume-coach-v0")

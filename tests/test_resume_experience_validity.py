@@ -3,6 +3,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -15,6 +17,7 @@ from app.services import (  # noqa: E402
     resume_section_fallback_service,
 )
 from app.services.docx_delivery_readiness_service import prepare_docx_delivery  # noqa: E402
+from app.services.docx_service import DocxRenderSourceError  # noqa: E402
 from app.services.experience_identity_service import build_experience_identities  # noqa: E402
 from app.services.project_hierarchy_service import classify_shell_project, is_shell_project  # noqa: E402
 from app.services.resume_experience_entity_dedup_service import deduplicate_resume_experience_entities  # noqa: E402
@@ -201,7 +204,7 @@ def test_validity_log_is_structured_and_does_not_contain_resume_body():
             resume_experience_validity_service.LOG_PATH = old_path
 
 
-def test_historical_docx_removes_other_experience():
+def test_historical_docx_rejects_other_experience_instead_of_silent_cleanup():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()
@@ -218,20 +221,11 @@ def test_historical_docx_removes_other_experience():
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             docx_service.OUTPUT_DIR = Path(tmpdir)
-            response = docx_service.create_docx(db, schemas.DocxCreate(
-                anonymous_user_id="u", session_id="s", generation_result_id=909,
-            ))
-            paragraphs = [
-                paragraph.text for paragraph in Document(Path(tmpdir) / response.file_name).paragraphs
-            ]
-            text = "\n".join(paragraphs)
-            project_headings = [
-                line for line in paragraphs
-                if line.startswith("北辰 Agent / AI Study Assistant")
-            ]
-            assert len(project_headings) == 1
-            assert "其他经历" not in text
-            assert "source_experience_id" not in text and "fact_id" not in text
+            with pytest.raises(DocxRenderSourceError):
+                docx_service.create_docx(db, schemas.DocxCreate(
+                    anonymous_user_id="u", session_id="s", generation_result_id=909,
+                ))
+            assert db.query(models.GeneratedFile).filter_by(generation_result_id=909).count() == 0
         finally:
             docx_service.OUTPUT_DIR = old_output
             db.close()
