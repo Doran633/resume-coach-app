@@ -165,6 +165,7 @@ def resolve_canonical_resume_titles(
         if planner_view.owner_scope(owner) is None:
             continue
         qualification = planner_view.display_name_qualification_for_owner(owner)
+        time_decision = planner_view.experience_time_decision_for_owner(owner)
         if qualification is not None and qualification.qualified:
             project["name"] = qualification.display_name
         elif qualification is not None:
@@ -172,5 +173,11 @@ def resolve_canonical_resume_titles(
             question = "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"
             if question not in updated.missing_questions:
                 updated.missing_questions.append(question)
+        if time_decision is not None:
+            project["time"] = time_decision.display_time
+            if not time_decision.qualified:
+                question = "请补充尚未明确的经历起止时间或学期。"
+                if question not in updated.missing_questions:
+                    updated.missing_questions.append(question)
     updated.missing_questions = updated.missing_questions[:8]
     return updated

@@ -135,7 +135,10 @@ def test_unknown_name_keeps_owner_facts_and_generic_missing_question():
     assert projected.resume_sections.projects[0]["name"] == NAME_PENDING_DISPLAY
     assert projected.resume_sections.projects[0]["source_experience_id"] == "EXP-001"
     assert projected.resume_sections.projects[0]["source_fact_ids"]
-    assert projected.missing_questions == ["请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"]
+    assert projected.missing_questions == [
+        "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。",
+        "请补充尚未明确的经历起止时间或学期。",
+    ]
 
 
 def test_canonical_title_consumer_cannot_keep_an_unqualified_existing_project_name():

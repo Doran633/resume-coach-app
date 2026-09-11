@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ OWNERSHIP_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_f
 SCOPED_ACCESS_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_scoped_fact_access.jsonl"
 FALLBACK_RECOVERY_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fallback_recovery.jsonl"
 ELIGIBILITY_INTEGRITY_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_eligibility_integrity.jsonl"
+TIME_QUALIFICATION_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_experience_time_qualification.jsonl"
 CANONICAL_EXPERIENCE_TYPES = (
     "项目经历",
     "实习经历",
@@ -107,6 +109,40 @@ class CanonicalExperienceTypeDecision:
     type_source: str
     explicit: bool
     confidence: float
+
+
+TIME_QUALIFIED = "qualified"
+TIME_PENDING = "pending"
+TIME_PENDING_DISPLAY = "时间：【待填写】"
+
+
+@dataclass(frozen=True)
+class CanonicalExperienceTimeDecision:
+    """One owner-scoped, display-safe time decision from Semantic Compilation."""
+
+    experience_id: str
+    display_time: str
+    candidate_source: str
+    source_span: tuple[int, int]
+    status: str
+    reason_codes: tuple[str, ...]
+    source_claim_ids: tuple[str, ...]
+    time_fingerprint: str
+    candidate_sources: tuple[str, ...] = ()
+    rejected_candidate_reason_codes: tuple[str, ...] = ()
+
+    @property
+    def qualified(self) -> bool:
+        return self.status == TIME_QUALIFIED and bool(self.display_time)
+
+
+@dataclass(frozen=True)
+class _CanonicalTimeCandidate:
+    display_time: str
+    source: str
+    source_span: tuple[int, int]
+    source_claim_ids: tuple[str, ...]
+    specificity: int
 
 
 @dataclass(frozen=True)
@@ -223,6 +259,7 @@ class CanonicalSemanticBuild:
     semantic_analyses: tuple[InputSemanticAnalysis, ...]
     claim_resolutions: tuple[ClaimResolution, ...]
     display_name_qualifications: tuple[CanonicalDisplayNameQualification, ...]
+    experience_time_decisions: tuple[CanonicalExperienceTimeDecision, ...]
     ledger: ExperienceFactLedger
     ownership_index: CanonicalFactOwnershipIndex
     state: CanonicalSemanticState | None = None
@@ -234,6 +271,10 @@ class CanonicalSemanticBuild:
     @property
     def display_name_qualification_by_experience_id(self) -> dict[str, CanonicalDisplayNameQualification]:
         return {item.experience_id: item for item in self.display_name_qualifications}
+
+    @property
+    def experience_time_decision_by_experience_id(self) -> dict[str, CanonicalExperienceTimeDecision]:
+        return {item.experience_id: item for item in self.experience_time_decisions}
 
 
 def _fingerprint(
@@ -322,6 +363,139 @@ def _build_experience_type_decision(
         ),
         explicit=resolution.resolution_method == "declared_experience_type",
         confidence=resolution.confidence,
+    )
+
+
+_DATE_TOKEN = (
+    r"(?:19|20)\d{2}(?:\s*年(?:\s*\d{1,2}\s*月?)?|\s*[./]\s*\d{1,2})?"
+)
+_TIME_RANGE_PATTERN = re.compile(
+    rf"(?P<start>{_DATE_TOKEN})\s*(?:[-—–~～]|至|到)\s*(?P<end>{_DATE_TOKEN}|至今|目前)",
+    re.I,
+)
+_TERM_PATTERN = re.compile(
+    r"(?:(?:19|20)\d{2}\s*(?:年)?\s*(?:春季|秋季|春|秋)\s*学期|"
+    r"(?:19|20)\d{2}\s*[-—–~～]\s*(?:19|20)\d{2}\s*学年)",
+    re.I,
+)
+_SINGLE_DATE_PATTERN = re.compile(
+    r"(?:19|20)\d{2}(?:\s*年\s*\d{1,2}\s*月|\s*[./]\s*\d{1,2}|\s*年)",
+    re.I,
+)
+_NON_EXPERIENCE_TIME_CONTEXT = re.compile(
+    r"(?:v\s*|版本|GPT[-\s]?|Python\s*|模型|数据集|论文|第\s*)$|"
+    r"^(?:版|模型|数据集|论文|届|年度榜单)",
+    re.I,
+)
+_TIME_DISQUALIFYING_PREFIX = re.compile(
+    r"(?:\u8bf7|\u4e0d\u8981|\u4e0d\u5f97|\u6ca1\u6709|\u5e76\u672a|\u4e0d\u786e\u5b9a|"
+    r"\u65e0\u6cd5\u786e\u8ba4|\u8ba1\u5212|\u51c6\u5907|\u6253\u7b97|\u62df).{0,16}$",
+    re.I,
+)
+
+
+def _compact_time(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "")).strip("，,。；;：:")
+
+
+def _is_non_experience_time_reference(text: str, start: int, end: int) -> bool:
+    before = text[max(0, start - 18):start]
+    after = text[end:min(len(text), end + 18)]
+    return bool(
+        _NON_EXPERIENCE_TIME_CONTEXT.search(before)
+        or _NON_EXPERIENCE_TIME_CONTEXT.search(after)
+        or _TIME_DISQUALIFYING_PREFIX.search(before)
+    )
+
+
+def _time_candidates_from_text(
+    text: str,
+    *,
+    source: str,
+    base_span: tuple[int, int],
+    source_claim_ids: tuple[str, ...] = (),
+) -> tuple[tuple[_CanonicalTimeCandidate, ...], tuple[str, ...]]:
+    """Extract qualified temporal forms without treating arbitrary years as dates."""
+    candidates: list[_CanonicalTimeCandidate] = []
+    rejected: list[str] = []
+    occupied: list[tuple[int, int]] = []
+    for pattern, specificity in ((_TIME_RANGE_PATTERN, 3), (_TERM_PATTERN, 2), (_SINGLE_DATE_PATTERN, 1)):
+        for match in pattern.finditer(text):
+            if any(match.start() < end and start < match.end() for start, end in occupied):
+                continue
+            if _is_non_experience_time_reference(text, match.start(), match.end()):
+                rejected.append("non_experience_temporal_reference")
+                continue
+            value = _compact_time(match.group(0))
+            if not value:
+                continue
+            occupied.append((match.start(), match.end()))
+            candidates.append(_CanonicalTimeCandidate(
+                display_time=value,
+                source=source,
+                source_span=(base_span[0] + match.start(), base_span[0] + match.end()),
+                source_claim_ids=source_claim_ids,
+                specificity=specificity,
+            ))
+    return tuple(candidates), tuple(rejected)
+
+
+def _build_experience_time_decision(
+    identity: ExperienceIdentity,
+    claim_resolution: ClaimResolution,
+) -> CanonicalExperienceTimeDecision:
+    """Derive one display-safe time from the current owner only."""
+    candidates: list[_CanonicalTimeCandidate] = []
+    rejected: list[str] = []
+    # Identity.title is a local source-span field. It is not a semantic fact
+    # authority, but explicit heading time is a valid display-time source.
+    title_candidates, title_rejected = _time_candidates_from_text(
+        str(identity.title or ""),
+        source="identity_title_time",
+        base_span=identity.source_span,
+    )
+    candidates.extend(title_candidates)
+    rejected.extend(title_rejected)
+    for claim in claim_resolution.eligible_claims:
+        if claim.source_experience_id != identity.experience_id:
+            continue
+        claim_candidates, claim_rejected = _time_candidates_from_text(
+            claim.text,
+            source="eligible_claim_time",
+            base_span=claim.source_span,
+            source_claim_ids=(claim.claim_id,),
+        )
+        candidates.extend(claim_candidates)
+        rejected.extend(claim_rejected)
+
+    if candidates:
+        selected = sorted(
+            candidates,
+            key=lambda item: (-item.specificity, item.source_span[0], item.source),
+        )[0]
+        return CanonicalExperienceTimeDecision(
+            experience_id=identity.experience_id,
+            display_time=selected.display_time,
+            candidate_source=selected.source,
+            source_span=selected.source_span,
+            status=TIME_QUALIFIED,
+            reason_codes=("owner_scoped_time",),
+            source_claim_ids=selected.source_claim_ids,
+            time_fingerprint=stable_hash(selected.display_time, purpose="canonical_experience_time"),
+            candidate_sources=tuple(dict.fromkeys(item.source for item in candidates)),
+            rejected_candidate_reason_codes=tuple(sorted(set(rejected))),
+        )
+    return CanonicalExperienceTimeDecision(
+        experience_id=identity.experience_id,
+        display_time=TIME_PENDING_DISPLAY,
+        candidate_source="none",
+        source_span=identity.source_span,
+        status=TIME_PENDING,
+        reason_codes=("no_qualified_local_time",),
+        source_claim_ids=(),
+        time_fingerprint=stable_hash(identity.experience_id, purpose="canonical_experience_time_pending"),
+        candidate_sources=(),
+        rejected_candidate_reason_codes=tuple(sorted(set(rejected))),
     )
 
 
@@ -470,6 +644,10 @@ def build_canonical_semantic_build(
         _build_experience_type_decision(identity, claim_resolution_by_owner[identity.experience_id])
         for identity in identities
     )
+    experience_time_decisions = tuple(
+        _build_experience_time_decision(identity, claim_resolution_by_owner[identity.experience_id])
+        for identity in identities
+    )
     display_name_qualifications = build_canonical_display_name_qualifications(
         identities,
         claim_resolutions,
@@ -499,6 +677,7 @@ def build_canonical_semantic_build(
         semantic_analyses=semantic_analyses,
         claim_resolutions=claim_resolutions,
         display_name_qualifications=display_name_qualifications,
+        experience_time_decisions=experience_time_decisions,
         ledger=ledger,
         ownership_index=ownership_index,
         state=state,
@@ -561,6 +740,51 @@ def write_canonical_semantic_state_log(
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def write_canonical_experience_time_qualification_log(
+    decisions: tuple[CanonicalExperienceTimeDecision, ...],
+    *,
+    stage: str,
+    request_id: str = "",
+    attempt_id: str = "",
+    generation_result_id: int | None = None,
+) -> None:
+    """Record time authority aggregates without time text or source text."""
+    try:
+        TIME_QUALIFICATION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        qualified_sources: dict[str, int] = {}
+        rejected_reasons: dict[str, int] = {}
+        for decision in decisions:
+            if decision.qualified:
+                qualified_sources[decision.candidate_source] = (
+                    qualified_sources.get(decision.candidate_source, 0) + 1
+                )
+            for reason in decision.rejected_candidate_reason_codes:
+                rejected_reasons[reason] = rejected_reasons.get(reason, 0) + 1
+        entry = {
+            "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "request_id": request_id,
+            "attempt_id": attempt_id,
+            "generation_result_id": generation_result_id,
+            "stage": stage,
+            "experience_count": len(decisions),
+            "qualified_time_count": sum(item.qualified for item in decisions),
+            "pending_time_count": sum(not item.qualified for item in decisions),
+            "qualified_source_counts": qualified_sources,
+            "rejected_candidate_reason_counts": rejected_reasons,
+            "decision_fingerprint": stable_hash(
+                json.dumps([
+                    (item.experience_id, item.status, item.candidate_source, item.time_fingerprint)
+                    for item in decisions
+                ], sort_keys=True),
+                purpose="canonical_experience_time_qualification",
+            ),
+        }
+        with TIME_QUALIFICATION_LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         return

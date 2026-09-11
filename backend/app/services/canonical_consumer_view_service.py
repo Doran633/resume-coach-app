@@ -261,6 +261,15 @@ class CanonicalPlannerView:
             scope.experience_id
         )
 
+    def experience_time_decision_for_owner(self, experience_id: str):
+        """Return the one compiled time decision for this permitted owner."""
+        scope = self.owner_scope(experience_id)
+        if scope is None:
+            return None
+        return self._views._build.experience_time_decision_by_experience_id.get(
+            scope.experience_id
+        )
+
     @property
     def verified_skill_evidence_keys(self) -> frozenset[str]:
         return self._views.verified_skill_evidence_keys

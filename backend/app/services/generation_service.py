@@ -74,6 +74,7 @@ from .canonical_semantic_state_service import (
     build_canonical_semantic_build,
     build_canonical_semantic_state_from_build,
     write_canonical_eligibility_integrity_log,
+    write_canonical_experience_time_qualification_log,
     write_canonical_semantic_state_log,
     write_canonical_fact_ownership_log,
     write_canonical_fallback_recovery_log,
@@ -533,6 +534,12 @@ def create_generation(
         request_id=request_id,
         attempt_id=request.attempt_id or "",
     )
+    write_canonical_experience_time_qualification_log(
+        semantic_build.experience_time_decisions,
+        stage="generation_experience_time_qualified",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+    )
     shadow_semantic_state = None
     try:
         shadow_semantic_state = build_canonical_semantic_state_from_build(
@@ -982,6 +989,13 @@ def create_generation(
     write_canonical_display_name_qualification_log(
         semantic_build.display_name_qualifications,
         stage="generation_display_name_saved",
+        request_id=request_id,
+        attempt_id=request.attempt_id or "",
+        generation_result_id=result.id,
+    )
+    write_canonical_experience_time_qualification_log(
+        semantic_build.experience_time_decisions,
+        stage="generation_experience_time_saved",
         request_id=request_id,
         attempt_id=request.attempt_id or "",
         generation_result_id=result.id,

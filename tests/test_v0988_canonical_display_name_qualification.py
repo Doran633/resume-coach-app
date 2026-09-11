@@ -121,7 +121,10 @@ def test_pending_name_keeps_owner_and_facts_and_adds_generic_missing_question():
     assert candidate["source_experience_id"] == "EXP-001"
     assert candidate["source_fact_ids"]
     assert plan.pending_name_owner_ids == ("EXP-001",)
-    assert updated.missing_questions == ["请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"]
+    assert updated.missing_questions == [
+        "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。",
+        "请补充尚未明确的经历起止时间或学期。",
+    ]
     assert [fact.fact_id for fact in build.ledger.facts] == [
         fact.fact_id for fact in build.ledger.facts
     ]

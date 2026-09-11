@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.12.2：Canonical Experience Time Authority
+
+- 每个 Canonical owner 在同一次 Semantic Compilation 中只形成一个冻结的时间资格决定；时间候选仅来自当前 owner 的 source span 与 eligible Claim，投影和 Canonical Title Resolver 不再自行读取原始输入或提取时间。
+- 明确年月、年月范围、学期、学年，以及含明确开始时间的“至今/目前”可作为经历时间；单一月份保持单点表达，不补造结束时间。
+- 年龄、指标、金额、版本号、届次、项目编号及模型、论文、数据集名称中的年份不能成为经历时间；instruction、negative、uncertain、planned、withheld 内容同样不支持正式时间。
+- 时间未知时保留 Experience、owner、type、名称、Claim 与 Fact，统一显示 `时间：【待填写】` 并添加事实中立的补充问题；本版本不显示或推断企业、岗位。
+
 ## v0.9.12.1：Canonical Experience Type Authority
 
 - Semantic Segmentation 的关键词类型现在仅作为 provisional hint，Canonical Semantic Build 不再直接冻结 `Identity.experience_type`。

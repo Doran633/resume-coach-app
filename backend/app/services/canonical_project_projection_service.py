@@ -36,6 +36,7 @@ class CanonicalProjectProjectionPlan:
     candidate_skipped_existing_count: int
     projected_fact_count: int
     pending_name_owner_ids: tuple[str, ...]
+    pending_time_owner_ids: tuple[str, ...]
     projection_fingerprint: str
     # References to existing Ledger facts, never a second extracted state.
     detail_projections: tuple[tuple[str, str, tuple[ExperienceFact, ...]], ...] = ()
@@ -147,12 +148,14 @@ def plan_canonical_project_projections(
     skipped_existing = 0
     projected_fact_count = 0
     pending_name_owner_ids: list[str] = []
+    pending_time_owner_ids: list[str] = []
 
     for owner in planner_view.experience_ids:
         scope = planner_view.owner_scope(owner)
         facts = planner_view.eligible_facts(owner)
         qualification = planner_view.display_name_qualification_for_owner(owner)
-        if not scope or not facts or qualification is None:
+        time_decision = planner_view.experience_time_decision_for_owner(owner)
+        if not scope or not facts or qualification is None or time_decision is None:
             continue
         eligible_owner_count += 1
         if owner in bound_owners:
@@ -169,10 +172,12 @@ def plan_canonical_project_projections(
             # contains neither the title nor source text.
             name = NAME_PENDING_DISPLAY
             pending_name_owner_ids.append(owner)
+        if not time_decision.qualified:
+            pending_time_owner_ids.append(owner)
         candidates.append({
             "name": name,
             "meta": scope.canonical_experience_type,
-            "time": "[待填写]",
+            "time": time_decision.display_time,
             "intro": first.resume_ready_text,
             "role": "",
             "details": [fact.resume_ready_text for fact in detail_facts],
@@ -198,6 +203,7 @@ def plan_canonical_project_projections(
             for candidate in candidates
         ],
         "pending_name_owner_ids": sorted(pending_name_owner_ids),
+        "pending_time_owner_ids": sorted(pending_time_owner_ids),
         "view": planner_view.fingerprint,
         "detail_projections": [(owner, fingerprint, [f.fact_id for f in facts]) for owner, fingerprint, facts in detail_projections],
         "detail_skip_counts": detail_skip_counts,
@@ -209,6 +215,7 @@ def plan_canonical_project_projections(
         candidate_skipped_existing_count=skipped_existing,
         projected_fact_count=projected_fact_count,
         pending_name_owner_ids=tuple(pending_name_owner_ids),
+        pending_time_owner_ids=tuple(pending_time_owner_ids),
         projection_fingerprint=stable_hash(
             json.dumps(safe, sort_keys=True), purpose="canonical_project_projection",
         ),
@@ -249,6 +256,10 @@ def append_canonical_project_projection_candidates(
         question = "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"
         if question not in updated.missing_questions:
             updated.missing_questions.append(question)
+    if plan.pending_time_owner_ids:
+        question = "请补充尚未明确的经历起止时间或学期。"
+        if question not in updated.missing_questions:
+            updated.missing_questions.append(question)
     return updated
 
 
@@ -286,6 +297,7 @@ def write_canonical_project_projection_log(
             "candidate_rejected_count": freeze_stats.candidate_rejected_count,
             "candidate_skipped_existing_count": plan.candidate_skipped_existing_count,
             "pending_name_owner_count": len(plan.pending_name_owner_ids),
+            "pending_time_owner_count": len(plan.pending_time_owner_ids),
             "projected_fact_count": plan.projected_fact_count,
             "projection_fingerprint": plan.projection_fingerprint,
             "detail_selected_fact_ids": sorted(selected_ids),
