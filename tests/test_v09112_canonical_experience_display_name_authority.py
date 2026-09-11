@@ -132,11 +132,11 @@ def test_unknown_name_keeps_owner_facts_and_generic_missing_question():
     projected = append_canonical_project_projection_candidates(_empty_payload(), plan)
 
     assert len(projected.resume_sections.projects) == 1
-    assert projected.resume_sections.projects[0]["name"] == NAME_PENDING_DISPLAY
+    assert projected.resume_sections.projects[0]["name"] == "项目：【待填写】"
     assert projected.resume_sections.projects[0]["source_experience_id"] == "EXP-001"
     assert projected.resume_sections.projects[0]["source_fact_ids"]
     assert projected.missing_questions == [
-        "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。",
+        "请补充该项目经历的项目名称。",
         "请补充尚未明确的经历起止时间或学期。",
     ]
 
@@ -150,7 +150,7 @@ def test_canonical_title_consumer_cannot_keep_an_unqualified_existing_project_na
     resolved = title_service.resolve_canonical_resume_titles(payload, views.planner_view)
     project = resolved.resume_sections.projects[0]
 
-    assert project["name"] == "大学生消费行为数据分析"
+    assert project["name"] == "项目：大学生消费行为数据分析"
     assert _attachments(project) == before
     assert payload.resume_sections.projects[0]["name"] != project["name"]
 
@@ -172,7 +172,7 @@ def test_names_are_owner_scoped_and_log_remains_aggregate_only(tmp_path, monkeyp
     )
     row = json.loads(name_service.LOG_PATH.read_text(encoding="utf-8"))
 
-    assert [item["name"] for item in plan.candidates] == ["智能停车系统", "图书借阅管理系统"]
+    assert [item["name"] for item in plan.candidates] == ["项目：智能停车系统", "项目：图书借阅管理系统"]
     assert [item["source_experience_id"] for item in plan.candidates] == ["EXP-001", "EXP-002"]
     assert "智能停车系统" not in json.dumps(row, ensure_ascii=False)
     assert "图书借阅管理系统" not in json.dumps(row, ensure_ascii=False)

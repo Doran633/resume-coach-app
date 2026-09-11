@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.12.3：Canonical Experience Header Completeness Authority
+
+- Canonical Semantic Build 现在为每个 owner 生成唯一的表头决定，只组合已冻结的 Experience Type、Display Name 与 Time 决定，不重新读取或解释完整原始输入。
+- 项目、科研、竞赛、开源和校园/社团经历分别使用“项目、课题、竞赛、项目、活动/组织”标签，并始终显示时间；未知值统一显示对应的 `字段：【待填写】`。
+- 实习经历仅从当前 owner 的显式标题或 eligible Claim 中验证企业和岗位关系，分别显示“企业、岗位、时间”；项目合作方、职责句和求职意图不能成为企业或岗位。
+- Canonical Project Projection 与 Title Resolver 只读消费同一表头决定。字段缺失不会创建、删除、合并或重分类 Experience，也不会改变 owner、Fact、Claim 或 provenance attachment。
+- 新增脱敏表头资格日志，仅记录类型、字段状态、来源类别、原因和 fingerprint，不记录名称、企业、岗位、时间或正文原词。
+
 ## v0.9.12.2：Canonical Experience Time Authority
 
 - 每个 Canonical owner 在同一次 Semantic Compilation 中只形成一个冻结的时间资格决定；时间候选仅来自当前 owner 的 source span 与 eligible Claim，投影和 Canonical Title Resolver 不再自行读取原始输入或提取时间。

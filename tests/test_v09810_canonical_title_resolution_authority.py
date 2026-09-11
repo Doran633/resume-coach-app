@@ -85,7 +85,7 @@ def test_canonical_title_resolution_preserves_result_173_style_attachments(monke
 
     assert payload.model_dump(mode="json") == before_payload
     assert _attachments(project) == before_attachments
-    assert project["name"] == "论文阅读助手"
+    assert project["name"] == "项目：论文阅读助手"
     assert project["meta"] == "项目经历"
     assert project["immutable_source_experience_id"] == build.ledger.facts[0].experience_id
 
@@ -120,7 +120,7 @@ def test_pending_name_keeps_project_and_attachments_without_raw_inference():
     resolved = title_service.resolve_canonical_resume_titles(payload, views.planner_view)
     resolved_project = resolved.resume_sections.projects[0]
 
-    assert resolved_project["name"] == "[待补充经历名称]"
+    assert resolved_project["name"] == "项目：【待填写】"
     assert _attachments(resolved_project) == before
 
 

@@ -117,12 +117,12 @@ def test_pending_name_keeps_owner_and_facts_and_adds_generic_missing_question():
     updated = append_canonical_project_projection_candidates(_payload(), plan)
     candidate = updated.resume_sections.projects[0]
 
-    assert candidate["name"] == NAME_PENDING_DISPLAY
+    assert candidate["name"] == "项目：【待填写】"
     assert candidate["source_experience_id"] == "EXP-001"
     assert candidate["source_fact_ids"]
     assert plan.pending_name_owner_ids == ("EXP-001",)
     assert updated.missing_questions == [
-        "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。",
+        "请补充该项目经历的项目名称。",
         "请补充尚未明确的经历起止时间或学期。",
     ]
     assert [fact.fact_id for fact in build.ledger.facts] == [
@@ -139,7 +139,7 @@ def test_each_owner_uses_its_own_qualified_name_without_cross_owner_borrowing():
     build, views = _views(raw)
     plan = plan_canonical_project_projections(_payload(), views.planner_view)
 
-    assert [item["name"] for item in plan.candidates] == ["智能停车系统", "回归分析计算器"]
+    assert [item["name"] for item in plan.candidates] == ["项目：智能停车系统", "项目：回归分析计算器"]
     assert [item["source_experience_id"] for item in plan.candidates] == ["EXP-001", "EXP-002"]
     assert len({item["source_experience_id"] for item in plan.candidates}) == 2
     assert len(build.display_name_qualifications) == 2
@@ -154,7 +154,7 @@ def test_projection_cannot_bypass_qualified_name_accessor(monkeypatch):
     monkeypatch.setattr(type(views.planner_view), "identity_for_owner", forbidden_identity_access)
     plan = plan_canonical_project_projections(_payload(), views.planner_view)
 
-    assert plan.candidates[0]["name"] == "智能停车系统"
+    assert plan.candidates[0]["name"] == "项目：智能停车系统"
     assert build.display_name_qualifications[0].qualified
 
 

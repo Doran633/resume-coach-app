@@ -25,6 +25,11 @@ from .input_claim_resolution_service import (
 )
 from .input_semantic_role_service import InputSemanticAnalysis, analyze_experience_semantics
 from .long_input_service import LongInputContext, analyze_long_input
+from .resume_title_format_service import (
+    PLACEHOLDER as LEGACY_HEADER_PLACEHOLDER,
+    extract_canonical_internship_company,
+    extract_canonical_internship_position,
+)
 from .structured_log_service import stable_hash
 
 
@@ -35,6 +40,7 @@ SCOPED_ACCESS_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonic
 FALLBACK_RECOVERY_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_fallback_recovery.jsonl"
 ELIGIBILITY_INTEGRITY_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_eligibility_integrity.jsonl"
 TIME_QUALIFICATION_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_experience_time_qualification.jsonl"
+HEADER_QUALIFICATION_LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "canonical_experience_header_qualification.jsonl"
 CANONICAL_EXPERIENCE_TYPES = (
     "项目经历",
     "实习经历",
@@ -143,6 +149,61 @@ class _CanonicalTimeCandidate:
     source_span: tuple[int, int]
     source_claim_ids: tuple[str, ...]
     specificity: int
+
+
+HEADER_FIELD_QUALIFIED = "qualified"
+HEADER_FIELD_PENDING = "pending"
+HEADER_PENDING_VALUE = "【待填写】"
+
+
+@dataclass(frozen=True)
+class CanonicalHeaderFieldDecision:
+    field_key: str
+    label: str
+    value: str
+    candidate_source: str
+    source_span: tuple[int, int]
+    status: str
+    reason_codes: tuple[str, ...]
+    source_claim_ids: tuple[str, ...]
+    field_fingerprint: str
+
+    @property
+    def qualified(self) -> bool:
+        return self.status == HEADER_FIELD_QUALIFIED and bool(self.value)
+
+    @property
+    def display_text(self) -> str:
+        return f"{self.label}：{self.value if self.qualified else HEADER_PENDING_VALUE}"
+
+    @property
+    def missing_question(self) -> str:
+        questions = {
+            "organization": "请补充该实习经历的企业名称。",
+            "position": "请补充该实习经历的岗位名称。",
+            "time": "请补充尚未明确的经历起止时间或学期。",
+            "name:项目": "请补充该项目经历的项目名称。",
+            "name:课题": "请补充该科研经历的课题名称。",
+            "name:竞赛": "请补充该竞赛经历的竞赛名称。",
+            "name:活动/组织": "请补充该校园或社团经历的活动或组织名称。",
+        }
+        return questions.get(
+            self.field_key if self.field_key != "name" else f"name:{self.label}",
+            "请补充该经历缺少的表头信息。",
+        )
+
+
+@dataclass(frozen=True)
+class CanonicalExperienceHeaderDecision:
+    """Deterministic header fields derived from existing Canonical decisions."""
+
+    experience_id: str
+    canonical_experience_type: str
+    fields: tuple[CanonicalHeaderFieldDecision, ...]
+    header_fingerprint: str
+
+    def field(self, field_key: str) -> CanonicalHeaderFieldDecision | None:
+        return next((item for item in self.fields if item.field_key == field_key), None)
 
 
 @dataclass(frozen=True)
@@ -260,6 +321,7 @@ class CanonicalSemanticBuild:
     claim_resolutions: tuple[ClaimResolution, ...]
     display_name_qualifications: tuple[CanonicalDisplayNameQualification, ...]
     experience_time_decisions: tuple[CanonicalExperienceTimeDecision, ...]
+    experience_header_decisions: tuple[CanonicalExperienceHeaderDecision, ...]
     ledger: ExperienceFactLedger
     ownership_index: CanonicalFactOwnershipIndex
     state: CanonicalSemanticState | None = None
@@ -275,6 +337,10 @@ class CanonicalSemanticBuild:
     @property
     def experience_time_decision_by_experience_id(self) -> dict[str, CanonicalExperienceTimeDecision]:
         return {item.experience_id: item for item in self.experience_time_decisions}
+
+    @property
+    def experience_header_decision_by_experience_id(self) -> dict[str, CanonicalExperienceHeaderDecision]:
+        return {item.experience_id: item for item in self.experience_header_decisions}
 
 
 def _fingerprint(
@@ -499,6 +565,194 @@ def _build_experience_time_decision(
     )
 
 
+_HEADER_NAME_LABELS = {
+    "项目经历": "项目",
+    "科研经历": "课题",
+    "竞赛经历": "竞赛",
+    "竞赛获奖": "竞赛",
+    "开源经历": "项目",
+    "校园 / 社团经历": "活动/组织",
+}
+_DISALLOWED_HEADER_SOURCE = re.compile(
+    r"^(?:请|不要|不得|别|希望|想投|目标岗位|适合|没有|并未|不确定|无法确认|计划|准备|打算|拟)",
+    re.I,
+)
+
+
+def _header_field(
+    *,
+    experience_id: str,
+    field_key: str,
+    label: str,
+    value: str = "",
+    candidate_source: str = "",
+    source_span: tuple[int, int],
+    source_claim_ids: tuple[str, ...] = (),
+    reason: str = "field_not_available",
+) -> CanonicalHeaderFieldDecision:
+    normalized = re.sub(r"\s+", " ", str(value or "")).strip(" ，,、；;：:|｜")
+    qualified = bool(normalized)
+    return CanonicalHeaderFieldDecision(
+        field_key=field_key,
+        label=label,
+        value=normalized,
+        candidate_source=candidate_source if qualified else "none",
+        source_span=source_span,
+        status=HEADER_FIELD_QUALIFIED if qualified else HEADER_FIELD_PENDING,
+        reason_codes=(candidate_source if qualified else reason,),
+        source_claim_ids=source_claim_ids if qualified else (),
+        field_fingerprint=stable_hash(
+            normalized if qualified else f"{experience_id}:{field_key}:pending",
+            purpose=f"canonical_header_{field_key}",
+        ),
+    )
+
+
+def _qualified_existing_field(
+    *,
+    experience_id: str,
+    field_key: str,
+    label: str,
+    value: str,
+    qualified: bool,
+    candidate_source: str,
+    source_span: tuple[int, int],
+    source_claim_ids: tuple[str, ...],
+) -> CanonicalHeaderFieldDecision:
+    return _header_field(
+        experience_id=experience_id,
+        field_key=field_key,
+        label=label,
+        value=value if qualified else "",
+        candidate_source=candidate_source,
+        source_span=source_span,
+        source_claim_ids=source_claim_ids,
+    )
+
+
+def _internship_field_candidates(
+    identity: ExperienceIdentity,
+    claim_resolution: ClaimResolution,
+    *,
+    field_key: str,
+) -> tuple[tuple[str, str, tuple[int, int], tuple[str, ...]], ...]:
+    extractor = (
+        extract_canonical_internship_company
+        if field_key == "organization"
+        else extract_canonical_internship_position
+    )
+    candidates: list[tuple[str, str, tuple[int, int], tuple[str, ...]]] = []
+    if identity.boundary_source in {"explicit_heading", "legacy_explicit_heading"}:
+        title = str(identity.title or "").strip()
+        if title and not _DISALLOWED_HEADER_SOURCE.search(title):
+            value = extractor(title)
+            if value and value != LEGACY_HEADER_PLACEHOLDER:
+                candidates.append((value, "explicit_heading", identity.source_span, ()))
+    for claim in claim_resolution.eligible_claims:
+        if claim.source_experience_id != identity.experience_id:
+            continue
+        text = str(claim.text or "").strip()
+        if not text or _DISALLOWED_HEADER_SOURCE.search(text):
+            continue
+        value = extractor(text)
+        if value and value != LEGACY_HEADER_PLACEHOLDER:
+            candidates.append((value, "eligible_claim", claim.source_span, (claim.claim_id,)))
+    unique: list[tuple[str, str, tuple[int, int], tuple[str, ...]]] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = re.sub(r"\s+", "", candidate[0]).lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return tuple(unique)
+
+
+def _internship_field_decision(
+    identity: ExperienceIdentity,
+    claim_resolution: ClaimResolution,
+    *,
+    field_key: str,
+    label: str,
+) -> CanonicalHeaderFieldDecision:
+    candidates = _internship_field_candidates(
+        identity,
+        claim_resolution,
+        field_key=field_key,
+    )
+    if len(candidates) == 1:
+        value, source, span, claim_ids = candidates[0]
+        return _header_field(
+            experience_id=identity.experience_id,
+            field_key=field_key,
+            label=label,
+            value=value,
+            candidate_source=source,
+            source_span=span,
+            source_claim_ids=claim_ids,
+        )
+    return _header_field(
+        experience_id=identity.experience_id,
+        field_key=field_key,
+        label=label,
+        source_span=identity.source_span,
+        reason="ambiguous_local_candidates" if candidates else "field_not_available",
+    )
+
+
+def _build_experience_header_decision(
+    identity: ExperienceIdentity,
+    type_decision: CanonicalExperienceTypeDecision,
+    name_decision: CanonicalDisplayNameQualification,
+    time_decision: CanonicalExperienceTimeDecision,
+    claim_resolution: ClaimResolution,
+) -> CanonicalExperienceHeaderDecision:
+    experience_type = type_decision.canonical_experience_type
+    fields: list[CanonicalHeaderFieldDecision] = []
+    if experience_type == "实习经历":
+        fields.extend((
+            _internship_field_decision(
+                identity, claim_resolution, field_key="organization", label="企业",
+            ),
+            _internship_field_decision(
+                identity, claim_resolution, field_key="position", label="岗位",
+            ),
+        ))
+    else:
+        fields.append(_qualified_existing_field(
+            experience_id=identity.experience_id,
+            field_key="name",
+            label=_HEADER_NAME_LABELS.get(experience_type, "项目"),
+            value=name_decision.display_name,
+            qualified=name_decision.qualified,
+            candidate_source=name_decision.candidate_source,
+            source_span=name_decision.source_span,
+            source_claim_ids=name_decision.source_claim_ids,
+        ))
+    fields.append(_qualified_existing_field(
+        experience_id=identity.experience_id,
+        field_key="time",
+        label="时间",
+        value=time_decision.display_time,
+        qualified=time_decision.qualified,
+        candidate_source=time_decision.candidate_source,
+        source_span=time_decision.source_span,
+        source_claim_ids=time_decision.source_claim_ids,
+    ))
+    field_tuple = tuple(fields)
+    return CanonicalExperienceHeaderDecision(
+        experience_id=identity.experience_id,
+        canonical_experience_type=experience_type,
+        fields=field_tuple,
+        header_fingerprint=stable_hash(
+            json.dumps([
+                (item.field_key, item.status, item.candidate_source, item.field_fingerprint)
+                for item in field_tuple
+            ], sort_keys=True),
+            purpose="canonical_experience_header",
+        ),
+    )
+
+
 def _build_ownership_index(ledger: ExperienceFactLedger) -> CanonicalFactOwnershipIndex:
     fact_owner_by_id: dict[str, str] = {}
     claim_owner_by_id: dict[str, str] = {}
@@ -652,6 +906,21 @@ def build_canonical_semantic_build(
         identities,
         claim_resolutions,
     )
+    experience_header_decisions = tuple(
+        _build_experience_header_decision(
+            identity,
+            type_decision,
+            name_decision,
+            time_decision,
+            claim_resolution_by_owner[identity.experience_id],
+        )
+        for identity, type_decision, name_decision, time_decision in zip(
+            identities,
+            experience_type_decisions,
+            display_name_qualifications,
+            experience_time_decisions,
+        )
+    )
     ledger = build_experience_fact_ledger_from_components(
         raw_input,
         identities=identities,
@@ -678,6 +947,7 @@ def build_canonical_semantic_build(
         claim_resolutions=claim_resolutions,
         display_name_qualifications=display_name_qualifications,
         experience_time_decisions=experience_time_decisions,
+        experience_header_decisions=experience_header_decisions,
         ledger=ledger,
         ownership_index=ownership_index,
         state=state,
@@ -785,6 +1055,56 @@ def write_canonical_experience_time_qualification_log(
             ),
         }
         with TIME_QUALIFICATION_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def write_canonical_experience_header_qualification_log(
+    decisions: tuple[CanonicalExperienceHeaderDecision, ...],
+    *,
+    stage: str,
+    request_id: str = "",
+    attempt_id: str = "",
+    generation_result_id: int | None = None,
+) -> None:
+    """Record field qualification aggregates without header values or source text."""
+    try:
+        HEADER_QUALIFICATION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        type_counts: dict[str, int] = {}
+        field_status_counts: dict[str, int] = {}
+        source_counts: dict[str, int] = {}
+        reason_counts: dict[str, int] = {}
+        for decision in decisions:
+            type_counts[decision.canonical_experience_type] = (
+                type_counts.get(decision.canonical_experience_type, 0) + 1
+            )
+            for field in decision.fields:
+                status_key = f"{field.field_key}:{field.status}"
+                field_status_counts[status_key] = field_status_counts.get(status_key, 0) + 1
+                source_counts[field.candidate_source] = source_counts.get(field.candidate_source, 0) + 1
+                for reason in field.reason_codes:
+                    reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        entry = {
+            "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "request_id": request_id,
+            "attempt_id": attempt_id,
+            "generation_result_id": generation_result_id,
+            "stage": stage,
+            "experience_count": len(decisions),
+            "experience_type_counts": type_counts,
+            "field_status_counts": field_status_counts,
+            "candidate_source_counts": source_counts,
+            "qualification_reason_counts": reason_counts,
+            "decision_fingerprint": stable_hash(
+                json.dumps([
+                    (item.experience_id, item.canonical_experience_type, item.header_fingerprint)
+                    for item in decisions
+                ], sort_keys=True),
+                purpose="canonical_experience_header_qualification",
+            ),
+        }
+        with HEADER_QUALIFICATION_LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         return

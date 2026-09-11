@@ -37,6 +37,9 @@ class CanonicalProjectProjectionPlan:
     projected_fact_count: int
     pending_name_owner_ids: tuple[str, ...]
     pending_time_owner_ids: tuple[str, ...]
+    pending_organization_owner_ids: tuple[str, ...]
+    pending_position_owner_ids: tuple[str, ...]
+    missing_questions: tuple[str, ...]
     projection_fingerprint: str
     # References to existing Ledger facts, never a second extracted state.
     detail_projections: tuple[tuple[str, str, tuple[ExperienceFact, ...]], ...] = ()
@@ -149,13 +152,15 @@ def plan_canonical_project_projections(
     projected_fact_count = 0
     pending_name_owner_ids: list[str] = []
     pending_time_owner_ids: list[str] = []
+    pending_organization_owner_ids: list[str] = []
+    pending_position_owner_ids: list[str] = []
+    missing_questions: list[str] = []
 
     for owner in planner_view.experience_ids:
         scope = planner_view.owner_scope(owner)
         facts = planner_view.eligible_facts(owner)
-        qualification = planner_view.display_name_qualification_for_owner(owner)
-        time_decision = planner_view.experience_time_decision_for_owner(owner)
-        if not scope or not facts or qualification is None or time_decision is None:
+        header = planner_view.experience_header_decision_for_owner(owner)
+        if not scope or not facts or header is None:
             continue
         eligible_owner_count += 1
         if owner in bound_owners:
@@ -164,20 +169,27 @@ def plan_canonical_project_projections(
 
         first, *remaining = facts
         detail_facts = list(remaining)
-        if qualification.qualified:
-            name = qualification.display_name
-        else:
-            # Keep the owner and eligible facts visible without inventing a
-            # display name. The companion missing question is generic and
-            # contains neither the title nor source text.
-            name = NAME_PENDING_DISPLAY
-            pending_name_owner_ids.append(owner)
-        if not time_decision.qualified:
+        name_field = header.field("organization") or header.field("name")
+        time_field = header.field("time")
+        position_field = header.field("position")
+        if name_field is None or time_field is None:
+            continue
+        if not name_field.qualified:
+            if name_field.field_key == "organization":
+                pending_organization_owner_ids.append(owner)
+            else:
+                pending_name_owner_ids.append(owner)
+        if position_field is not None and not position_field.qualified:
+            pending_position_owner_ids.append(owner)
+        if not time_field.qualified:
             pending_time_owner_ids.append(owner)
-        candidates.append({
-            "name": name,
+        for field in header.fields:
+            if not field.qualified and field.missing_question not in missing_questions:
+                missing_questions.append(field.missing_question)
+        candidate = {
+            "name": name_field.display_text,
             "meta": scope.canonical_experience_type,
-            "time": time_decision.display_time,
+            "time": time_field.display_text,
             "intro": first.resume_ready_text,
             "role": "",
             "details": [fact.resume_ready_text for fact in detail_facts],
@@ -189,7 +201,10 @@ def plan_canonical_project_projections(
             "role_source_claim_ids": [],
             "detail_claim_ids": [[fact.claim_id] for fact in detail_facts],
             "canonical_projection_candidate": True,
-        })
+        }
+        if position_field is not None:
+            candidate["position"] = position_field.display_text
+        candidates.append(candidate)
         projected_fact_count += len(facts)
 
     detail_projections, detail_skip_counts = _plan_existing_details(payload, planner_view, candidates)
@@ -204,6 +219,9 @@ def plan_canonical_project_projections(
         ],
         "pending_name_owner_ids": sorted(pending_name_owner_ids),
         "pending_time_owner_ids": sorted(pending_time_owner_ids),
+        "pending_organization_owner_ids": sorted(pending_organization_owner_ids),
+        "pending_position_owner_ids": sorted(pending_position_owner_ids),
+        "missing_question_count": len(missing_questions),
         "view": planner_view.fingerprint,
         "detail_projections": [(owner, fingerprint, [f.fact_id for f in facts]) for owner, fingerprint, facts in detail_projections],
         "detail_skip_counts": detail_skip_counts,
@@ -216,6 +234,9 @@ def plan_canonical_project_projections(
         projected_fact_count=projected_fact_count,
         pending_name_owner_ids=tuple(pending_name_owner_ids),
         pending_time_owner_ids=tuple(pending_time_owner_ids),
+        pending_organization_owner_ids=tuple(pending_organization_owner_ids),
+        pending_position_owner_ids=tuple(pending_position_owner_ids),
+        missing_questions=tuple(missing_questions),
         projection_fingerprint=stable_hash(
             json.dumps(safe, sort_keys=True), purpose="canonical_project_projection",
         ),
@@ -252,12 +273,7 @@ def append_canonical_project_projection_candidates(
     existing = _bound_owner_ids(updated)
     updated.resume_sections.projects.extend(copy.deepcopy(candidate) for candidate in plan.candidates
                                            if candidate["source_experience_id"] not in existing)
-    if plan.pending_name_owner_ids:
-        question = "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"
-        if question not in updated.missing_questions:
-            updated.missing_questions.append(question)
-    if plan.pending_time_owner_ids:
-        question = "请补充尚未明确的经历起止时间或学期。"
+    for question in plan.missing_questions:
         if question not in updated.missing_questions:
             updated.missing_questions.append(question)
     return updated
@@ -298,6 +314,8 @@ def write_canonical_project_projection_log(
             "candidate_skipped_existing_count": plan.candidate_skipped_existing_count,
             "pending_name_owner_count": len(plan.pending_name_owner_ids),
             "pending_time_owner_count": len(plan.pending_time_owner_ids),
+            "pending_organization_owner_count": len(plan.pending_organization_owner_ids),
+            "pending_position_owner_count": len(plan.pending_position_owner_ids),
             "projected_fact_count": plan.projected_fact_count,
             "projection_fingerprint": plan.projection_fingerprint,
             "detail_selected_fact_ids": sorted(selected_ids),

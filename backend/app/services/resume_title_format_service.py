@@ -20,6 +20,18 @@ CONTEXTUAL_COMPANY_PATTERNS = [
         re.I,
     ),
 ]
+CANONICAL_INTERNSHIP_COMPANY_PATTERNS = [
+    *CONTEXTUAL_COMPANY_PATTERNS,
+    re.compile(
+        rf"(?P<company>{COMPANY_ENTITY})\s*(?:担任\s*)?"
+        r"[^，。；;\n]{2,32}?(?:岗位)?实习",
+        re.I,
+    ),
+    re.compile(
+        rf"(?:企业|公司|单位|机构)(?:名称)?\s*[:：]\s*(?P<company>{COMPANY_ENTITY})",
+        re.I,
+    ),
+]
 POSITION_PATTERNS = [
     re.compile(r"(?:有限责任公司|有限公司|公司|企业|事务所|研究院)[ \t]*(?:担任[ \t]*)?([^，。；;\n]{2,32}?)(?:岗位)?实习", re.I),
     re.compile(r"担任\s*([^，。；;\n]{2,30}?)(?:实习生|实习)", re.I),
@@ -77,6 +89,21 @@ def extract_company(local_raw_text: str) -> str:
     ):
         return ""
     return company
+
+
+def extract_canonical_internship_company(local_text: str) -> str:
+    """Return only a company participating in an explicit internship relation."""
+    text = str(local_text or "").strip()
+    for pattern in CANONICAL_INTERNSHIP_COMPANY_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return match.group("company").strip()
+    return ""
+
+
+def extract_canonical_internship_position(local_text: str) -> str:
+    """Reuse the local position parser without accepting an LLM fallback."""
+    return extract_internship_position(local_text)
 
 
 def _company_from_internship_title(title: str, position: str) -> str:
@@ -164,20 +191,22 @@ def resolve_canonical_resume_titles(
         )
         if planner_view.owner_scope(owner) is None:
             continue
-        qualification = planner_view.display_name_qualification_for_owner(owner)
-        time_decision = planner_view.experience_time_decision_for_owner(owner)
-        if qualification is not None and qualification.qualified:
-            project["name"] = qualification.display_name
-        elif qualification is not None:
-            project["name"] = "[待补充经历名称]"
-            question = "请补充尚未明确命名的项目、实习、科研课题、竞赛或活动名称。"
-            if question not in updated.missing_questions:
-                updated.missing_questions.append(question)
-        if time_decision is not None:
-            project["time"] = time_decision.display_time
-            if not time_decision.qualified:
-                question = "请补充尚未明确的经历起止时间或学期。"
-                if question not in updated.missing_questions:
-                    updated.missing_questions.append(question)
+        header = planner_view.experience_header_decision_for_owner(owner)
+        if header is None:
+            continue
+        name_field = header.field("organization") or header.field("name")
+        time_field = header.field("time")
+        position_field = header.field("position")
+        if name_field is not None:
+            project["name"] = name_field.display_text
+        if time_field is not None:
+            project["time"] = time_field.display_text
+        if header.canonical_experience_type == "实习经历" and position_field is not None:
+            project["position"] = position_field.display_text
+        else:
+            project.pop("position", None)
+        for field in header.fields:
+            if not field.qualified and field.missing_question not in updated.missing_questions:
+                updated.missing_questions.append(field.missing_question)
     updated.missing_questions = updated.missing_questions[:8]
     return updated

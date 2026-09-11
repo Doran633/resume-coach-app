@@ -178,8 +178,8 @@ def test_projection_and_title_resolver_only_consume_frozen_time_decision():
     plan = plan_canonical_project_projections(_empty_payload(), views.planner_view)
     projected = append_canonical_project_projection_candidates(_empty_payload(), plan)
 
-    assert plan.candidates[0]["time"] == "2024.03-2024.06"
-    assert projected.resume_sections.projects[0]["time"] == "2024.03-2024.06"
+    assert plan.candidates[0]["time"] == "\u65f6\u95f4\uff1a2024.03-2024.06"
+    assert projected.resume_sections.projects[0]["time"] == "\u65f6\u95f4\uff1a2024.03-2024.06"
     assert not plan.pending_time_owner_ids
 
 

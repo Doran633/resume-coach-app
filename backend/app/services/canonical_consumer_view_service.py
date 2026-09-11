@@ -270,6 +270,15 @@ class CanonicalPlannerView:
             scope.experience_id
         )
 
+    def experience_header_decision_for_owner(self, experience_id: str):
+        """Return the deterministic, compiled header decision for this owner."""
+        scope = self.owner_scope(experience_id)
+        if scope is None:
+            return None
+        return self._views._build.experience_header_decision_by_experience_id.get(
+            scope.experience_id
+        )
+
     @property
     def verified_skill_evidence_keys(self) -> frozenset[str]:
         return self._views.verified_skill_evidence_keys
