@@ -172,7 +172,7 @@ def test_bound_project_keeps_current_professionalization_without_mutating_semant
 
     first = result.resume_sections.projects[0]
     assert "我写了" not in first["details"][0]
-    assert "页面开发" in first["details"][0]
+    assert "前端架构设计" in first["details"][0]
     assert _semantic_metadata(result) == before_metadata
 
 

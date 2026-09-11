@@ -28,7 +28,7 @@ def test_colloquial_phrases_are_professionalized():
     text = "\n".join([result.resume_sections.projects[0]["intro"], result.resume_sections.projects[0]["role"], *result.resume_sections.projects[0]["details"]])
     for phrase in ["我做过", "技术动作", "我写了", "我调了", "我修了"]:
         assert phrase not in text
-    assert "页面开发" in text and "接口联调" in text and "定位并修复" in text and "沉淀项目说明" in text
+    assert "前端架构设计" in text and "接口联调" in text and "定位并修复" in text and "沉淀项目说明" in text
     assert "主导" not in text and "企业级" not in text and "高并发" not in text
 
 

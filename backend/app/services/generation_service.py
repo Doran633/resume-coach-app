@@ -734,6 +734,7 @@ def create_generation(
     payload = ensure_packaging_gain(
         payload,
         target_role=request.target_role,
+        packaging_level=request.packaging_level,
         presentation_view=consumer_views.presentation_view,
     )
     mutation_tracer.checkpoint(payload, "after_packaging_gain", parent_stage="ensure_packaging_gain")
@@ -795,6 +796,7 @@ def create_generation(
         stage="generation",
         presentation_view=consumer_views.presentation_view,
         access_stats=consumer_view_access_stats,
+        packaging_level=request.packaging_level,
     )
     mutation_tracer.checkpoint(payload, "after_professionalization", parent_stage="professionalize_resume_language")
     payload = guard_resume_skill_evidence(

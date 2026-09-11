@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.13.2：Scoped Professionalization and Packaging Enhancement
+
+- Canonical Presentation 现在按现有“稳妥、大胆、极限”三档执行确定性软性职业化：可将页面、数据整理、接口、测试和用户调研等口语事实提升为设计、流程建设、验证与非量化交付表达。
+- 扩写仅作用于具有当前 immutable owner、本地 eligible Fact 和一致 Claim lineage 的 role/detail 字段；缺少字段级来源或 Claim 行冲突时保持原文并记录脱敏跳过计数。
+- 项目级 `source_fact_ids` 仍不能证明 intro 字段，因此 intro 不在本版本猜测扩写；技能保持 verified evidence 约束，名称、类型、时间和表头均不参与改写。
+- `normal_version`、`bold_version` 和 `recommended_version` 从同一组已验证可见字段生成相应强度；`boundary_version` 继续保留事实边界职责，不被重新解释为第四档包装。
+- Canonical 路径不读取完整 `raw_input`、不调用语义重建或新增 LLM/Prompt，也不改变项目数量、owner、type、Fact/Claim attachment 或 Immutable Delivery Revision 边界。
+
 ## v0.9.13.1：Immutable Delivery Rendering Consistency
 
 - Web 项目预览现在按已冻结的 `project.meta` 选择表头字段：实习经历展示企业、岗位和时间，其他经历展示经历名称、经历类型和时间；不会读取正文或推断缺失字段。
