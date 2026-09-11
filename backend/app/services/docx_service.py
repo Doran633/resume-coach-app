@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,12 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 ONE_WAY_LOG_PATH = BASE_DIR / "logs" / "docx_one_way_rendering.jsonl"
 ACCENT = "2F5597"
 BODY_FONT = "Microsoft YaHei"
+RENDER_ONLY_STRUCTURE_LABELS = {
+    "技术细节",
+    "项目简介",
+    "经历简介",
+    "我的职责",
+}
 
 
 class DocxRenderSourceError(RuntimeError):
@@ -87,6 +94,24 @@ def _font(run, size: float, bold: bool = False, color: str | None = None) -> Non
     run.font.bold = bold
     if color:
         run.font.color.rgb = RGBColor.from_string(color)
+
+
+def _renderable_project_details(project: dict) -> list[str]:
+    """Return display rows without mutating the immutable delivery payload."""
+    rendered: list[str] = []
+    for value in project.get("details", []) or []:
+        text = str(value or "").strip()
+        structure_label = text.rstrip("：:").strip()
+        if not text or structure_label in RENDER_ONLY_STRUCTURE_LABELS:
+            continue
+        rendered.append(text)
+    return rendered
+
+
+def _first_technical_detail_line(detail: str) -> str:
+    if re.match(r"^技术细节\s*[:：]", detail):
+        return detail
+    return "技术细节：" + detail
 
 
 def _p(doc: Document, text: str = "", size: float = 9.2, bold: bool = False, color: str | None = None):
@@ -259,10 +284,10 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
                 _bullet(doc, intro_label + project.get("intro", ""), bold_label=True)
             if str(project.get("role") or "").strip():
                 _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
-            details = [str(item) for item in project.get("details", []) if str(item).strip()]
+            details = _renderable_project_details(project)
             if details:
-                _bullet(doc, "技术细节：", bold_label=True)
-                for detail in details:
+                _bullet(doc, _first_technical_detail_line(details[0]), bold_label=True)
+                for detail in details[1:]:
                     _bullet(doc, detail, level=1)
 
     path = _next_path("resume-coach-v0")

@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.13.1：Immutable Delivery Rendering Consistency
+
+- Web 项目预览现在按已冻结的 `project.meta` 选择表头字段：实习经历展示企业、岗位和时间，其他经历展示经历名称、经历类型和时间；不会读取正文或推断缺失字段。
+- DOCX 不再创建独立的空“技术细节：”bullet。第一条有效详情与标签同行，后续详情保持原顺序；仅由结构标签组成的历史详情行在渲染副本中被忽略，带实际正文的同名前缀保持原样。
+- Web 与 DOCX 继续只读取已保存的 `GenerationResult.result_json`。渲染不会修改数据库 payload、owner、type、Fact/Claim attachment，也不会调用任何语义生成或修复服务。
+- 当前网页仍只预览首个项目和前三条详情，这是保留的既有产品范围；DOCX 继续完整渲染不可变交付 revision 中的全部有效项目和详情。
+
 ## v0.9.12.3：Canonical Experience Header Completeness Authority
 
 - Canonical Semantic Build 现在为每个 owner 生成唯一的表头决定，只组合已冻结的 Experience Type、Display Name 与 Time 决定，不重新读取或解释完整原始输入。

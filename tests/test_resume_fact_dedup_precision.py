@@ -158,8 +158,8 @@ def test_docx_uses_formal_titles_and_hides_internal_ids():
             assert title.runs[0].bold is True
             assert title.runs[0].font.size.pt == 11
             assert str(title.runs[0].font.color.rgb) == "1F3763"
-            detail = next(paragraph for paragraph in document.paragraphs if paragraph.text == "建设 RAG 测试集")
-            assert detail.style.name == "List Bullet 2"
+            detail = next(paragraph for paragraph in document.paragraphs if paragraph.text == "技术细节：建设 RAG 测试集")
+            assert detail.style.name == "List Bullet"
             assert "source_experience_id" not in text and "source_fact_ids" not in text and "EXP-001" not in text
         finally:
             docx_service.OUTPUT_DIR = old_output

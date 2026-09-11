@@ -188,6 +188,17 @@ function VersionCard({ title, tone, text }: { title: string; tone: string; text:
 
 function ProjectPreview({ project }: { project: Record<string, any> }) {
   const details = Array.isArray(project.details) ? project.details.slice(0, 3) : [];
+  const headerFields = project.meta === "实习经历"
+    ? [
+        { key: "organization", value: project.name, fallback: "企业：【待填写】", emphasis: true },
+        { key: "position", value: project.position, fallback: "岗位：【待填写】", emphasis: false },
+        { key: "time", value: project.time, fallback: "时间：【待填写】", emphasis: false }
+      ]
+    : [
+        { key: "name", value: project.name, fallback: "经历名称：【待填写】", emphasis: true },
+        { key: "meta", value: project.meta, fallback: "经历类型：【待填写】", emphasis: false },
+        { key: "time", value: project.time, fallback: "时间：【待填写】", emphasis: false }
+      ];
   return (
     <div className="project-preview">
       <div className="section-title">
@@ -197,18 +208,13 @@ function ProjectPreview({ project }: { project: Record<string, any> }) {
         </div>
       </div>
       <div className="project-title-line">
-        <div>
-          <small>项目名称</small>
-          <strong>{cleanDisplayText(project.name, "项目名称待补充")}</strong>
-        </div>
-        <div>
-          <small>项目类型</small>
-          <span>{cleanDisplayText(project.meta, "项目类型待补充")}</span>
-        </div>
-        <div>
-          <small>项目时间</small>
-          <span>{cleanDisplayText(project.time, "项目时间待补充")}</span>
-        </div>
+        {headerFields.map((field) => (
+          <div key={field.key} aria-label={field.key}>
+            {field.emphasis
+              ? <strong>{cleanDisplayText(field.value, field.fallback)}</strong>
+              : <span>{cleanDisplayText(field.value, field.fallback)}</span>}
+          </div>
+        ))}
       </div>
       <div className="project-fields">
         <div>

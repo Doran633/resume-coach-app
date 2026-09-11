@@ -1,6 +1,6 @@
 # Resume Coach App
 
-## 当前架构：v0.9.12.3
+## 当前架构：v0.9.13.1
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -67,6 +67,7 @@ raw_input
 | v0.9.12.1 | Canonical Experience Type Authority | 分段关键词类型降级为 provisional hint；现有关系型解析器在 Claim Resolution 后按 owner 形成唯一的冻结类型决定。 |
 | v0.9.12.2 | Canonical Experience Time Authority | 编译期按 owner 冻结可追溯的经历时间；投影和标题解析只消费该决定，未知时间显示明确的时间待补充提示。 |
 | v0.9.12.3 | Canonical Experience Header Completeness Authority | 按冻结类型确定表头字段，组合已验证名称、时间及实习企业/岗位；缺失值显示带字段名的待填写提示。 |
+| v0.9.13.1 | Immutable Delivery Rendering Consistency | Web 与 DOCX 确定性消费同一保存 revision；网页按冻结类型展示表头，DOCX 不再生成空的技术细节 bullet。 |
 
 后续尚未实施的架构阶段：
 
@@ -87,6 +88,7 @@ raw_input
 - [Canonical Experience Display Name Authority](docs/canonical-experience-display-name-authority.md) 说明展示名称的候选来源、资格排序与下游强制消费边界。
 - [Canonical Experience Time Authority](docs/canonical-experience-time-authority.md) 说明经历时间的 owner-scoped 资格、未知时间占位与下游只读消费边界。
 - [Canonical Experience Header Completeness Authority](docs/canonical-experience-header-completeness-authority.md) 说明类型化表头、实习企业/岗位资格和字段级待填写提示的确定性组合契约。
+- [Immutable Delivery Rendering Consistency](docs/immutable-delivery-rendering-consistency.md) 说明 Web 与 DOCX 对同一不可变 revision 的确定性展示映射及结构标签过滤边界。
 - [Immutable Delivery Revision](docs/immutable-delivery-revision.md) 说明最终 Gate、确定性 revision、数据库读取和完整 DOCX 渲染的一致性契约。
 - Canonical State、Ownership、Consumer Views、Delivery Gate、Repair Router 都输出脱敏聚合日志，不记录用户正文、Cookie、API Key 或原始 IP。
 - shallow smoke 检查网站、法律页面、健康接口、Cookie、安全响应头和版本一致性；full smoke 显式调用模型，并在 finally 中清理测试数据。
