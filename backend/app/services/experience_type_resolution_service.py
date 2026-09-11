@@ -1,18 +1,30 @@
+from __future__ import annotations
+
 import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .canonical_semantic_state_service import CanonicalExperienceTypeDecision
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .input_claim_resolution_service import ClaimResolution
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalExperienceTypeDecision
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "experience_type_resolution.jsonl"
 RESOLVER_VERSION = "v0.9.2"
 STANDARD_TYPES = ["项目经历", "实习经历", "科研经历", "竞赛获奖", "竞赛经历", "开源经历", "校园 / 社团经历"]
+TYPE_ALIASES = {
+    "课程项目": "项目经历",
+    "团队项目": "项目经历",
+    "个人项目": "项目经历",
+    "校园活动经历": "校园 / 社团经历",
+    "社团经历": "校园 / 社团经历",
+}
 EXCLUDED_INTERNSHIP_CONTEXTS = [
     r"面向[^。；\n]{0,30}实习(?:生|求职者|用户)", r"服务[^。；\n]{0,20}实习用户", r"帮助用户[^。；\n]{0,30}实习",
     r"应届生和实习生", r"实习(?:招聘|岗位推荐|简历|求职平台|面试准备|经历分析|用户反馈)",
@@ -42,21 +54,52 @@ class TypeResolution:
     inherited_type_used: bool = False
     type_locked: bool = True
     resolver_version: str = RESOLVER_VERSION
+    ambiguous_default: bool = False
 
 
 def _hits(pattern: str, text: str) -> list[str]:
     return [match.group(0) for match in re.finditer(pattern, text, re.IGNORECASE)]
 
 
-def resolve_identity_type(identity: ExperienceIdentity) -> TypeResolution:
-    title, local = identity.title or "", identity.raw_text or ""
+def _canonical_type(value: str) -> str:
+    normalized = TYPE_ALIASES.get(str(value or ""), str(value or ""))
+    return normalized if normalized in STANDARD_TYPES else ""
+
+
+def _eligible_local_claim_text(identity: ExperienceIdentity, resolution: ClaimResolution | None) -> str:
+    """Return only this owner's confirmed, resume-eligible claim text.
+
+    Canonical callers pass a precomputed ClaimResolution.  That makes type
+    evidence respect Claim eligibility instead of treating every raw sentence
+    in an Identity as a type signal.  Legacy callers retain their local raw
+    resolver behavior for compatibility.
+    """
+    if resolution is None:
+        return str(identity.raw_text or "")
+    return "\n".join(
+        claim.text
+        for claim in resolution.eligible_claims
+        if claim.source_experience_id == identity.experience_id
+    )
+
+
+def _has_duty_relation(text: str) -> bool:
+    return bool(re.search(r"(?:负责|参与|完成|协助|支持|跟进|执行|复盘|调研|运营|开发|测试|设计)", text))
+
+
+def resolve_identity_type(
+    identity: ExperienceIdentity,
+    claim_resolution: ClaimResolution | None = None,
+) -> TypeResolution:
+    title = str(identity.title or "")
+    local = _eligible_local_claim_text(identity, claim_resolution)
     text = f"{title}\n{local}"
     scores = {key: 0 for key in STANDARD_TYPES}
     positive: list[str] = []
     excluded = [hit for pattern in EXCLUDED_INTERNSHIP_CONTEXTS for hit in _hits(pattern, text)]
 
-    if identity.declared_experience_type in STANDARD_TYPES:
-        declared = identity.declared_experience_type
+    declared = _canonical_type(identity.declared_experience_type)
+    if declared:
         scores[declared] = 100
         return TypeResolution(
             experience_id=identity.experience_id,
@@ -89,29 +132,38 @@ def resolve_identity_type(identity: ExperienceIdentity) -> TypeResolution:
             scores[type_name] += weight
             positive.extend(f"{type_name}:{hit[:40]}" for hit in hits)
 
-    # The identity layer now emits internship only for an explicit heading or
-    # an author-employment relation, so this inherited signal is bounded and
-    # no longer represents a raw keyword match.
-    if identity.experience_type == "实习经历":
-        scores["实习经历"] += 10
-        positive.append("实习经历:identity_strong_relation")
-    elif identity.experience_type in STANDARD_TYPES and identity.experience_type != "项目经历":
-        scores[identity.experience_type] += 4
+    # Only legacy callers may use the segmentation hint.  Canonical callers
+    # pass ClaimResolution and therefore must resolve from local relations.
+    inherited = _canonical_type(identity.experience_type)
+    if claim_resolution is None:
+        if inherited == "实习经历":
+            scores["实习经历"] += 10
+            positive.append("实习经历:legacy_identity_hint")
+        elif inherited and inherited != "项目经历":
+            scores[inherited] += 4
 
     employment_patterns = [
         r"在[^。；\n]{2,50}(?:公司|企业|事务所|研究院)[^。；\n]{0,35}(?:实习|担任)",
         r"担任[^。；\n]{0,35}实习生", r"实习期间(?:负责|参与)", r"作为[^。；\n]{0,40}实习生",
     ]
     employment_hits = [hit for pattern in employment_patterns for hit in _hits(pattern, text)]
+    role_internship = bool(re.search(
+        r"(?:产品运营|运营|市场|增长|数据|研发|开发|测试|设计|算法|前端|后端|人力|财务|行政)[^。；\n]{0,12}实习(?:生)?",
+        text,
+    )) and _has_duty_relation(local)
     if employment_hits:
-        scores["实习经历"] += 10
+        scores["实习经历"] += 20
         positive.extend(f"实习关系:{hit[:50]}" for hit in employment_hits)
+    elif role_internship and not excluded:
+        scores["实习经历"] += 18
+        positive.append("实习关系:岗位型实习与本地履职")
     scores["实习经历"] -= min(16, len(excluded) * 8)
 
     project_patterns = [
-        (r"独立(?:设计并开发|设计|开发|完成)", 8), (r"个人项目|课程项目", 8), (r"从零设计|持续迭代", 5),
-        (r"项目起点|产品定位|完整工作流|系统实现|平台开发", 4), (r"公网部署|用户测试|产品反馈|版本迭代|GitHub", 3),
-        (r"前端(?:使用|主要使用)|后端(?:使用|主要使用)|技术栈", 3),
+        (r"独立(?:设计并开发|设计|开发|完成)", 10), (r"个人项目|课程项目|课程作业|大作业|课设", 12),
+        (r"(?:开发|设计|搭建|构建|迭代|实现)[^。；\n]{0,24}(?:系统|平台|项目|工具|应用|助手|网站|产品)", 10),
+        (r"从零设计|持续迭代|项目起点|产品定位|完整工作流|系统实现|平台开发", 5),
+        (r"公网部署|用户测试|产品反馈|版本迭代", 2),
     ]
     ownership_hits: list[str] = []
     for pattern, weight in project_patterns:
@@ -123,11 +175,11 @@ def resolve_identity_type(identity: ExperienceIdentity) -> TypeResolution:
         positive.extend(f"项目关系:{hit[:40]}" for hit in ownership_hits[:6])
 
     semantic_rules = [
-        ("科研经历", r"(?:参与|负责|开展|承担).{0,24}(?:课题|实验研究)|课题组|实验室|研究职责|论文(?:发表|投稿)", 6),
-        ("竞赛获奖", r"一等奖|二等奖|三等奖|金奖|银奖|铜奖", 8),
-        ("竞赛经历", r"参加[^。；\n]{0,40}(?:竞赛|比赛)|赛题|路演|答辩", 5),
-        ("开源经历", r"开源贡献|Pull Request|\bPR\b|maintainer", 6),
-        ("校园 / 社团经历", r"学生会|社团|协会|校庆|校园活动|志愿", 6),
+        ("科研经历", r"(?:参与|负责|开展|承担)[^。；\n]{0,32}(?:课题|实验研究)|(?:课题组|实验室)[^。；\n]{0,32}(?:参与|负责|开展|承担)|(?:参与|负责)[^。；\n]{0,32}论文(?:研究|发表|投稿)", 16),
+        ("竞赛获奖", r"(?:参加|参与|代表[^。；\n]{0,20}参加)[^。；\n]{0,40}(?:竞赛|比赛)[^。；\n]{0,40}(?:获奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖)|(?:竞赛|比赛)[^。；\n]{0,40}(?:获奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖)", 16),
+        ("竞赛经历", r"(?:参加|参与|代表[^。；\n]{0,20}参加)[^。；\n]{0,40}(?:竞赛|比赛)|(?:竞赛|比赛)[^。；\n]{0,40}(?:赛题|路演|答辩|展示)", 14),
+        ("开源经历", r"(?:向|为|在)[^。；\n]{0,40}(?:开源项目|开源社区|社区|仓库)[^。；\n]{0,40}(?:提交|贡献|修复|维护)|(?:PR|Pull Request)[^。；\n]{0,32}(?:合并|merged|被合并)|(?:maintainer|contributor)", 16),
+        ("校园 / 社团经历", r"(?:参加|参与|组织|策划|协调|担任|加入)[^。；\n]{0,40}(?:学生会|社团|协会|校庆|校园活动|志愿(?:活动|服务)?)|(?:学生会|社团|协会|校庆|校园活动|志愿(?:活动|服务)?)[^。；\n]{0,40}(?:参加|参与|组织|策划|协调|担任|加入|负责)", 16),
     ]
     for type_name, pattern, weight in semantic_rules:
         hits = _hits(pattern, text)
@@ -138,7 +190,8 @@ def resolve_identity_type(identity: ExperienceIdentity) -> TypeResolution:
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     resolved, top_score = ranked[0]
     runner_up, second_score = ranked[1]
-    if top_score <= 0 or top_score - second_score < 2:
+    ambiguous_default = top_score <= 0 or top_score - second_score < 2
+    if ambiguous_default:
         resolved = "项目经历"
     margin = top_score - second_score
     confidence = 0.55
@@ -156,7 +209,9 @@ def resolve_identity_type(identity: ExperienceIdentity) -> TypeResolution:
         source_title=title, local_raw_text=local, conflict_detected=identity.experience_type != resolved,
         evidence_scores=scores, excluded_context_signals=excluded, runner_up_type=runner_up, score_margin=margin,
         employment_relation_detected=bool(employment_hits), project_ownership_detected=bool(ownership_hits),
-        inherited_identity_type=identity.experience_type, inherited_type_used=False,
+        inherited_identity_type=identity.experience_type, inherited_type_used=claim_resolution is None,
+        resolution_method="ambiguous_default" if ambiguous_default else "relation_score",
+        ambiguous_default=ambiguous_default,
     )
 
 
@@ -172,7 +227,7 @@ def _signal_categories(signals: list[str]) -> list[str]:
     return sorted({item.split(":", 1)[0] for item in signals if item})
 
 
-def _canonical_resolution(decision: CanonicalExperienceTypeDecision) -> TypeResolution:
+def _canonical_resolution(decision: "CanonicalExperienceTypeDecision") -> TypeResolution:
     return TypeResolution(
         experience_id=decision.experience_id,
         resolved_type=decision.canonical_experience_type,
@@ -181,6 +236,7 @@ def _canonical_resolution(decision: CanonicalExperienceTypeDecision) -> TypeReso
         resolution_method="canonical_semantic_build",
         inherited_identity_type=decision.canonical_experience_type,
         inherited_type_used=True,
+        ambiguous_default=decision.type_source == "ambiguous_default",
     )
 
 
@@ -193,7 +249,7 @@ def _write_log(
     *,
     authority_mode: str = "legacy",
     write_mode: str = "apply",
-    canonical_decision: CanonicalExperienceTypeDecision | None = None,
+    canonical_decision: "CanonicalExperienceTypeDecision | None" = None,
 ) -> None:
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -216,6 +272,7 @@ def _write_log(
             "canonical_type_explicit": canonical_decision.explicit if canonical_decision else False,
             "canonical_type_confidence": canonical_decision.confidence if canonical_decision else None,
             "type_locked": resolution.type_locked, "resolver_version": resolution.resolver_version,
+            "ambiguous_default": resolution.ambiguous_default,
         }
         with LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")

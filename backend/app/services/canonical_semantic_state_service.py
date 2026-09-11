@@ -14,6 +14,7 @@ from .canonical_display_name_service import (
     build_canonical_display_name_qualifications,
 )
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .experience_type_resolution_service import resolve_identity_type
 from .input_claim_resolution_service import (
     ClaimResolution,
     ELIGIBLE,
@@ -297,24 +298,30 @@ def _validate(
     return CanonicalStateValidation(valid=not issues, issue_codes=tuple(sorted(issues)))
 
 
-def _build_experience_type_decision(identity: ExperienceIdentity) -> CanonicalExperienceTypeDecision:
-    declared = str(identity.declared_experience_type or "")
-    if declared in CANONICAL_EXPERIENCE_TYPES:
-        return CanonicalExperienceTypeDecision(
-            experience_id=identity.experience_id,
-            canonical_experience_type=declared,
-            type_source="declared_experience_type",
-            explicit=True,
-            confidence=1.0,
-        )
-    inherited = str(identity.experience_type or "")
-    resolved = inherited if inherited in CANONICAL_EXPERIENCE_TYPES else "项目经历"
+def _build_experience_type_decision(
+    identity: ExperienceIdentity,
+    claim_resolution: ClaimResolution,
+) -> CanonicalExperienceTypeDecision:
+    """Freeze exactly one owner-scoped relation decision during compilation.
+
+    Segmentation may provide a useful provisional hint, but its keyword order
+    is not a Canonical authority.  The existing type resolver receives only
+    this owner's eligible Claim Resolution and is the sole source here.
+    """
+    resolution = resolve_identity_type(identity, claim_resolution)
+    resolved = resolution.resolved_type
+    if resolved not in CANONICAL_EXPERIENCE_TYPES:
+        resolved = "项目经历"
     return CanonicalExperienceTypeDecision(
         experience_id=identity.experience_id,
         canonical_experience_type=resolved,
-        type_source="experience_identity",
-        explicit=False,
-        confidence=0.9 if inherited in CANONICAL_EXPERIENCE_TYPES else 0.55,
+        type_source=(
+            "declared_experience_type"
+            if resolution.resolution_method == "declared_experience_type"
+            else resolution.resolution_method
+        ),
+        explicit=resolution.resolution_method == "declared_experience_type",
+        confidence=resolution.confidence,
     )
 
 
@@ -447,13 +454,20 @@ def build_canonical_semantic_build(
     """Compile request semantics once before projecting the shadow state."""
     context = long_input_context or analyze_long_input(raw_input)
     identities = tuple(build_experience_identities(raw_input, long_input_context=context))
-    experience_type_decisions = tuple(_build_experience_type_decision(identity) for identity in identities)
     semantic_analyses = tuple(
         analyze_experience_semantics(identity.experience_id, identity.raw_text, identity.source_span[0])
         for identity in identities
     )
     claim_resolutions = tuple(
         resolve_experience_claims(identity.experience_id, identity.raw_text, identity.source_span[0])
+        for identity in identities
+    )
+    claim_resolution_by_owner = {
+        identity.experience_id: resolution
+        for identity, resolution in zip(identities, claim_resolutions)
+    }
+    experience_type_decisions = tuple(
+        _build_experience_type_decision(identity, claim_resolution_by_owner[identity.experience_id])
         for identity in identities
     )
     display_name_qualifications = build_canonical_display_name_qualifications(

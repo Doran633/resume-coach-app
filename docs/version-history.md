@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.12.1：Canonical Experience Type Authority
+
+- Semantic Segmentation 的关键词类型现在仅作为 provisional hint，Canonical Semantic Build 不再直接冻结 `Identity.experience_type`。
+- 复用既有关系型 `experience_type_resolution_service`，在同一 owner 的 Claim Resolution 完成后只判定一次正式类型；Canonical 判定只读取本地 Identity 与 eligible Claim，不使用其他 owner 或 withheld、negative、uncertain、planned、instruction 内容。
+- 实习要求明确实习标题、组织任职关系，或岗位型实习和本地履职动作；GitHub、commit、仓库、技术词、指标、动作或结果不能单独建立开源、实习、校园、科研或竞赛类型。
+- 开源、校园、科研和竞赛均要求对应实体/场景与用户参与关系；课程或产品项目不会因“校园活动”“GitHub”等孤立词被重新分类。
+- Canonical `resolve_project_types` 继续只应用已冻结决定，不重读原始输入；后续模块不能重新猜测类型。现有类型日志仅记录来源类别、结果、分数摘要与脱敏 ID，不保存标题或正文。
+
 ## v0.9.11.2：Canonical Experience Display Name Authority
 
 - 每个 Canonical owner 在同一次 Semantic Compilation 中只产生一个展示名称资格结果；资格结果包含脱敏来源类别、owner source span、状态、原因、Claim lineage 和 fingerprint，不新增名称状态真源。
