@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.16：Canonical Model Evidence Consumption
+
+- 真实 generation 模型入口接入同请求 Consumer Views，正常/长输入与重试不再调用 legacy Prompt 的 Segmentation、Identity、Claim、Ledger 重建摘要。
+- 冻结类型与已验证表头、完整 Fact/Claim 来源、内部约束及非经历背景分别序列化，不使用 provisional title/type，不做八条事实或140字符截断，不重判 eligibility。
+- 经批准，在首次分区及 Long Input 中只传递已确定的非经历原文范围和追问；不重新切分、不把歧义余段当背景、不创建 owner。增加同请求及范围一致性验证，失败不回退到 raw_input 重建。
+- 首先固化真实入口的6项失败测试；覆盖完整互联网、电子商务及科研/开源/竞赛/校园输入、格式变体、重试、保存和旧交付回归。不修改旧测试断言，不新增业务模块，不修改模板包装规则。证据、测试、残留资格问题和完整部署验收见 [阶段报告](canonical-model-evidence-consumption.md)。
+
 ## v0.9.15.1：Experience Type Evidence Integrity
 
 - Canonical 类型关系不再读取推断 title；保留 legacy API，显式类型决定继续优先。已确认区块标题通过同 owner、原始位置及结构 Claim 状态验证，不恢复为正文 Fact。

@@ -82,6 +82,7 @@ from .canonical_semantic_state_service import (
     write_canonical_scoped_fact_access_log,
 )
 from .canonical_consumer_view_service import (
+    CanonicalConsumerViews,
     CanonicalConsumerViewAccessStats,
     build_canonical_consumer_views,
     write_canonical_consumer_views_log,
@@ -404,8 +405,11 @@ def build_mock_generation(request: schemas.GenerateRequest) -> schemas.Generatio
     )
 
 
-def build_llm_generation(request: schemas.GenerateRequest, long_input_context: LongInputContext) -> tuple[schemas.GenerationPayload, dict]:
-    prompt = build_generation_prompt(request, long_input_context)
+def build_llm_generation(
+    request: schemas.GenerateRequest, long_input_context: LongInputContext,
+    *, consumer_views: CanonicalConsumerViews | None = None,
+) -> tuple[schemas.GenerationPayload, dict]:
+    prompt = build_generation_prompt(request, long_input_context, consumer_views=consumer_views)
     last_error = ""
 
     max_attempts = max(1, min(int(os.getenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")), 2))
@@ -594,7 +598,7 @@ def create_generation(
         llm_log["model"] = "mock"
     elif mode == "openai":
         try:
-            payload, llm_log = build_llm_generation(request, long_input_context)
+            payload, llm_log = build_llm_generation(request, long_input_context, consumer_views=consumer_views)
             stability_log["model"] = llm_log.get("model")
             stability_log["llm_success"] = True
         except GenerationServiceError as exc:

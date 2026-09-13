@@ -83,6 +83,8 @@ class LongInputContext:
     raw_input_for_prompt: str
     estimated_token_saving_hint: str
     segments: list[LongInputSegment]
+    non_experience_source_spans: tuple[tuple[int, int], ...] = ()
+    clarification_questions: tuple[str, ...] = ()
 
 
 def extract_terms(text: str, terms: list[str]) -> list[str]:
@@ -174,4 +176,6 @@ def analyze_long_input(raw_input: str, write_segmentation_log: bool = False, sta
         raw_input_for_prompt=raw_input_for_prompt,
         estimated_token_saving_hint=saving,
         segments=segments,
+        non_experience_source_spans=tuple(partition.non_experience_source_spans),
+        clarification_questions=tuple(partition.clarification_questions),
     )

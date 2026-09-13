@@ -161,6 +161,7 @@ class SemanticSegmentationResult:
     weak_boundary_merged_count: int = 0
     weak_boundary_reason_counts: dict[str, int] = field(default_factory=dict)
     ambiguous_source_spans: list[tuple[int, int]] = field(default_factory=list)
+    non_experience_source_spans: list[tuple[int, int]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -230,15 +231,18 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
     segments = []
     discarded = 0
     ambiguous_spans = []
+    context_spans = []
     preamble_end = markers[0].start_offset
     if source[:preamble_end].strip():
         preamble = segment_semantic_experiences(source[:preamble_end])
         segments.extend(preamble.segments)
         discarded += preamble.discarded_context_count
+        context_spans.extend(preamble.non_experience_source_spans)
     for index, marker in enumerate(markers):
         end = markers[index + 1].start_offset if index + 1 < len(markers) else len(source)
         if marker.boundary_source == "non_experience_section":
             discarded += 1
+            context_spans.append((marker.start_offset, end))
             continue
         start = marker.body_start_offset
         while start < end and source[start].isspace():
@@ -271,6 +275,7 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
         segments=segments, discarded_context_count=discarded,
         explicit_boundary_count=len(explicit), expected_experience_count=len(segments),
         ambiguous_source_spans=ambiguous_spans,
+        non_experience_source_spans=context_spans,
         clarification_questions=_ambiguity_questions(ambiguous_spans),
         low_confidence_segment_count=len(ambiguous_spans),
     )
@@ -439,7 +444,9 @@ def _trim_span(source: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def _experience_source_ranges(source: str) -> tuple[list[tuple[int, int]], int]:
+def _experience_source_ranges(
+    source: str, *, context_spans: list[tuple[int, int]] | None = None,
+) -> tuple[list[tuple[int, int]], int]:
     """Select original ranges instead of deleting text and inventing offsets."""
     excluded = sorted(
         (match.start(), match.end())
@@ -451,6 +458,8 @@ def _experience_source_ranges(source: str) -> tuple[list[tuple[int, int]], int]:
     for start, end in excluded:
         if start > cursor:
             ranges.append((cursor, start))
+        if context_spans is not None and end > cursor:
+            context_spans.append((max(cursor, start), end))
         cursor = max(cursor, end)
     if cursor < len(source):
         ranges.append((cursor, len(source)))
@@ -682,6 +691,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
     if explicit_boundaries:
         segments: list[SemanticExperienceSegment] = []
         ambiguous_spans = []
+        context_spans = []
         first_boundary_start = explicit_boundaries[0].start_offset
         preamble = source[:first_boundary_start]
         preamble_segment_count = 0
@@ -690,6 +700,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
             # the following experiences. Preserve those leading facts instead
             # of shifting every explicit experience_id by one slot.
             preamble_result = segment_semantic_experiences(preamble)
+            context_spans.extend(preamble_result.non_experience_source_spans)
             for item in preamble_result.segments:
                 segments.append(SemanticExperienceSegment(
                     experience_id=f"EXP-{len(segments) + 1:03d}",
@@ -751,6 +762,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 < len(explicit_boundaries)
             ),
             ambiguous_source_spans=ambiguous_spans,
+            non_experience_source_spans=context_spans,
             clarification_questions=_ambiguity_questions(ambiguous_spans),
             low_confidence_segment_count=len(ambiguous_spans),
         )
@@ -758,9 +770,13 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
             write_segmentation_log(result, len(source), stage=stage)
         return result
 
-    source_ranges, discarded = _experience_source_ranges(source)
+    context_spans = []
+    source_ranges, discarded = _experience_source_ranges(source, context_spans=context_spans)
     if not source_ranges:
-        return SemanticSegmentationResult(segments=[], discarded_context_count=discarded)
+        return SemanticSegmentationResult(
+            segments=[], discarded_context_count=discarded,
+            non_experience_source_spans=context_spans,
+        )
 
     clauses = [
         (clause, offset + start, offset + end, punctuation)
@@ -790,6 +806,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 r"(?:希望|想要)(?:申请|应聘)|求职意向|学习过.+课程)", clause
             ) and not _has_start_signal(clause):
                 discarded += 1
+                context_spans.append((start, end))
                 continue
             grouped.append({
                 "raw_text": clause,
@@ -871,6 +888,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
         low_confidence_segment_count=low_confidence,
         clarification_questions=list(dict.fromkeys([*_ambiguity_questions(ambiguous_spans), *questions]))[:4],
         ambiguous_source_spans=ambiguous_spans,
+        non_experience_source_spans=context_spans,
         expected_experience_count=len(segments),
         weak_boundary_merged_count=weak_boundary_merged_count,
         weak_boundary_reason_counts=weak_boundary_reason_counts,

@@ -1,12 +1,14 @@
 # Resume Coach App
 
-## 当前架构：v0.9.15.1
+## 当前架构：v0.9.16
+
+v0.9.16 统一 Canonical 模型证据消费：真实模型入口复用同请求 Build/Views，模型材料中的 owner、类型和表头服从冻结决定；完整 Fact 与原始 Claim 来源、内部约束、非经历背景分区传递，不再准备多套重建或截断摘要。正常/长输入及 JSON 重试使用同一证据来源；原有包装模板、识别规则与交付权限不变，不新增业务模块。经批准，仅额外在首次分区和 Long Input 中传递已有非经历范围及追问。已知 Claim 资格错误不在序列化层修复，付费模型效果仍需部署后验收。详见 [Canonical Model Evidence Consumption](docs/canonical-model-evidence-consumption.md)。
 
 v0.9.15.1 修复类型证据入口：Canonical 分类不再将系统生成的 Identity.title 当作显式类型证据；同 owner 的确认结构标题与合格履职 Claim 共同支持岗位型实习。PR 使用拉丁词边界，Spring 不再误触发开源分类。只修改两个既有业务服务，不新增模块，不改变分区、Fact eligibility 或下游冻结权限，也不处理完成度分数。重放证据、残留限制与完整部署验收见 [Experience Type Evidence Integrity](docs/experience-type-evidence-integrity.md)。
 
 v0.9.15 收敛输入分区：Semantic Segmentation 决定经历范围，适配器只转换记录，Long Input 的日志与上下文复用同次分区，Identity 不再重复过滤标题。合法“前端开发实习”不再因“开发”被否决；取消默认八段截断、跨项目名称搬段及按长度合并校园经历，正文区间直接对应原文。
 
-独立末段自述若与另一个显式项目全名冲突，保留原始输入和待确认区间，不自动借给另一 owner；普通跨项目对接说明仍归当前区块。经批准，legacy 标题入口兼容结构性实习标题，Canonical 名称权威不变。Prompt 准备仍有重复语义构建，留待 v0.9.16；本版本不宣称整个请求已只分区一次。证据、限制、提交和完整部署验收见 [Input Partition Consolidation](docs/experience-input-partition-consolidation.md)。
+独立末段自述若与另一个显式项目全名冲突，保留原始输入和待确认区间，不自动借给另一 owner；普通跨项目对接说明仍归当前区块。经批准，legacy 标题入口兼容结构性实习标题，Canonical 名称权威不变。v0.9.15 当时遗留的 Canonical Prompt 重复构建已由 v0.9.16 接线退出；独立 legacy API 仍兼容，不宣称所有 legacy 调用或其他后处理均已收口。历史证据、限制、提交和完整部署验收见 [Input Partition Consolidation](docs/experience-input-partition-consolidation.md)。
 
 v0.9.14.1 统一带冒号标题与无冒号独立标题行的区块边界。已确认区块内的日期、多段任务和结果继续归属同一经历；非经历区块不建 owner，纯结构标题不成为 Fact。A—E、完整电子商务输入与换行/空行/CRLF 对照通过真实 Segmentation → Identity → Claim/Type → Canonical Build 验证。
 
@@ -18,6 +20,7 @@ Resume Coach 已从“原始输入直接交给模型生成简历”的模式，�
 raw_input
   -> Semantic Compilation
   -> CanonicalSemanticBuild / Display Name Qualification / Canonical Consumer Views
+  -> Canonical Model Evidence / Existing LLM Templates (normal, long, retry)
   -> Existing Presentation Pipeline
   -> Owner / Type / Fact Scope Freeze
   -> Delivery Gate（只读验证）
@@ -31,7 +34,7 @@ raw_input
 
 核心职责如下：
 
-- **Semantic Compilation**：主生成入口复用 Experience Identity、Claim Resolution 和 Fact Ledger，形成请求级 CanonicalSemanticBuild；Prompt 兼容上下文仍会另行重建，尚未完成全请求单次语义消费。无显式标题的后续片段还必须具备独立实体、组织角色、时间范围或经历类型标签，才能创建新的 Experience owner scope；动作、技术、结果和标点只作为辅助信号。
+- **Semantic Compilation**：主生成入口复用 Experience Identity、Claim Resolution 和 Fact Ledger，形成请求级 CanonicalSemanticBuild；Canonical 模型输入只消费这一编译结果，独立 legacy Prompt API 不属于该生产入口。无显式标题的后续片段还必须具备独立实体、组织角色、时间范围或经历类型标签，才能创建新的 Experience owner scope；动作、技术、结果和标点只作为辅助信号。
 - **Canonical Consumer Views**：Planner、Guard 和未来 Repair 只能通过按 `experience_id` 限定的只读视图读取允许的 Claim、Fact 和技能证据，不重新理解完整 `raw_input`。
 - **Display Name Qualification**：每个 owner 在 Semantic Compilation 中只形成一个名称资格结果。显式标题、明确命名结构和同 owner 的明确产品实体可展示；Identity 标题、alias、总结说明、技术栈、职责和结果都只是候选，不能绕过资格进入项目名称。名称不明时保留本 owner 的事实并请求补充名称，不吞掉经历。
 - **Experience Type Authority**：分段层的类型仅为 provisional hint。Semantic Compilation 基于当前 owner 的显式类型、Identity 与 eligible Claim 中的关系证据只判定一次正式类型；GitHub、技术词、动作或结果不能单独把项目变为开源、实习、校园、科研或竞赛经历。

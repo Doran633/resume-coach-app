@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from .canonical_semantic_state_service import CanonicalSemanticBuild
 from .experience_fact_ledger_service import ExperienceFact, fact_match_score, normalize_fact_text
-from .input_claim_resolution_service import DENIED, ELIGIBLE, PLANNED, UNCERTAIN
+from .input_claim_resolution_service import DENIED, ELIGIBLE, PLANNED, UNCERTAIN, InputClaim
 from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence
 from .structured_log_service import stable_hash
 
@@ -147,6 +147,39 @@ class CanonicalConsumerViews:
 
     def claim_owner(self, claim_id: str) -> str:
         return self.claim_owner_by_id.get(str(claim_id or ""), "")
+
+    def claims_for_owner(self, experience_id: str) -> tuple[InputClaim, ...]:
+        """Read existing claims without re-evaluating their frozen eligibility."""
+        scope = self.scope_for_owner(experience_id)
+        if scope is None:
+            return ()
+        allowed = set((*scope.eligible_claim_ids, *scope.excluded_claim_ids, *scope.withheld_claim_ids))
+        return tuple(
+            claim for claim in self._build.ledger.claims
+            if claim.claim_id in allowed and claim.source_experience_id == scope.experience_id
+        )
+
+    @property
+    def clarification_questions(self) -> tuple[str, ...]:
+        return self._build.long_input_context.clarification_questions
+
+    def non_experience_context(self, raw_input: str) -> tuple[tuple[tuple[int, int], str], ...]:
+        """Slice only ranges already excluded by this request's first partition.
+
+        Unassigned/ambiguous gaps are not background. No complement-of-owner
+        inference or segmentation is allowed here.
+        """
+        if stable_hash(raw_input, purpose="canonical_semantic_state") != self._build.raw_input_hash:
+            raise ValueError("Model input and Canonical compilation must belong to the same request.")
+        rows = []
+        for start, end in self._build.long_input_context.non_experience_source_spans:
+            if not 0 <= start < end <= len(raw_input) or any(
+                start < identity.source_span[1] and end > identity.source_span[0]
+                for identity in self._build.identities
+            ):
+                raise ValueError("Invalid non-experience source range in compiled context.")
+            rows.append(((start, end), raw_input[start:end]))
+        return tuple(rows)
 
     def permits_fact(
         self,
