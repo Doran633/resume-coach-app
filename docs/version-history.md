@@ -1,5 +1,14 @@
 # 版本历史
 
+## v0.9.15：Experience Input Partition Consolidation
+
+- Semantic Segmentation 是分区决定入口；适配器不再按项目名搬段、重复过滤或默认截断八段。显式传入旧 max_segments 的调用若超限会明确报错，不返回部分结果。
+- Long Input 使用同次分区构建日志与上下文；Identity 不重复裁决纯标题。背景/意向筛选保留原始坐标，合并正文从原文切片；取消仅凭短长度合并校园经历。
+- 修正实习标题中的职业词误拒，保留意向和否定排除。带正文的标题不整段删除，真实多经历和 A—E 排版对照持续验证。
+- 经用户批准，显式标题下的末段若以另一个已命名项目作独立自述，记录待确认原文区间及现有追问，不跨 owner 搬段；普通跨项目引用不触发该机制。旧黄金输入及输出断言保留，新增歧义证据检查。
+- 经用户批准，仅适配 legacy resolve_resume_titles 对结构性实习标题的消费；不改变 Claim eligibility 或 Canonical 名称解析。
+- 先固化 13 个失败测试。完成专项、全量、黄金/DOCX、编译和 diff 检查；具体结果、证据缺口与部署步骤见 [阶段报告](experience-input-partition-consolidation.md)。不调用付费模型、不部署、不进入 v0.9.16。
+
 ## v0.9.14.1：Structured Experience Boundary Consistency
 
 - 已有半结构化区块识别同时接受冒号标题与合格的无冒号独立标题行，不将已确认区块再次送入逐句评分；基本信息、意向和技能保持在 owner 之外。

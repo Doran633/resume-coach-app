@@ -144,6 +144,7 @@ class SemanticExperienceSegment:
     relation_type: str = "independent"
     declared_experience_type: str = ""
     boundary_source: str = "semantic"
+    source_label: str = ""
 
 
 @dataclass
@@ -159,6 +160,7 @@ class SemanticSegmentationResult:
     boundary_loss_detected: bool = False
     weak_boundary_merged_count: int = 0
     weak_boundary_reason_counts: dict[str, int] = field(default_factory=dict)
+    ambiguous_source_spans: list[tuple[int, int]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -209,8 +211,9 @@ def input_section_kind(label: str) -> str:
     label = str(label or "").strip().rstrip("：:").strip()
     if CONTEXT_SECTION_LABEL.fullmatch(label):
         return "non_experience_section"
-    if EXPERIENCE_SECTION_LABEL.fullmatch(label) and not re.search(
-        r"(?:我|希望|想要|申请|目标|负责|完成|参与|开发|实现|例如|包括|没有)", label
+    # Occupational words inside a noun phrase are not sentence-level intent.
+    if EXPERIENCE_SECTION_LABEL.fullmatch(label) and not re.match(
+        r"^(?:我|本人|希望|想要|想投|申请|目标|求职|负责|完成|参与|例如|包括|没有|未曾|计划|准备|(?:开发|实现)(?:了|过|一个|一套|项目|系统|平台))", label
     ):
         return "labeled_experience"
     return ""
@@ -226,6 +229,7 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
     markers.sort(key=lambda item: item.start_offset)
     segments = []
     discarded = 0
+    ambiguous_spans = []
     preamble_end = markers[0].start_offset
     if source[:preamble_end].strip():
         preamble = segment_semantic_experiences(source[:preamble_end])
@@ -241,8 +245,11 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
             start += 1
         while end > start and source[end - 1].isspace():
             end -= 1
+        end, ambiguous_span = _qualified_body_end(source, start, end, marker, markers)
+        if ambiguous_span is not None:
+            ambiguous_spans.append(ambiguous_span)
         body = source[start:end]
-        if not body or is_heading_only_text(body):
+        if not body or body.rstrip("：:").strip() == marker.label or is_heading_only_text(body):
             continue
         provisional_type = marker.declared_experience_type or _infer_type(body)
         title = marker.title or _infer_title(body, provisional_type)
@@ -254,6 +261,7 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
             segmentation_reasons=["labeled_input_section"],
             declared_experience_type=marker.declared_experience_type,
             boundary_source=marker.boundary_source,
+            source_label=marker.label if marker.boundary_source == "explicit_heading" else "",
             canonical_project_name=str(hierarchy["canonical_project_name"]),
             project_aliases=list(hierarchy["project_aliases"]),
             parent_project_name=str(hierarchy["parent_project_name"]),
@@ -262,7 +270,47 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
     return SemanticSegmentationResult(
         segments=segments, discarded_context_count=discarded,
         explicit_boundary_count=len(explicit), expected_experience_count=len(segments),
+        ambiguous_source_spans=ambiguous_spans,
+        clarification_questions=_ambiguity_questions(ambiguous_spans),
+        low_confidence_segment_count=len(ambiguous_spans),
     )
+
+
+def _qualified_body_end(
+    source: str, start: int, end: int,
+    current: ExplicitExperienceBoundary,
+    boundaries: list[ExplicitExperienceBoundary],
+) -> tuple[int, tuple[int, int] | None]:
+    """A detached self-introduction contradicting a title needs clarification.
+
+    Only an exact named entity in the final paragraph qualifies. Ordinary
+    references such as integration with another project remain in this scope.
+    Nothing is moved to the mentioned entity or reconstructed from keywords.
+    """
+    gaps = list(re.finditer(r"\r?\n[ \t\r\n]*\n", source[start:end]))
+    if not current.title or not gaps:
+        return end, None
+    tail_start = start + gaps[-1].end()
+    tail = source[tail_start:end]
+    introduction = re.match(
+        r"(?:我|本人)?(?:曾经)?(?:做过|开发了|设计了|独立开发)(?:一个|一套)?"
+        r"(?P<entity>[^，,。；;\r\n]+)(?=[，,。；;]|$)", tail,
+    )
+    if introduction is None:
+        return end, None
+    entity = introduction.group("entity").strip()
+    other_names = {b.title.strip() for b in boundaries if b.title and b.title != current.title}
+    if entity not in other_names:
+        return end, None
+    body_end = start + gaps[-1].start()
+    return body_end, (tail_start, end)
+
+
+def _ambiguity_questions(spans: list[tuple[int, int]]) -> list[str]:
+    return [
+        f"原文第{start + 1}至{end}字符的补充归属需要确认，请明确其所属经历。"
+        for start, end in spans
+    ]
 
 
 def declared_type_for_label(label: str) -> str:
@@ -344,11 +392,12 @@ def is_heading_only_text(text: str) -> bool:
     if not value or len(value) > 110 or re.search(r"[。！？；;]", value):
         return False
     parts = [part.strip() for part in re.split(r"[｜|]", value) if part.strip()]
-    if len(parts) >= 2 and any(
-        term in part for part in parts[1:] for term in HEADING_ROLE_TERMS
+    if len(parts) >= 2 and all(
+        part in HEADING_ROLE_TERMS or bool(re.fullmatch(r"[\d年月日./\-~至今待填写\[\]【】 ]+", part))
+        for part in parts[1:]
     ):
         return True
-    return bool(re.match(r"^#{1,6}\s*[^。！？；;]{2,80}$", str(text or "").strip()))
+    return bool(re.fullmatch(r"#{1,6}[ \t]*[^。！？；;，,\r\n]{2,80}", str(text or "").strip()))
 
 
 def infer_project_hierarchy_metadata(title: str, raw_text: str) -> dict[str, object]:
@@ -382,16 +431,30 @@ def infer_project_hierarchy_metadata(title: str, raw_text: str) -> dict[str, obj
     }
 
 
-def _strip_context(text: str) -> tuple[str, int]:
-    cleaned = text
-    count = 0
-    for pattern in BACKGROUND_PATTERNS + INTENT_PATTERNS:
-        cleaned, replacements = re.subn(pattern, "", cleaned, flags=re.IGNORECASE)
-        count += replacements
-    cleaned = re.sub(r"[\t \u3000]+", " ", cleaned)
-    cleaned = re.sub(r" *\n *", "\n", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip(" ，,。；;：:\n"), count
+def _trim_span(source: str, start: int, end: int) -> tuple[int, int]:
+    while start < end and source[start] in " \t\r\n\u3000，,。；;：:":
+        start += 1
+    while end > start and source[end - 1] in " \t\r\n\u3000，,。；;：:":
+        end -= 1
+    return start, end
+
+
+def _experience_source_ranges(source: str) -> tuple[list[tuple[int, int]], int]:
+    """Select original ranges instead of deleting text and inventing offsets."""
+    excluded = sorted(
+        (match.start(), match.end())
+        for pattern in BACKGROUND_PATTERNS + INTENT_PATTERNS
+        for match in re.finditer(pattern, source, flags=re.IGNORECASE)
+    )
+    ranges = []
+    cursor = 0
+    for start, end in excluded:
+        if start > cursor:
+            ranges.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < len(source):
+        ranges.append((cursor, len(source)))
+    return ranges, len(excluded)
 
 
 def _themes(text: str) -> set[str]:
@@ -521,38 +584,18 @@ def _candidate_clauses(text: str) -> list[tuple[str, int, int, str]]:
     )
     preceding_punctuation = ""
     for match in boundary_pattern.finditer(text):
-        chunk = _normalize(text[start:match.start()])
+        left, right = _trim_span(text, start, match.start())
+        chunk = text[left:right]
         if chunk:
-            clauses.append((chunk, start, match.start(), preceding_punctuation))
+            clauses.append((chunk, left, right, preceding_punctuation))
         matched_boundary = match.group(0)
         preceding_punctuation = "\n\n" if matched_boundary.count("\n") >= 2 else matched_boundary[0]
         start = match.end()
-    tail = _normalize(text[start:])
+    left, right = _trim_span(text, start, len(text))
+    tail = text[left:right]
     if tail:
-        clauses.append((tail, start, len(text), preceding_punctuation))
+        clauses.append((tail, left, right, preceding_punctuation))
     return clauses
-
-
-def _merge_related_campus_segments(segments: list[dict]) -> tuple[list[dict], int]:
-    result: list[dict] = []
-    merged = 0
-    mergeable_types = {"校园活动经历", "学生工作经历"}
-    for segment in segments:
-        if (
-            result
-            and segment["experience_type"] in mergeable_types
-            and result[-1]["experience_type"] in mergeable_types
-            and len(segment["raw_text"]) < 45
-            and len(result[-1]["raw_text"]) < 100
-        ):
-            result[-1]["raw_text"] = f"{result[-1]['raw_text']}；{segment['raw_text']}"
-            result[-1]["end_offset"] = segment["end_offset"]
-            result[-1]["title"] = "校园活动与组织经历"
-            result[-1]["segmentation_reasons"].append("相邻短校园经历谨慎合并")
-            merged += 1
-        else:
-            result.append(segment)
-    return result, merged
 
 
 def _merge_parent_phase_heading_segments(segments: list[dict]) -> tuple[list[dict], int]:
@@ -634,6 +677,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
     explicit_boundaries = find_explicit_experience_boundaries(source)
     if explicit_boundaries:
         segments: list[SemanticExperienceSegment] = []
+        ambiguous_spans = []
         first_boundary_start = explicit_boundaries[0].start_offset
         preamble = source[:first_boundary_start]
         preamble_segment_count = 0
@@ -663,7 +707,15 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 preamble_segment_count += 1
         for index, boundary in enumerate(explicit_boundaries):
             end = explicit_boundaries[index + 1].start_offset if index + 1 < len(explicit_boundaries) else len(source)
-            body = source[boundary.body_start_offset:end].strip()
+            start = boundary.body_start_offset
+            while start < end and source[start].isspace():
+                start += 1
+            while end > start and source[end - 1].isspace():
+                end -= 1
+            end, ambiguous_span = _qualified_body_end(source, start, end, boundary, explicit_boundaries)
+            if ambiguous_span is not None:
+                ambiguous_spans.append(ambiguous_span)
+            body = source[start:end]
             if not body or is_heading_only_text(body):
                 continue
             title = boundary.title or _infer_title(body, boundary.declared_experience_type)
@@ -675,10 +727,11 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 boundary_source=boundary.boundary_source,
                 title=title,
                 raw_text=body,
-                start_offset=boundary.start_offset,
+                start_offset=start,
                 end_offset=end,
                 segmentation_confidence=1.0,
                 segmentation_reasons=["用户显式经历边界"],
+                source_label=boundary.label,
                 canonical_project_name=str(hierarchy["canonical_project_name"]),
                 project_aliases=list(hierarchy["project_aliases"]),
                 parent_project_name=str(hierarchy["parent_project_name"]),
@@ -693,24 +746,41 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 len([item for item in segments if item.boundary_source != "implicit_preamble"])
                 < len(explicit_boundaries)
             ),
+            ambiguous_source_spans=ambiguous_spans,
+            clarification_questions=_ambiguity_questions(ambiguous_spans),
+            low_confidence_segment_count=len(ambiguous_spans),
         )
         if write_log:
             write_segmentation_log(result, len(source), stage=stage)
         return result
 
-    cleaned, discarded = _strip_context(source)
-    if not cleaned:
+    source_ranges, discarded = _experience_source_ranges(source)
+    if not source_ranges:
         return SemanticSegmentationResult(segments=[], discarded_context_count=discarded)
 
-    clauses = _candidate_clauses(cleaned)
+    clauses = [
+        (clause, offset + start, offset + end, punctuation)
+        for offset, limit in source_ranges
+        for clause, start, end, punctuation in _candidate_clauses(source[offset:limit])
+    ]
     grouped: list[dict] = []
     semantic_boundaries = 0
     low_confidence = 0
     weak_boundary_merged_count = 0
     weak_boundary_reason_counts: dict[str, int] = {}
     questions: list[str] = []
+    ambiguous_spans = []
     for clause, start, end, punctuation in clauses:
-        if not grouped:
+        separated_by_context = bool(grouped) and any(
+            grouped[-1]["end_offset"] <= limit < start for _, limit in source_ranges
+        )
+        if separated_by_context and not _has_independent_experience_anchor(clause)[0]:
+            # A context gap cannot itself prove a new experience. Keep this
+            # range pending rather than bridging excluded text or inventing ID.
+            ambiguous_spans.append((start, end))
+            low_confidence += 1
+            continue
+        if not grouped or separated_by_context:
             if re.match(
                 r"^(?:(?:本科|硕士|博士|大[一二三四])在读|预计\d{4}年毕业|"
                 r"(?:希望|想要)(?:申请|应聘)|求职意向|学习过.+课程)", clause
@@ -751,7 +821,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
             if score < AUTO_SPLIT_THRESHOLD:
                 low_confidence += 1
         else:
-            grouped[-1]["raw_text"] = f"{grouped[-1]['raw_text']}；{clause}"
+            grouped[-1]["raw_text"] = source[grouped[-1]["start_offset"]:end]
             grouped[-1]["end_offset"] = end
             if score_allows_split and not has_anchor:
                 weak_boundary_merged_count += 1
@@ -765,10 +835,10 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
 
     grouped, hierarchy_merged_count = _merge_parent_phase_heading_segments(grouped)
     grouped, heading_residue_count = _merge_or_discard_heading_residues(grouped)
-    grouped, campus_merged_count = _merge_related_campus_segments(grouped)
-    merged_count = hierarchy_merged_count + heading_residue_count + campus_merged_count
+    merged_count = hierarchy_merged_count + heading_residue_count
     segments: list[SemanticExperienceSegment] = []
     for index, item in enumerate(grouped, start=1):
+        item["raw_text"] = source[item["start_offset"]:item["end_offset"]]
         experience_type = _infer_type(item["raw_text"])
         hierarchy = infer_project_hierarchy_metadata(item.get("title", ""), item["raw_text"])
         segments.append(
@@ -795,7 +865,8 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
         semantic_boundary_count=semantic_boundaries,
         merged_segment_count=merged_count,
         low_confidence_segment_count=low_confidence,
-        clarification_questions=list(dict.fromkeys(questions))[:4],
+        clarification_questions=list(dict.fromkeys([*_ambiguity_questions(ambiguous_spans), *questions]))[:4],
+        ambiguous_source_spans=ambiguous_spans,
         expected_experience_count=len(segments),
         weak_boundary_merged_count=weak_boundary_merged_count,
         weak_boundary_reason_counts=weak_boundary_reason_counts,
@@ -815,7 +886,9 @@ def write_segmentation_log(result: SemanticSegmentationResult, raw_input_length:
             "expected_experience_count": result.expected_experience_count,
             "actual_experience_count": len(result.segments),
             "boundary_loss_detected": result.boundary_loss_detected,
-            "issue_codes": ["EXPLICIT_BOUNDARY_LOST"] if result.boundary_loss_detected else [],
+            "issue_codes": (["EXPLICIT_BOUNDARY_LOST"] if result.boundary_loss_detected else [])
+            + (["AMBIGUOUS_EXPERIENCE_SUPPLEMENT"] if result.ambiguous_source_spans else []),
+            "ambiguous_source_range_count": len(result.ambiguous_source_spans),
             "severity": "critical" if result.boundary_loss_detected else "observe",
             "semantic_boundary_count": result.semantic_boundary_count,
             "total_segments": len(result.segments),

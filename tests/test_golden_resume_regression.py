@@ -119,6 +119,15 @@ def test_golden_case_schema_contains_required_quality_contract():
 
 def test_duplicate_entity_golden_case_keeps_two_real_projects():
     case = load_case("v060_duplicate_regression_project")
+    # v0.9.15: preserve the unchanged ambiguous source, but do not silently
+    # move its detached self-introduction across the explicit project boundary.
+    from app.services.semantic_experience_segmentation_service import segment_semantic_experiences
+    partition = segment_semantic_experiences(case["raw_input"])
+    assert len(partition.ambiguous_source_spans) == 1
+    assert partition.clarification_questions
+    pending = case["raw_input"][slice(*partition.ambiguous_source_spans[0])]
+    assert pending == "我做过一个回归分析计算器，可以比较多种回归分析效果并生成图像。"
+    assert all(pending not in segment.raw_text for segment in partition.segments)
     payload = process_fixed_payload(case)
     projects = payload.resume_sections.projects
     assert len(projects) == 2

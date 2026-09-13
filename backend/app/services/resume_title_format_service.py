@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING
 from .. import schemas
 from .experience_identity_service import build_experience_identities
 from .experience_fact_ledger_service import build_experience_fact_ledger
-from .input_claim_resolution_service import ELIGIBLE, resolve_experience_claims
+from .input_claim_resolution_service import (
+    CONFIRMED, ELIGIBLE, PLANNED, POSITIVE, STRUCTURE_MARKER, resolve_experience_claims,
+)
 
 if TYPE_CHECKING:
     from .canonical_consumer_view_service import CanonicalPlannerView
@@ -152,7 +154,15 @@ def resolve_resume_titles(payload: schemas.GenerationPayload, raw_input: str) ->
         trusted_title = (
             identity.title
             if identity and identity.declared_experience_type
-            and title_claims and all(claim.eligibility == ELIGIBLE for claim in title_claims)
+            and title_claims and all(
+                claim.eligibility == ELIGIBLE or (
+                    identity.boundary_source == "explicit_heading"
+                    and claim.semantic_role == STRUCTURE_MARKER
+                    and claim.polarity == POSITIVE and claim.certainty == CONFIRMED
+                    and claim.temporal_status != PLANNED
+                )
+                for claim in title_claims
+            )
             else ""
         )
         local = "\n".join(filter(None, [trusted_title, eligible_body]))

@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from .long_input_service import LongInputContext, LongInputSegment, analyze_long_input
 from .semantic_experience_segmentation_service import (
     infer_project_hierarchy_metadata,
-    is_heading_only_text,
     segment_semantic_experiences,
 )
 from .input_semantic_role_service import analyze_experience_semantics
@@ -69,8 +68,6 @@ def build_experience_identities(
     identities: list[ExperienceIdentity] = []
     cursor = 0
     for segment in context.segments:
-        if is_heading_only_text(segment.content):
-            continue
         hierarchy = infer_project_hierarchy_metadata(segment.title, segment.content)
         if segment.source_span != (0, 0):
             start, end = segment.source_span
