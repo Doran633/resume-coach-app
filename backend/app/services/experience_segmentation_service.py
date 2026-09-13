@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from .semantic_experience_segmentation_service import (
     find_explicit_experience_boundaries,
+    find_labeled_input_boundaries,
     is_heading_only_text,
     segment_semantic_experiences,
 )
@@ -78,6 +79,15 @@ def _remove_heading_only_segments(segments: list[ExperienceSegment]) -> list[Exp
 
 
 def split_experience_segments(raw_input: str, max_segments: int = 8) -> list[ExperienceSegment]:
+    if find_labeled_input_boundaries(raw_input):
+        semantic = segment_semantic_experiences(raw_input)
+        return [ExperienceSegment(
+            label=item.declared_experience_type or item.experience_type,
+            title=item.title, content=item.raw_text,
+            declared_experience_type=item.declared_experience_type,
+            boundary_source=item.boundary_source,
+            source_span=(item.start_offset, item.end_offset),
+        ) for item in semantic.segments[:max_segments]]
     text = raw_input.strip()
     if not text:
         return []

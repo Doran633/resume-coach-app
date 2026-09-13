@@ -101,6 +101,23 @@ ORGANIZATION_ROLE_PATTERN = re.compile(
 )
 GENERIC_ENTITY_NAMES = {"项目", "系统", "平台", "网站", "工具", "助手", "应用", "小程序", "活动", "比赛", "竞赛", "计划"}
 
+# These are section labels, not keyword evidence found inside an action sentence.
+INPUT_SECTION_LABEL = re.compile(
+    r"(?:^|(?<=[。！？；;\n]))[ \t\r\n]*(?:#{1,6}[ \t]*)?"
+    r"(?P<label>[^，,。！？；;：:\n|｜]{2,32})[ \t]*[:：]"
+)
+CONTEXT_SECTION_LABEL = re.compile(
+    r"(?:基本信息|个人信息|个人简介|教育(?:背景|经历)|学历信息|"
+    r"求职意向|求职目标|目标岗位|职业意向|课程(?:背景|学习)|主修课程|"
+    r"(?:专业|个人|相关|掌握的)?技能(?:清单|与能力)?)"
+)
+EXPERIENCE_SECTION_LABEL = re.compile(
+    r"(?:(?:[\w /]+)?(?:实习|实习经历|项目|项目经历|科研经历|研究经历|"
+    r"竞赛经历|比赛经历|开源经历)|"
+    r"(?:[\w /]+)?课程(?:项目|调查|实践|设计)|"
+    r"(?:校园|社团|学生|志愿|社会实践)[\w /]*(?:工作|经历|活动))"
+)
+
 
 @dataclass
 class SemanticExperienceSegment:
@@ -149,6 +166,93 @@ class ExplicitExperienceBoundary:
     title: str
     declared_experience_type: str
     boundary_source: str
+
+
+def _standalone_headings(source: str) -> list[ExplicitExperienceBoundary]:
+    headings = []
+    for boundary in find_explicit_experience_boundaries(source):
+        line = source[boundary.start_offset:].lstrip().splitlines()[0]
+        if re.search(r"[。；;]", line) or (TIME_RANGE_PATTERN.search(line) and re.search(r"[，,]", line)):
+            continue
+        headings.append(boundary)
+    return headings
+
+
+def find_labeled_input_boundaries(source: str) -> list[ExplicitExperienceBoundary]:
+    boundaries = []
+    for match in INPUT_SECTION_LABEL.finditer(source):
+        label = match.group("label").strip()
+        if CONTEXT_SECTION_LABEL.fullmatch(label):
+            kind = "non_experience_section"
+        elif EXPERIENCE_SECTION_LABEL.fullmatch(label) and not re.search(
+            r"(?:我|希望|想要|申请|目标|负责|完成|参与|开发|实现|例如|包括|没有)", label
+        ):
+            kind = "labeled_experience"
+        else:
+            continue
+        boundaries.append(ExplicitExperienceBoundary(
+            start_offset=match.start("label"),
+            body_start_offset=match.start("label"),
+            label=label, title="",
+            declared_experience_type=(declared_type_for_label(label) if re.fullmatch(
+                r"(?:项目|实习|科研|研究|竞赛|比赛|开源|校园|社团)经历", label
+            ) else ""),
+            boundary_source=kind,
+        ))
+    explicit = _standalone_headings(source)
+    return [item for item in boundaries if not any(
+        boundary.start_offset <= item.start_offset < boundary.body_start_offset
+        for boundary in explicit
+    )]
+
+
+def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary]) -> SemanticSegmentationResult:
+    # Existing explicit headings win at the same label; context markers also end
+    # their bodies, so a trailing skills section can never become project facts.
+    explicit = _standalone_headings(source)
+    for boundary in explicit:
+        markers = [m for m in markers if not boundary.start_offset <= m.start_offset < boundary.body_start_offset]
+        markers.append(boundary)
+    markers.sort(key=lambda item: item.start_offset)
+    segments = []
+    discarded = 0
+    preamble_end = markers[0].start_offset
+    if source[:preamble_end].strip():
+        preamble = segment_semantic_experiences(source[:preamble_end])
+        segments.extend(preamble.segments)
+        discarded += preamble.discarded_context_count
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start_offset if index + 1 < len(markers) else len(source)
+        if marker.boundary_source == "non_experience_section":
+            discarded += 1
+            continue
+        start = marker.body_start_offset
+        while start < end and source[start].isspace():
+            start += 1
+        while end > start and source[end - 1].isspace():
+            end -= 1
+        body = source[start:end]
+        if not body or is_heading_only_text(body):
+            continue
+        provisional_type = marker.declared_experience_type or _infer_type(body)
+        title = marker.title or _infer_title(body, provisional_type)
+        hierarchy = infer_project_hierarchy_metadata(title, body)
+        segments.append(SemanticExperienceSegment(
+            experience_id=f"EXP-{len(segments) + 1:03d}",
+            experience_type=provisional_type, title=title, raw_text=body,
+            start_offset=start, end_offset=end, segmentation_confidence=1.0,
+            segmentation_reasons=["labeled_input_section"],
+            declared_experience_type=marker.declared_experience_type,
+            boundary_source=marker.boundary_source,
+            canonical_project_name=str(hierarchy["canonical_project_name"]),
+            project_aliases=list(hierarchy["project_aliases"]),
+            parent_project_name=str(hierarchy["parent_project_name"]),
+            phase_name=str(hierarchy["phase_name"]), relation_type=str(hierarchy["relation_type"]),
+        ))
+    return SemanticSegmentationResult(
+        segments=segments, discarded_context_count=discarded,
+        explicit_boundary_count=len(explicit), expected_experience_count=len(segments),
+    )
 
 
 def declared_type_for_label(label: str) -> str:
@@ -511,6 +615,12 @@ def _merge_or_discard_heading_residues(segments: list[dict]) -> tuple[list[dict]
 
 def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage: str = "unknown") -> SemanticSegmentationResult:
     source = raw_input or ""
+    labeled_boundaries = find_labeled_input_boundaries(source)
+    if labeled_boundaries:
+        result = _segment_labeled_input(source, labeled_boundaries)
+        if write_log:
+            write_segmentation_log(result, len(source), stage=stage)
+        return result
     explicit_boundaries = find_explicit_experience_boundaries(source)
     if explicit_boundaries:
         segments: list[SemanticExperienceSegment] = []
@@ -591,6 +701,12 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
     questions: list[str] = []
     for clause, start, end, punctuation in clauses:
         if not grouped:
+            if re.match(
+                r"^(?:(?:本科|硕士|博士|大[一二三四])在读|预计\d{4}年毕业|"
+                r"(?:希望|想要)(?:申请|应聘)|求职意向|学习过.+课程)", clause
+            ) and not _has_start_signal(clause):
+                discarded += 1
+                continue
             grouped.append({
                 "raw_text": clause,
                 "start_offset": start,

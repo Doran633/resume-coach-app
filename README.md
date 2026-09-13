@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.13.2
+## 当前架构：v0.9.14
+
+v0.9.14 修正冻结前的半结构化输入边界：基本信息、教育、求职意向和技能区块不再创建经历 owner；明确经历标签、时间与正文按原文范围保持在一起。已有显式标题继续保留，无标签输入继续使用既有隐式分段。完整电子商务输入与仅改变换行的对照都通过真实 Segmentation → Identity → Canonical Build 归属验证。
+
+本阶段不修改名称/类型/时间权威、Prompt 或下游包装。分段正确不代表名称与最终表达已经全部合格；残留问题和完整部署验收见 [Experience Input Boundary Correction](docs/experience-input-boundary-correction.md)。
 
 Resume Coach 已从“原始输入直接交给模型生成简历”的模式，逐步收口为一条可追溯的编译式链路：
 
@@ -69,6 +73,7 @@ raw_input
 | v0.9.12.3 | Canonical Experience Header Completeness Authority | 按冻结类型确定表头字段，组合已验证名称、时间及实习企业/岗位；缺失值显示带字段名的待填写提示。 |
 | v0.9.13.1 | Immutable Delivery Rendering Consistency | Web 与 DOCX 确定性消费同一保存 revision；网页按冻结类型展示表头，DOCX 不再生成空的技术细节 bullet。 |
 | v0.9.13.2 | Scoped Professionalization and Packaging Enhancement | 在字段级 owner/Fact/Claim 权限内进行三档软性职业化扩写，不新增硬事实或重开冻结语义权限。 |
+| v0.9.14 | Experience Input Boundary Correction | 半结构化输入按经历/非经历区块和原文区间创建 owner；标题、日期和正文不因换行或内部任务描述而分离。 |
 
 原定架构恢复阶段现已闭环。后续质量迭代不得重新授予 Commit 后模块读取完整 `raw_input`、创建具体事实、重绑 owner 或改写 type 的权限；新增开发阶段需要根据真实反馈另行审查。
 

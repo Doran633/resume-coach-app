@@ -1,5 +1,14 @@
 # 版本历史
 
+## v0.9.14：Experience Input Boundary Correction
+
+- 在既有分段服务内识别句首或行首的半结构化标签，以后续标题结束当前区块；基本信息、教育、意向、课程背景和技能区块不进入 Experience，也不附着到邻近经历。原始请求不变。
+- 标签、日期与经历正文按原文区间切片，区块内部的任务、结果和技术字段不再重新触发隐式拆分；完整标题与已有无标签分段继续兼容。
+- 首个片段若只是明确的在读背景或申请意向，不再无条件创建 owner。短标题同一行的日期和完整正文也不会被当成空标题丢弃。
+- 固化完整 902 字电子商务输入及仅换行对照，联合检查真实 Identity、Claim、Fact owner 和原文 source span；96/89 问卷属于课程调查，摄影社日期独立保留。
+- 不修改名称/类型/时间权威、Claim/Fact eligibility、Prompt、Projection、Gate、Router 或交付渲染。名称子活动选择、岗位文本和独立技能消费的残留问题另行记录，不将识别通过等同于最终输出验收。
+- 测试、限制及部署命令见 [阶段报告](experience-input-boundary-correction.md)。
+
 ## v0.9.13.2：Scoped Professionalization and Packaging Enhancement
 
 - Canonical Presentation 现在按现有“稳妥、大胆、极限”三档执行确定性软性职业化：可将页面、数据整理、接口、测试和用户调研等口语事实提升为设计、流程建设、验证与非量化交付表达。
