@@ -1,6 +1,8 @@
 # Resume Coach App
 
-## 当前架构：v0.9.15
+## 当前架构：v0.9.15.1
+
+v0.9.15.1 修复类型证据入口：Canonical 分类不再将系统生成的 Identity.title 当作显式类型证据；同 owner 的确认结构标题与合格履职 Claim 共同支持岗位型实习。PR 使用拉丁词边界，Spring 不再误触发开源分类。只修改两个既有业务服务，不新增模块，不改变分区、Fact eligibility 或下游冻结权限，也不处理完成度分数。重放证据、残留限制与完整部署验收见 [Experience Type Evidence Integrity](docs/experience-type-evidence-integrity.md)。
 
 v0.9.15 收敛输入分区：Semantic Segmentation 决定经历范围，适配器只转换记录，Long Input 的日志与上下文复用同次分区，Identity 不再重复过滤标题。合法“前端开发实习”不再因“开发”被否决；取消默认八段截断、跨项目名称搬段及按长度合并校园经历，正文区间直接对应原文。
 

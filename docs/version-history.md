@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.15.1：Experience Type Evidence Integrity
+
+- Canonical 类型关系不再读取推断 title；保留 legacy API，显式类型决定继续优先。已确认区块标题通过同 owner、原始位置及结构 Claim 状态验证，不恢复为正文 Fact。
+- 岗位型实习标题与本地履职共同取证，不使用新增岗位白名单；项目开发关键词不再否定这种已证实的实习场景。复用同一结构资格入口处理既有校园标题关系。
+- 修正 Spring/PR 子串误命中，正式开源仍要求本地贡献关系。无贡献的 GitHub、PR、commit 不再通过生成 title 取得类型权威。
+- 新增完整四组输入、格式变体、来源状态、生成 title 不变性及真实 mock 保存链路测试；先观察到23项失败，不修改旧断言。仅两个业务文件变更，未处理62%或进入v0.9.16。详见 [阶段报告](experience-type-evidence-integrity.md)。
+
 ## v0.9.15：Experience Input Partition Consolidation
 
 - Semantic Segmentation 是分区决定入口；适配器不再按项目名搬段、重复过滤或默认截断八段。显式传入旧 max_segments 的调用若超限会明确报错，不返回部分结果。

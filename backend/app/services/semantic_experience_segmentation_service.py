@@ -477,7 +477,11 @@ def _infer_type(text: str) -> str:
             continue
         if experience_type == "实习经历" and not positive_internship:
             continue
-        if any(keyword.lower() in text.lower() for keyword in keywords):
+        if any(
+            bool(re.search(r"(?<![A-Za-z0-9_])PR(?![A-Za-z0-9_])", text, re.IGNORECASE))
+            if keyword == "PR" else keyword.lower() in text.lower()
+            for keyword in keywords
+        ):
             return experience_type
     # Unknown is an internal routing state, not a user-facing experience type.
     # A heading-only fragment is filtered before identities are created; a
