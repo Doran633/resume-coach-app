@@ -13,6 +13,7 @@ from .input_semantic_role_service import (
     UNCERTAIN_FACT,
     USER_INSTRUCTION,
     classify_semantic_unit,
+    normalize_layout_text,
     split_semantic_units,
 )
 
@@ -193,12 +194,12 @@ def _claim_clauses(text: str, base_offset: int) -> list[tuple[str, int, int]]:
     for unit, start, end in split_semantic_units(text, base_offset):
         cursor = 0
         for match in CLAUSE_BOUNDARY.finditer(unit):
-            value = _compact(unit[cursor:match.start()])
+            value = unit[cursor:match.start()].strip(" \t\r\n，,。；;")
             if value:
                 local = unit.find(value, cursor, match.start() + 1)
                 clauses.append((value, start + max(0, local), start + max(0, local) + len(value)))
             cursor = match.end()
-        value = _compact(unit[cursor:])
+        value = unit[cursor:].strip(" \t\r\n，,。；;")
         if value:
             local = unit.find(value, cursor)
             clauses.append((value, start + max(0, local), start + max(0, local) + len(value)))
@@ -206,6 +207,7 @@ def _claim_clauses(text: str, base_offset: int) -> list[tuple[str, int, int]]:
 
 
 def _semantic_role(text: str) -> str:
+    text = normalize_layout_text(text)
     if re.fullmatch(r"(?:是|属于)?\s*(?:个人项目|课程项目|团队项目|开源项目|项目经历|实习经历|科研经历|竞赛经历)", _compact(text)):
         return STRUCTURE_MARKER
     primary, roles, _, _, _ = classify_semantic_unit(text)
@@ -223,6 +225,7 @@ def _semantic_role(text: str) -> str:
 
 
 def _attributes(text: str, role: str) -> tuple[str, str, str, str, str]:
+    text = normalize_layout_text(text)
     polarity = NEGATIVE if NEGATION_PATTERN.search(text) else POSITIVE
     if polarity == NEGATIVE:
         certainty = DENIED

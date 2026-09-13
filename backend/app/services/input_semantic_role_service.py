@@ -5,6 +5,12 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .semantic_experience_segmentation_service import (
+    ExplicitExperienceBoundary,
+    find_labeled_input_boundaries,
+    input_section_kind,
+)
+
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "input_semantic_role.jsonl"
 
@@ -71,8 +77,14 @@ STRUCTURE_PATTERNS = (
 )
 
 
+def normalize_layout_text(text: str) -> str:
+    """Normalize a selected unit for matching, without altering its source span."""
+    value = re.sub(r"(?<=[\u4e00-\u9fff])[ \t]*(?:\r?\n[ \t]*)+(?=[\u4e00-\u9fff])", "", str(text or ""))
+    return re.sub(r"\s+", " ", value)
+
+
 def _compact(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "")).strip(" \t\r\n，,。；;")
+    return normalize_layout_text(text).strip(" \t\r\n，,。；;")
 
 
 def _strip_fact_shell(text: str) -> str:
@@ -86,7 +98,7 @@ def _strip_fact_shell(text: str) -> str:
 def _roles_for(text: str) -> tuple[str, ...]:
     value = _compact(text)
     roles: list[str] = []
-    if any(re.search(pattern, value, re.IGNORECASE) for pattern in STRUCTURE_PATTERNS):
+    if input_section_kind(value) or any(re.search(pattern, value, re.IGNORECASE) for pattern in STRUCTURE_PATTERNS):
         roles.append(STRUCTURE_MARKER)
     if any(re.search(pattern, value, re.IGNORECASE) for pattern in TARGET_ROLE_PATTERNS):
         roles.append(TARGET_ROLE_CONTEXT)
@@ -122,6 +134,9 @@ def classify_semantic_unit(text: str) -> tuple[str, tuple[str, ...], str, str, b
 
 def split_semantic_units(text: str, base_offset: int = 0) -> list[tuple[str, int, int]]:
     source = str(text or "")
+    markers = find_labeled_input_boundaries(source)
+    if markers and not source[:markers[0].start_offset].strip():
+        return _structured_semantic_units(source, markers, base_offset)
     units: list[tuple[str, int, int]] = []
     cursor = 0
     for match in re.finditer(
@@ -141,6 +156,36 @@ def split_semantic_units(text: str, base_offset: int = 0) -> list[tuple[str, int
         local = source.find(value, cursor)
         local = cursor if local < 0 else local
         units.append((value, base_offset + local, base_offset + local + len(value)))
+    return units
+
+
+def _structured_semantic_units(source: str, markers: list[ExplicitExperienceBoundary], base_offset: int) -> list[tuple[str, int, int]]:
+    """Keep source slices; layout newlines inside a known section are not facts."""
+    units = []
+    def append_slice(start: int, end: int) -> None:
+        while start < end and source[start] in " \t\r\n，,。；;":
+            start += 1
+        while end > start and source[end - 1] in " \t\r\n，,。；;":
+            end -= 1
+        if start < end:
+            units.append((source[start:end], base_offset + start, base_offset + end))
+
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start_offset if index + 1 < len(markers) else len(source)
+        heading_end = marker.start_offset + len(marker.label)
+        while heading_end < end and source[heading_end] in " \t":
+            heading_end += 1
+        if source[heading_end:heading_end + 1] in {"：", ":"}:
+            heading_end += 1
+        append_slice(marker.start_offset, heading_end)
+        cursor = heading_end
+        # Preserve explicit bullets and punctuation, but not arbitrary line wraps.
+        pattern = r"(?<=[。！？；;])\s*|\r?\n(?=[ \t]*(?:[-*•]|\d+[.)、])\s*)|(?<=[，,])(?=(?:但|但是|不过|而(?:本人|项目|实际)))"
+        for match in re.finditer(pattern, source[heading_end:end]):
+            boundary = heading_end + match.start()
+            append_slice(cursor, boundary)
+            cursor = heading_end + match.end()
+        append_slice(cursor, end)
     return units
 
 

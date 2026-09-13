@@ -1,5 +1,14 @@
 # 版本历史
 
+## v0.9.14.1：Structured Experience Boundary Consistency
+
+- 已有半结构化区块识别同时接受冒号标题与合格的无冒号独立标题行，不将已确认区块再次送入逐句评分；基本信息、意向和技能保持在 owner 之外。
+- 结构标题作为独立结构单元传递，不成为 eligible Fact；正文使用原文切片，保留日期、任务和结果的同区块归属及实际 source span。
+- 同 owner 的 eligible Claim 消费排版规范化文本，校园标题仍必须结合有效任职/参与关系，不能单独覆盖类型或绕过否定、意向和 planned 排除。
+- 经用户批准，最小适配 Ledger：已选中的结构化 Claim 不再因排版换行拆为多个 Fact，定位原始区间后才规范化展示文本；事实选择、重要性、eligibility 和恢复规则不变。
+- 新增 A—E 原文、完整电子商务输入及排版对照，包含真实 mock generation 保存回归。专项 34 项、全量 698 项通过；黄金及 DOCX 回归通过，未调用付费模型、未部署。
+- 证据分类、已知限制、提交及服务器验收见 [阶段报告](structured-experience-boundary-consistency.md)。
+
 ## v0.9.14：Experience Input Boundary Correction
 
 - 在既有分段服务内识别句首或行首的半结构化标签，以后续标题结束当前区块；基本信息、教育、意向、课程背景和技能区块不进入 Experience，也不附着到邻近经历。原始请求不变。

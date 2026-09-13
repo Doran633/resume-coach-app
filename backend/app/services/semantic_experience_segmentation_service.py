@@ -106,6 +106,9 @@ INPUT_SECTION_LABEL = re.compile(
     r"(?:^|(?<=[。！？；;\n]))[ \t\r\n]*(?:#{1,6}[ \t]*)?"
     r"(?P<label>[^，,。！？；;：:\n|｜]{2,32})[ \t]*[:：]"
 )
+STANDALONE_SECTION_LABEL = re.compile(
+    r"(?m)^[ \t]*(?:#{1,6}[ \t]*)?(?P<label>[^，,。！？；;：:\r\n|｜]{2,32}?)[ \t]*\r?$"
+)
 CONTEXT_SECTION_LABEL = re.compile(
     r"(?:基本信息|个人信息|个人简介|教育(?:背景|经历)|学历信息|"
     r"求职意向|求职目标|目标岗位|职业意向|课程(?:背景|学习)|主修课程|"
@@ -180,15 +183,10 @@ def _standalone_headings(source: str) -> list[ExplicitExperienceBoundary]:
 
 def find_labeled_input_boundaries(source: str) -> list[ExplicitExperienceBoundary]:
     boundaries = []
-    for match in INPUT_SECTION_LABEL.finditer(source):
+    for match in [*INPUT_SECTION_LABEL.finditer(source), *STANDALONE_SECTION_LABEL.finditer(source)]:
         label = match.group("label").strip()
-        if CONTEXT_SECTION_LABEL.fullmatch(label):
-            kind = "non_experience_section"
-        elif EXPERIENCE_SECTION_LABEL.fullmatch(label) and not re.search(
-            r"(?:我|希望|想要|申请|目标|负责|完成|参与|开发|实现|例如|包括|没有)", label
-        ):
-            kind = "labeled_experience"
-        else:
+        kind = input_section_kind(label)
+        if not kind:
             continue
         boundaries.append(ExplicitExperienceBoundary(
             start_offset=match.start("label"),
@@ -200,10 +198,22 @@ def find_labeled_input_boundaries(source: str) -> list[ExplicitExperienceBoundar
             boundary_source=kind,
         ))
     explicit = _standalone_headings(source)
-    return [item for item in boundaries if not any(
+    return sorted([item for item in boundaries if not any(
         boundary.start_offset <= item.start_offset < boundary.body_start_offset
         for boundary in explicit
-    )]
+    )], key=lambda item: item.start_offset)
+
+
+def input_section_kind(label: str) -> str:
+    """Classify a complete section label, never a keyword inside body prose."""
+    label = str(label or "").strip().rstrip("：:").strip()
+    if CONTEXT_SECTION_LABEL.fullmatch(label):
+        return "non_experience_section"
+    if EXPERIENCE_SECTION_LABEL.fullmatch(label) and not re.search(
+        r"(?:我|希望|想要|申请|目标|负责|完成|参与|开发|实现|例如|包括|没有)", label
+    ):
+        return "labeled_experience"
+    return ""
 
 
 def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary]) -> SemanticSegmentationResult:

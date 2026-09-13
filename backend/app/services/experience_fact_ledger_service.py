@@ -8,6 +8,7 @@ from .input_semantic_role_service import (
     InputSemanticUnit,
     RESUME_FACT,
     analyze_experience_semantics,
+    normalize_layout_text,
 )
 from .input_claim_resolution_service import (
     ClaimResolution,
@@ -89,10 +90,13 @@ def normalize_fact_text(text: str) -> str:
     return re.sub(r"[\s，,。；;：:、/\\|｜（）()\[\]【】《》“”\"'`~\-—–_]+", "", text or "").lower()
 
 
-def split_atomic_facts(text: str) -> list[str]:
+def split_atomic_facts(text: str, *, split_lines: bool = True) -> list[str]:
     # Semicolons often connect one problem/solution or action/result unit in resume input.
     # Keep them together and only split at strong sentence boundaries or explicit lines.
-    strong_parts = re.split(r"(?<=[。！？])\s*|\n+|(?<=，)(?=(?:最终|工程侧|目前|根据|实现|完成|解决))", text or "")
+    boundary = r"(?<=[。！？])\s*|(?<=，)(?=(?:最终|工程侧|目前|根据|实现|完成|解决))"
+    if split_lines:
+        boundary += r"|\n+"
+    strong_parts = re.split(boundary, text or "")
     parts: list[str] = []
     for strong_part in strong_parts:
         clauses = re.split(r"[；;]", strong_part)
@@ -213,14 +217,17 @@ def build_experience_fact_ledger_from_components(
         withheld_claims.extend(claim for claim in normalized_claims if claim.eligibility == WITHHELD)
         excluded_claims.extend(claim for claim in normalized_claims if claim.eligibility == EXCLUDED)
         fact_index = 0
+        structured = identity.boundary_source == "labeled_experience"
         for claim in normalized_claims:
             if not claim_is_fact_eligible(claim):
                 continue
-            for text in split_atomic_facts(claim.text):
+            for source_text in split_atomic_facts(claim.text, split_lines=not structured):
                 fact_index += 1
-                local = raw_input.find(text, claim.source_span[0], claim.source_span[1] + 1)
+                local = raw_input.find(source_text, claim.source_span[0], claim.source_span[1] + 1)
                 if local < 0:
                     local = claim.source_span[0]
+                # Locate the original slice before normalizing layout for presentation.
+                text = normalize_layout_text(source_text) if structured else source_text
                 fact_type = _fact_type(text)
                 resume_ready = _resume_ready(text)
                 if not resume_ready:
@@ -234,7 +241,7 @@ def build_experience_fact_ledger_from_components(
                     importance=_importance(text, fact_type),
                     explicit=True,
                     resume_ready_text=resume_ready,
-                    source_span=(local, local + len(text)),
+                    source_span=(local, local + len(source_text)),
                     semantic_unit_id=claim.claim_id,
                     clause_role=_clause_role(text),
                     completeness=_completeness(text),

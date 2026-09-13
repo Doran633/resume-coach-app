@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .input_claim_resolution_service import ClaimResolution
+from .input_semantic_role_service import normalize_layout_text
+from .semantic_experience_segmentation_service import find_labeled_input_boundaries
 
 if TYPE_CHECKING:
     from .canonical_semantic_state_service import CanonicalExperienceTypeDecision
@@ -77,7 +79,7 @@ def _eligible_local_claim_text(identity: ExperienceIdentity, resolution: ClaimRe
     if resolution is None:
         return str(identity.raw_text or "")
     return "\n".join(
-        claim.text
+        normalize_layout_text(claim.text)
         for claim in resolution.eligible_claims
         if claim.source_experience_id == identity.experience_id
     )
@@ -186,6 +188,19 @@ def resolve_identity_type(
         if hits:
             scores[type_name] += weight
             positive.extend(f"{type_name}:{hit[:40]}" for hit in hits[:3])
+
+    # A qualified section heading supplies local organization context.  It is
+    # structural evidence, not a resume Fact, and still requires an eligible role.
+    markers = find_labeled_input_boundaries(identity.raw_text)
+    if claim_resolution is not None and markers and markers[0].boundary_source == "labeled_experience":
+        marker = markers[0]
+        if (not identity.raw_text[:marker.start_offset].strip()
+                and re.fullmatch(r"(?:校园|社团|学生|志愿)[\w /]*(?:工作|经历|活动)", marker.label)
+                and any(re.search(r"(?:担任|作为)[^。；\n]{0,32}(?:成员|干事|负责人|部长)|(?:组织|参与|协助)[^。；\n]{0,24}(?:活动|宣传|招募)", normalize_layout_text(claim.text))
+                        for claim in claim_resolution.eligible_claims
+                        if claim.source_experience_id == identity.experience_id)):
+            scores["校园 / 社团经历"] = max(scores["校园 / 社团经历"], 16)
+            positive.append("校园 / 社团经历:local_section_heading_and_eligible_role")
 
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     resolved, top_score = ranked[0]
