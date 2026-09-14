@@ -266,14 +266,16 @@ def test_ambiguous_detached_text_is_not_promoted_to_background():
     assert "我做过一个预约平台" not in json.dumps(data, ensure_ascii=False)
 
 
-def test_known_eligible_maintainer_claim_is_not_silently_reclassified():
+def test_compiled_maintainer_restriction_is_not_reclassified_by_model_preparation():
     raw = "开源经历：PageTrack文档工具贡献\n参与外部维护者管理的PageTrack开源项目。我不是项目维护者，没有负责整体架构。"
     build = build_canonical_semantic_build(raw)
-    fact = next(f for f in build.ledger.facts if f.fact_text == "我不是项目维护者")
+    claim = next(c for c in build.ledger.excluded_claims if c.text == "我不是项目维护者")
+    assert claim.polarity == "negative"
+    assert not any(f.claim_id == claim.claim_id for f in build.ledger.facts)
     data = evidence(prompt_service.build_generation_prompt(request_for(raw), consumer_views=build_canonical_consumer_views(build)))
-    sent = next(f for o in data["owners"] for f in o["eligible_facts"] if f["fact_id"] == fact.fact_id)
-    assert sent["eligibility"] == "eligible"
-    assert sent["source_claim_text"] == "我不是项目维护者"
+    sent = next(c for c in data["internal_constraints_not_resume_facts"] if c["claim_id"] == claim.claim_id)
+    assert sent["eligibility"] == "excluded"
+    assert sent["text"] == claim.text
 
 
 def test_retry_reuses_evidence_and_real_generation_saves_without_api_leaks(monkeypatch, tmp_path):

@@ -155,8 +155,11 @@ class ClaimResolution:
         ]
 
 
+CLAUSE_SUBJECT = r"(?:我|本人|项目|系统|平台|团队|框架|技术栈)"
+NEGATION_PREFIX = r"(?:没有|并未|未曾|不曾|并没有|并非|未|不是|不负责|没有负责|无法确认)"
 CLAUSE_BOUNDARY = re.compile(
     r"[，,](?=\s*(?:但|但是|不过|而|只|仅|实际|后来|后续|随后|最终|目前|现在|"
+    + CLAUSE_SUBJECT + r"\s*" + NEGATION_PREFIX + r"|"
     r"没有|并未|未曾|不曾|并没有|不负责|无法确认|"
     r"未(?:参与|实现|完成|上线|获奖|使用|部署|负责)|"
     r"请|不要|不得|别|也有可能|也可能|可能|计划|准备|"
@@ -168,7 +171,7 @@ UNCERTAINTY_PATTERN = re.compile(
 )
 PROBABLE_PATTERN = re.compile(r"(?:推测|大概率|较可能)", re.I)
 NEGATION_PATTERN = re.compile(
-    r"^(?:但|但是|不过|而)?\s*(?:没有|并未|未曾|不曾|并没有|未|不是|不负责|没有负责|无法确认)", re.I
+    r"^(?:但是|但|不过|而)?\s*(?:" + CLAUSE_SUBJECT + r"\s*)?" + NEGATION_PREFIX, re.I
 )
 INSTRUCTION_PATTERN = re.compile(
     r"(?:请|不要|不得|别|希望|想要|需要).{0,48}(?:包装|突出|强调|匹配|简历|岗位|写成|编|补|串|混|删除|省略)|"
@@ -191,7 +194,7 @@ def _compact(text: str) -> str:
 
 def _claim_clauses(text: str, base_offset: int) -> list[tuple[str, int, int]]:
     clauses: list[tuple[str, int, int]] = []
-    for unit, start, end in split_semantic_units(text, base_offset):
+    for unit, start, end in split_semantic_units(text, base_offset, preserve_layout=True):
         cursor = 0
         for match in CLAUSE_BOUNDARY.finditer(unit):
             value = unit[cursor:match.start()].strip(" \t\r\n，,。；;")
@@ -285,7 +288,7 @@ def resolve_experience_claims(
             eligibility, reason = EXCLUDED, "uncertainty_marker"
         claim_text = clause
         if eligibility == ELIGIBLE:
-            claim_text = re.sub(r"^(?:但|但是|不过|而|只|仅|实际)\s*", "", claim_text).strip()
+            claim_text = re.sub(r"^(?:但是|但|不过|而|实际)\s*", "", claim_text).strip()
         subject, predicate, object_value = _parts(claim_text)
         draft.append({
             "claim_id": f"{experience_id}-C{index:03d}",

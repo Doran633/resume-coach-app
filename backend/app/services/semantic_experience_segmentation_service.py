@@ -66,7 +66,8 @@ EXPLICIT_HEADING_PATTERN = re.compile(
     r"(?m)^\s*(?:#{1,6}\s*)?(?:"
     r"(?P<label>项目经历|项目(?:名称|\s*[一二三四五六七八九十\dA-Za-z]+)?|经历\s*[一二三四五六七八九十\dA-Za-z]+|"
     r"实习经历|科研经历|研究经历|竞赛经历|比赛经历|开源经历|校园经历|社团经历)"
-    r"\s*(?:[:：|｜\-—]\s*(?P<title>[^\n]{0,70}))?"
+    r"\s*(?:[:：|｜\-—]\s*(?P<title>[^。！？；;\r\n]{0,70})"
+    r"(?:[。！？；;](?P<inline_body>[^\r\n]*))?)?"
     r"|(?P<ordinal>[A-Za-z]|[一二三四五六七八九十])[.、]\s*(?P<ordinal_title>[^\n]{2,60})"
     r")\s*$"
 )
@@ -177,8 +178,11 @@ class ExplicitExperienceBoundary:
 def _standalone_headings(source: str) -> list[ExplicitExperienceBoundary]:
     headings = []
     for boundary in find_explicit_experience_boundaries(source):
-        line = source[boundary.start_offset:].lstrip().splitlines()[0]
-        if re.search(r"[。；;]", line) or (TIME_RANGE_PATTERN.search(line) and re.search(r"[，,]", line)):
+        # An unnamed section already has a labeled-body contract. Numbered
+        # explicit slots have no such fallback and must still end context blocks.
+        if not boundary.title and input_section_kind(boundary.label):
+            continue
+        if TIME_RANGE_PATTERN.search(boundary.title) and re.search(r"[，,]", boundary.title):
             continue
         headings.append(boundary)
     return headings
@@ -339,7 +343,7 @@ def find_explicit_experience_boundaries(text: str) -> list[ExplicitExperienceBou
     boundaries: list[ExplicitExperienceBoundary] = []
     for match in EXPLICIT_HEADING_PATTERN.finditer(str(text or "")):
         label = (match.group("label") or match.group("ordinal") or "项目").strip()
-        title = (match.group("title") or match.group("ordinal_title") or "").strip(" #：:|｜-—")
+        title = (match.group("title") or match.group("ordinal_title") or "").strip(" \t\r\n#：:|｜-—")
         # Chinese ordinal list items are accepted only when they look like a compact title,
         # not a sentence-shaped detail.
         if match.group("ordinal") and (
@@ -348,12 +352,16 @@ def find_explicit_experience_boundaries(text: str) -> list[ExplicitExperienceBou
         ):
             continue
         body_start_offset = match.end()
+        # An explicit heading's sentence terminator ends its name, not its body.
+        # ASCII periods stay inside names such as Node.js and v2.0.
+        if match.group("inline_body") is not None:
+            body_start_offset = match.start("inline_body")
         title_group = "title" if match.group("title") is not None else "ordinal_title"
         # "项目一：我负责……" is a boundary followed by an inline fact, not
         # a project title. Keep the fact inside this slot so semantic-role and
         # Fact Ledger processing can still see it.
         if title and re.match(
-            r"^(?:我|本人)?(?:负责|参与|独立|主导|开发|设计|实现|完成|优化|测试|部署|组织|协调|搭建|建设|使用|通过|写|调)",
+            r"^(?:我|本人)?(?:负责|参与|独立|主导|开发|设计|实现|完成|优化|测试|部署|组织|协调|搭建|建设|使用|通过|写|调)(?!者)",
             title,
             re.IGNORECASE,
         ):

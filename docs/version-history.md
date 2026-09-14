@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.16.1：Upstream Evidence Preservation
+
+- 显式名称与正文同行时分别记录标题和 body_start，保留 Node.js/v2.0 中的英文句点；编号项目正文可以结束前置背景区块，无名称标签沿用既有区块契约。
+- Claim 分句与极性识别复用主语、否定结构，保留独立肯定事实和原始限制，不再剥离“只／仅”；eligibility 契约、Fact 选择和权威规则不变。
+- 经明确批准，input_semantic_role_service 的 Claim 调用保留句内排版换行和直接原文切片；Ledger 将显式标题范围纳入已有结构化换行处理，不再次按行拆碎事实。
+- 经批准调整 v0.9.16 的已知错误锁定测试：“我不是项目维护者”由上游判为限制，模型输入仍只读消费编译结果，不在序列化层重新判定。
+- 初始专项重放22失败、7通过；后续增加限定、实际模型证据、完整竞赛输入、背景前缀和长正文对照。未改 Prompt、调用模型或部署，未进入 v0.9.17。详见 [完成报告与部署步骤](upstream-evidence-preservation.md)。
+
 ## v0.9.16：Canonical Model Evidence Consumption
 
 - 真实 generation 模型入口接入同请求 Consumer Views，正常/长输入与重试不再调用 legacy Prompt 的 Segmentation、Identity、Claim、Ledger 重建摘要。

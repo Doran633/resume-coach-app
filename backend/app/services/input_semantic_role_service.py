@@ -132,26 +132,29 @@ def classify_semantic_unit(text: str) -> tuple[str, tuple[str, ...], str, str, b
     return primary, roles, polarity, certainty, primary == RESUME_FACT
 
 
-def split_semantic_units(text: str, base_offset: int = 0) -> list[tuple[str, int, int]]:
+def split_semantic_units(
+    text: str, base_offset: int = 0, *, preserve_layout: bool = False,
+) -> list[tuple[str, int, int]]:
     source = str(text or "")
     markers = find_labeled_input_boundaries(source)
     if markers and not source[:markers[0].start_offset].strip():
         return _structured_semantic_units(source, markers, base_offset)
     units: list[tuple[str, int, int]] = []
     cursor = 0
-    for match in re.finditer(
-        r"(?<=[。！？；;])\s*|\n+|(?<=[，,])(?=(?:但|但是|不过|而(?:本人|项目|实际)))",
-        source,
-    ):
+    # Claim callers already have an owner scope. Line wrapping inside that
+    # scope is layout; retain the original slice instead of compacted offsets.
+    line_boundary = r"\r?\n(?=[ \t]*(?:[-*•]|\d+[.)、])\s*)" if preserve_layout else r"\n+"
+    boundary = r"(?<=[。！？；;])\s*|" + line_boundary + r"|(?<=[，,])(?=(?:但|但是|不过|而(?:本人|项目|实际)))"
+    for match in re.finditer(boundary, source):
         raw = source[cursor:match.start()]
-        value = _compact(raw)
+        value = raw.strip(" \t\r\n，,。；;") if preserve_layout else _compact(raw)
         if value:
             local = source.find(value, cursor, match.start() + 1)
             local = cursor if local < 0 else local
             units.append((value, base_offset + local, base_offset + local + len(value)))
         cursor = match.end()
     raw = source[cursor:]
-    value = _compact(raw)
+    value = raw.strip(" \t\r\n，,。；;") if preserve_layout else _compact(raw)
     if value:
         local = source.find(value, cursor)
         local = cursor if local < 0 else local

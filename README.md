@@ -1,6 +1,8 @@
 # Resume Coach App
 
-## 当前架构：v0.9.16
+## 当前架构：v0.9.16.1
+
+v0.9.16.1 保全上游证据：显式名称后的句末标点结束标题，同行正文不再被标题匹配吞掉；同 owner 内的主语否定分句独立判定，肯定事实与限制分别进入既有证据通道，保留“只／仅”等职责限定。经批准，共享语义切分和 Ledger 对已确认结构范围保留排版换行与原文位置，不改变 eligibility 契约或新增解析模块。Prompt、模型调用和下游写入权限不变；不代表所有下游删除、改写或名称歧义已经解决。证据、限制及分步部署验收见 [Upstream Evidence Preservation](docs/upstream-evidence-preservation.md)。
 
 v0.9.16 统一 Canonical 模型证据消费：真实模型入口复用同请求 Build/Views，模型材料中的 owner、类型和表头服从冻结决定；完整 Fact 与原始 Claim 来源、内部约束、非经历背景分区传递，不再准备多套重建或截断摘要。正常/长输入及 JSON 重试使用同一证据来源；原有包装模板、识别规则与交付权限不变，不新增业务模块。经批准，仅额外在首次分区和 Long Input 中传递已有非经历范围及追问。已知 Claim 资格错误不在序列化层修复，付费模型效果仍需部署后验收。详见 [Canonical Model Evidence Consumption](docs/canonical-model-evidence-consumption.md)。
 

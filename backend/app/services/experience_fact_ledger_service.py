@@ -217,7 +217,9 @@ def build_experience_fact_ledger_from_components(
         withheld_claims.extend(claim for claim in normalized_claims if claim.eligibility == WITHHELD)
         excluded_claims.extend(claim for claim in normalized_claims if claim.eligibility == EXCLUDED)
         fact_index = 0
-        structured = identity.boundary_source == "labeled_experience"
+        structured = identity.boundary_source in {
+            "labeled_experience", "explicit_heading", "legacy_explicit_heading",
+        }
         for claim in normalized_claims:
             if not claim_is_fact_eligible(claim):
                 continue
