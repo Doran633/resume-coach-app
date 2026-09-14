@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .experience_slot_service import provenance_text_unchanged
 
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
@@ -208,8 +209,44 @@ def _clean_projects(projects, stats: CleanupStats) -> list[dict]:
             "time": _clean_text(project.get("time"), stats, f"resume_sections.projects[{index}].time"),
             "intro": _clean_text(project.get("intro"), stats, f"resume_sections.projects[{index}].intro"),
             "role": _clean_text(project.get("role"), stats, f"resume_sections.projects[{index}].role"),
-            "details": _clean_list(project.get("details"), stats, f"resume_sections.projects[{index}].details", limit=8),
+            "details": [],
         }
+        removed = {"fact_ids": set(), "claim_ids": set()}
+        surviving = {"fact_ids": set(), "claim_ids": set()}
+        for field in ("intro", "role"):
+            unchanged = bool(project.get(field)) and provenance_text_unchanged(project.get(field), cleaned_project[field])
+            for suffix in removed:
+                key = f"{field}_source_{suffix}"
+                if key in project:
+                    ids = project[key] if isinstance(project[key], list) else []
+                    cleaned_project[key] = deepcopy(ids) if unchanged else []
+                    (surviving if unchanged else removed)[suffix].update(ids)
+        details = project.get("details")
+        if not isinstance(details, list):
+            stats.add_fallback(f"resume_sections.projects[{index}].details")
+            details = []
+        for suffix in removed:
+            if f"detail_{suffix}" in project:
+                cleaned_project[f"detail_{suffix}"] = []
+        # Filter text and its attachments using the original row index.
+        for row_index, value in enumerate(details):
+            text = _clean_text(value, stats, f"resume_sections.projects[{index}].details[{row_index}]", fallback=None)
+            retained = bool(text) and len(cleaned_project["details"]) < 8
+            unchanged = retained and provenance_text_unchanged(value, text)
+            if retained:
+                cleaned_project["details"].append(text)
+            for suffix in removed:
+                key = f"detail_{suffix}"
+                rows = project.get(key)
+                ids = rows[row_index] if isinstance(rows, list) and row_index < len(rows) and isinstance(rows[row_index], list) else []
+                (surviving if unchanged else removed)[suffix].update(ids)
+                if retained and key in cleaned_project:
+                    cleaned_project[key].append(deepcopy(ids) if unchanged else [])
+        for suffix in removed:
+            key = f"source_{suffix}"
+            if key in project:
+                ids = project[key] if isinstance(project[key], list) else []
+                cleaned_project[key] = [value for value in ids if value not in removed[suffix] or value in surviving[suffix]]
         source_experience_id = project.get("source_experience_id")
         if isinstance(source_experience_id, str) and re.fullmatch(r"EXP-\d{3}", source_experience_id.strip()):
             cleaned_project["source_experience_id"] = source_experience_id.strip()

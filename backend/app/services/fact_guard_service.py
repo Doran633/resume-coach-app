@@ -2,6 +2,7 @@ import re
 from copy import deepcopy
 
 from .. import schemas
+from .experience_slot_service import provenance_text_unchanged
 
 
 PLACEHOLDER = "[待填写]"
@@ -214,6 +215,24 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
         meta = current_meta if locked_type == "项目经历" and current_meta in project_subtypes else locked_type or current_meta or "项目经历"
         if not locked_type and not facts["company"] and "实习" in meta:
             meta = _infer_non_work_meta(item)
+        details, fact_rows, claim_rows = [], [], []
+        removed_facts, removed_claims = set(), set()
+        original_fact_rows = item.get("detail_fact_ids") if isinstance(item.get("detail_fact_ids"), list) else []
+        original_claim_rows = item.get("detail_claim_ids") if isinstance(item.get("detail_claim_ids"), list) else []
+        for index, value in enumerate(item.get("details", []) if isinstance(item.get("details"), list) else []):
+            text = _clean_text(value, facts)
+            ids = original_fact_rows[index] if index < len(original_fact_rows) else []
+            claims = original_claim_rows[index] if index < len(original_claim_rows) else []
+            ids = ids if isinstance(ids, list) else []
+            claims = claims if isinstance(claims, list) else []
+            if not text or not provenance_text_unchanged(value, text):
+                removed_facts.update(ids)
+                removed_claims.update(claims)
+                ids, claims = [], []
+            if text:
+                details.append(text)
+                fact_rows.append(ids)
+                claim_rows.append(claims)
         cleaned = {
                 "name": _clean_text(item.get("name"), facts) or "项目经历",
                 "position": _clean_text(item.get("position"), facts),
@@ -221,16 +240,40 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
                 "time": _clean_text(item.get("time"), facts) or PLACEHOLDER,
                 "intro": _clean_text(item.get("intro"), facts),
                 "role": _clean_text(item.get("role"), facts),
-                "details": _clean_list(item.get("details"), facts),
+                "details": details,
             }
         for key in [
             "source_experience_id", "source_experience_ids", "merged_source_experience_ids",
             "resolved_experience_type", "type_resolution_version", "type_locked",
-            "source_fact_ids", "detail_fact_ids",
             "immutable_source_experience_id", "source_binding_origin", "source_binding_confidence", "source_binding_locked",
         ]:
             if key in item:
                 cleaned[key] = item[key]
+        for field in ("intro", "role"):
+            unchanged = bool(cleaned[field]) and provenance_text_unchanged(item.get(field), cleaned[field])
+            for suffix, removed in (("fact_ids", removed_facts), ("claim_ids", removed_claims)):
+                key = f"{field}_source_{suffix}"
+                if key not in item:
+                    continue
+                values = item[key] if isinstance(item[key], list) else []
+                cleaned[key] = values if unchanged else []
+                if not unchanged:
+                    removed.update(values)
+        for key, rows in (("detail_fact_ids", fact_rows), ("detail_claim_ids", claim_rows)):
+            if key in item:
+                cleaned[key] = rows
+        for suffix, rows, removed in (
+            ("fact_ids", fact_rows, removed_facts), ("claim_ids", claim_rows, removed_claims),
+        ):
+            key = f"source_{suffix}"
+            if key not in item:
+                continue
+            surviving = {value for row in rows for value in row}
+            for field in ("intro", "role"):
+                surviving.update(cleaned.get(f"{field}_source_{suffix}", []))
+            cleaned[key] = [
+                value for value in item[key] if value not in removed or value in surviving
+            ] if isinstance(item[key], list) else []
         cleaned_projects.append(cleaned)
     return cleaned_projects
 

@@ -1,6 +1,8 @@
 # Resume Coach App
 
-## 当前架构：v0.9.16.1
+## 当前架构：v0.9.16.2
+
+v0.9.16.2 修复 Canonical 模型返回至初始投影的来源契约：规范化保留候选 owner 和逐字段 Fact/Claim 行，但不接收模型自报冻结标记；按同请求、同 owner、eligibility、lineage 和可确定的正文支持验证来源。Cleanup、Hard Fact Guard 及经批准的 Sanitizer intro 适配同步维护正文与附件；Binder 不再仅按列表先后占用 owner，不跨正文搬附件。缺失或无法验证的来源仍不补绑，现有模型输出协议不保证完整字段附件，因此不代表所有正常模型改写已取得来源证明。未改 Prompt、Planner、Coverage 或 Gate，详见 [完成报告与分步部署](docs/canonical-model-output-evidence-contract.md)。
 
 v0.9.16.1 保全上游证据：显式名称后的句末标点结束标题，同行正文不再被标题匹配吞掉；同 owner 内的主语否定分句独立判定，肯定事实与限制分别进入既有证据通道，保留“只／仅”等职责限定。经批准，共享语义切分和 Ledger 对已确认结构范围保留排版换行与原文位置，不改变 eligibility 契约或新增解析模块。Prompt、模型调用和下游写入权限不变；不代表所有下游删除、改写或名称歧义已经解决。证据、限制及分步部署验收见 [Upstream Evidence Preservation](docs/upstream-evidence-preservation.md)。
 
@@ -23,8 +25,10 @@ raw_input
   -> Semantic Compilation
   -> CanonicalSemanticBuild / Display Name Qualification / Canonical Consumer Views
   -> Canonical Model Evidence / Existing LLM Templates (normal, long, retry)
-  -> Existing Presentation Pipeline
-  -> Owner / Type / Fact Scope Freeze
+  -> Model Return Normalization / Candidate Evidence Validation
+  -> Existing Cleanup / Hard Fact Guard / Initial Candidates
+  -> Owner Freeze / Ownerless Containment / Canonical Initial Projection
+  -> Existing Presentation Pipeline (frozen semantic authority)
   -> Delivery Gate（只读验证）
   -> Quality Repair Router（确定性局部清理）
   -> Final Ownerless Containment

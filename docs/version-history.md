@@ -1,5 +1,11 @@
 # 版本历史
 
+## v0.9.16.2：Canonical Model Output Evidence Contract
+
+- 模型规范化保留候选 owner 和原始索引对应的 Fact/Claim 行，不接收模型自报冻结状态；既有 Slot 服务复用同请求证据，验证 ID、owner、eligibility、lineage 及字面支持。不用聚合来源或相似度猜测字段绑定。
+- Cleanup、Hard Fact Guard 及经批准的 Sanitizer intro 同步正文与附件；非法字段局部拒绝，独立合法字段不连带清除。Canon 候选不再仅由列表顺序决定归属占用，不跨正文搬附件，不修改归属阈值。
+- 准确请求224/225/226使用控制模型返回走真实入口、初始投影、保存和DOCX；不是历史模型返回快照。无来源或自由改写的正常返回仍不保证满足新契约，未修改Prompt、协议、公开schema或部署。详见 [完成报告与验收限制](canonical-model-output-evidence-contract.md)。
+
 ## v0.9.16.1：Upstream Evidence Preservation
 
 - 显式名称与正文同行时分别记录标题和 body_start，保留 Node.js/v2.0 中的英文句点；编号项目正文可以结束前置背景区块，无名称标签沿用既有区块契约。

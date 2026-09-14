@@ -2,6 +2,7 @@ import re
 from copy import deepcopy
 
 from .. import schemas
+from .experience_slot_service import provenance_text_unchanged
 
 
 NEGATIVE_DROP_PATTERNS = [
@@ -145,6 +146,16 @@ def _clean_project(project: dict, *, semantic_safe: bool = False) -> dict:
     for key in ("source_fact_ids", "role_source_fact_ids", "source_claim_ids", "role_source_claim_ids"):
         if key in item:
             cleaned[key] = _clean_id_list(item[key])
+    for key, removed in (
+        ("intro_source_fact_ids", removed_detail_facts),
+        ("intro_source_claim_ids", removed_detail_claims),
+    ):
+        if key in item:
+            values = _clean_id_list(item[key])
+            unchanged = bool(cleaned["intro"]) and provenance_text_unchanged(item.get("intro"), cleaned["intro"])
+            cleaned[key] = values if unchanged else []
+            if not unchanged:
+                removed.update(values)
     if "detail_fact_ids" in item:
         cleaned["detail_fact_ids"] = detail_fact_ids
     if "detail_claim_ids" in item:
@@ -155,10 +166,10 @@ def _clean_project(project: dict, *, semantic_safe: bool = False) -> dict:
     # attachment remains on a surviving detail or the role field.
     surviving_fact_ids = {
         fact_id for row in detail_fact_ids for fact_id in row
-    } | set(_clean_id_list(cleaned.get("role_source_fact_ids")))
+    } | set(_clean_id_list(cleaned.get("role_source_fact_ids"))) | set(_clean_id_list(cleaned.get("intro_source_fact_ids")))
     surviving_claim_ids = {
         claim_id for row in detail_claim_ids for claim_id in row
-    } | set(_clean_id_list(cleaned.get("role_source_claim_ids")))
+    } | set(_clean_id_list(cleaned.get("role_source_claim_ids"))) | set(_clean_id_list(cleaned.get("intro_source_claim_ids")))
     if "source_fact_ids" in cleaned:
         cleaned["source_fact_ids"] = [
             fact_id for fact_id in cleaned["source_fact_ids"]
@@ -178,6 +189,7 @@ def _clean_project(project: dict, *, semantic_safe: bool = False) -> dict:
         for key in (
             "source_fact_ids", "role_source_fact_ids", "detail_fact_ids",
             "source_claim_ids", "role_source_claim_ids", "detail_claim_ids",
+            "intro_source_fact_ids", "intro_source_claim_ids",
         ):
             cleaned.pop(key, None)
     return cleaned

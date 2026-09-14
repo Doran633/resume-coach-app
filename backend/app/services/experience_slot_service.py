@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_fact_ledger_service import build_experience_fact_ledger, fact_match_score
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
+from .structured_log_service import stable_hash
 
 if TYPE_CHECKING:
     from .canonical_semantic_state_service import CanonicalFactOwnershipIndex, CanonicalSemanticBuild
@@ -45,6 +46,10 @@ class SlotBindingStats:
     provisional_owner_count: int = 0
     owner_mutation_blocked_count: int = 0
     unresolved_owner_count: int = 0
+    attempt_id: str = ""
+    evidence_reason_counts: dict[str, int] = field(default_factory=dict)
+    verified_field_count: int = 0
+    unverified_field_count: int = 0
     bindings: list[dict] = field(default_factory=list)
 
 
@@ -159,6 +164,122 @@ def _candidate_score(project: dict, identity: ExperienceIdentity, raw_input: str
     return round(score, 4), reasons
 
 
+def provenance_text_unchanged(before: object, after: object) -> bool:
+    """Only layout and terminal sentence punctuation are presentation-neutral.
+
+    Do not use the lexical fact matcher here: removing operators, qualifiers or
+    internal punctuation can turn an unsupported statement into a false match.
+    """
+    def canonical(value: object) -> str:
+        return re.sub(r"\s+", " ", str(value or "")).strip().rstrip("。；;").strip()
+    return canonical(before) == canonical(after)
+
+
+def _reference_ids(value: object) -> list[str] | None:
+    if not isinstance(value, list) or any(not isinstance(v, str) or not v.strip() for v in value):
+        return None
+    return list(dict.fromkeys(v.strip() for v in value))
+
+
+def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindingStats) -> bool:
+    local = {fact.fact_id: fact for fact in facts}
+    allowed_claims = set(claim_ids)
+    supported_facts: list[str] = []
+    supported_claims: list[str] = []
+    aggregate_facts = _reference_ids(project.get("source_fact_ids", []))
+    aggregate_claims = _reference_ids(project.get("source_claim_ids", []))
+    invalid_reference = (
+        aggregate_facts is None or aggregate_claims is None
+        or any(fid not in local for fid in (aggregate_facts or []))
+        or not set(aggregate_claims or []) <= allowed_claims
+    )
+    if invalid_reference:
+        code = "invalid_aggregate_reference"
+        stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
+
+    def validate(text, raw_facts, raw_claims):
+        nonlocal invalid_reference
+        ids, claims = _reference_ids(raw_facts), _reference_ids(raw_claims)
+        reason = ""
+        if not str(text or "").strip():
+            reason = "orphan_field_reference" if raw_facts or raw_claims else ""
+        elif ids is None or claims is None:
+            reason = "malformed_field_reference"
+        elif not ids:
+            reason = "missing_field_reference"
+        elif any(fid not in local for fid in ids):
+            reason = "invalid_owner_or_fact_reference"
+        elif set(claims) != {local[fid].claim_id for fid in ids} or not set(claims) <= allowed_claims:
+            reason = "invalid_claim_lineage"
+        else:
+            texts = [local[fid].resume_ready_text for fid in ids]
+            # A multi-Fact row is verifiable only as a literal composition of
+            # its cited facts in the supplied order, not a semantic inference.
+            variants = [separator.join(t.rstrip("。；;") for t in texts) for separator in ("；", ";", "。")]
+            if not any(provenance_text_unchanged(text, value) for value in variants):
+                reason = "unverified_rewrite"
+            else:
+                stats.verified_field_count += 1
+                supported_facts.extend(ids)
+                supported_claims.extend(claims)
+                return ids, claims
+        if reason:
+            if reason in {"malformed_field_reference", "invalid_owner_or_fact_reference", "invalid_claim_lineage"}:
+                invalid_reference = True
+            stats.evidence_reason_counts[reason] = stats.evidence_reason_counts.get(reason, 0) + 1
+            if str(text or "").strip():
+                stats.unverified_field_count += 1
+        return [], []
+
+    for field_name in ("intro", "role"):
+        fact_key, claim_key = f"{field_name}_source_fact_ids", f"{field_name}_source_claim_ids"
+        ids, claims = validate(project.get(field_name), project.get(fact_key, []), project.get(claim_key, []))
+        if fact_key in project or ids:
+            project[fact_key] = ids
+        if claim_key in project or claims:
+            project[claim_key] = claims
+    rows = project.get("detail_fact_ids", [])
+    claim_rows = project.get("detail_claim_ids", [])
+    result_facts, result_claims = [], []
+    for index, text in enumerate(project.get("details", []) or []):
+        ids, claims = validate(
+            text, rows[index] if isinstance(rows, list) and index < len(rows) else [],
+            claim_rows[index] if isinstance(claim_rows, list) and index < len(claim_rows) else [],
+        )
+        result_facts.append(ids)
+        result_claims.append(claims)
+    project["detail_fact_ids"], project["detail_claim_ids"] = result_facts, result_claims
+    # Aggregates summarize verified fields; an aggregate declaration alone
+    # cannot establish which visible field carries a fact.
+    project["source_fact_ids"] = list(dict.fromkeys(supported_facts))
+    project["source_claim_ids"] = list(dict.fromkeys(supported_claims))
+    return invalid_reference
+
+
+def validate_model_project_evidence(
+    payload: schemas.GenerationPayload, consumer_views, *, attempt_id: str = "",
+    write_log: bool = True,
+) -> schemas.GenerationPayload:
+    """Validate candidate references without inventing bindings or rewriting body."""
+    updated = payload.model_copy(deep=True)
+    stats = SlotBindingStats(stage="generation_model_evidence_received", attempt_id=attempt_id)
+    for project in updated.resume_sections.projects:
+        owner = str(project.get("source_experience_id") or "")
+        scope = consumer_views.scope_for_owner(owner)
+        invalid = _validate_project_evidence(
+            project, consumer_views.facts_for_owner(owner) if scope else (),
+            scope.eligible_claim_ids if scope else (), stats,
+        )
+        if invalid and not project.get("source_fact_ids"):
+            # Clearing bad IDs must not turn them into a vacuously valid
+            # singleton-owner declaration. Independent valid fields still
+            # retain their owner and provenance when another field is rejected.
+            project.pop("source_experience_id", None)
+    if write_log:
+        _write_log(stats)
+    return updated
+
+
 def _write_log(stats: SlotBindingStats) -> None:
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +289,10 @@ def _write_log(stats: SlotBindingStats) -> None:
             "generation_result_id": stats.generation_result_id,
             "rejected_binding_count": stats.rejected_binding_count,
             "provenance_conflict_count": stats.provenance_conflict_count,
+            "attempt_id": stats.attempt_id,
+            "verified_field_count": stats.verified_field_count,
+            "unverified_field_count": stats.unverified_field_count,
+            "evidence_reason_counts": stats.evidence_reason_counts,
             "bindings": stats.bindings,
         }
         with LOG_PATH.open("a", encoding="utf-8") as file:
@@ -369,7 +494,35 @@ def bind_projects_to_experience_slots(
     stats = SlotBindingStats(stage=stage, generation_result_id=generation_result_id)
     used: set[str] = set()
 
-    for position, project in enumerate(updated.resume_sections.projects):
+    positions = list(range(len(updated.resume_sections.projects)))
+    invalid_reference_positions: set[int] = set()
+    if canonical_mode and semantic_build is not None and canonical_index is not None:
+        priorities = {}
+        for position, project in enumerate(updated.resume_sections.projects):
+            if project.get("immutable_source_experience_id"):
+                priorities[position] = (-2, 0, 0, "")
+                continue
+            owner = str(project.get("source_experience_id") or "")
+            invalid = _validate_project_evidence(
+                project, [fact for fact in semantic_build.ledger.for_experience(owner)
+                          if fact.fact_id in canonical_index.eligible_fact_ids_by_experience.get(owner, ())],
+                canonical_index.eligible_claim_ids_by_experience.get(owner, ()), stats,
+            )
+            if invalid:
+                invalid_reference_positions.add(position)
+            rows = [(project.get(name), project.get(f"{name}_source_fact_ids")) for name in ("intro", "role")]
+            rows += list(zip(project.get("details", []), project.get("detail_fact_ids", [])))
+            visible_rows = [(text, ids) for text, ids in rows if str(text or "").strip()]
+            complete = bool(visible_rows) and all(ids for text, ids in visible_rows)
+            best_score = max((_candidate_score(project, i, raw_input, ledger)[0] for i in identities), default=0)
+            priorities[position] = (
+                -int(complete), -len(project.get("source_fact_ids", [])), -best_score,
+                stable_hash(json.dumps(project, ensure_ascii=False, sort_keys=True), purpose="slot_candidate_order"),
+            )
+        positions.sort(key=priorities.__getitem__)
+
+    for position in positions:
+        project = updated.resume_sections.projects[position]
         frozen_owner = str(project.get("immutable_source_experience_id") or "")
         if canonical_mode and frozen_owner:
             stats.owner_mutation_blocked_count += 1
@@ -382,7 +535,7 @@ def bind_projects_to_experience_slots(
             (
                 (identity, *_candidate_score(project, identity, raw_input, ledger))
                 for identity in identities
-                if identity.experience_id not in used
+                if canonical_mode or identity.experience_id not in used
             ),
             key=lambda item: item[1],
             reverse=True,
@@ -394,7 +547,7 @@ def bind_projects_to_experience_slots(
         confidence = 0.0
 
         if existing in identity_by_id:
-            if canonical_mode and existing not in used and _is_verified_singleton_candidate(
+            if canonical_mode and existing not in used and position not in invalid_reference_positions and _is_verified_singleton_candidate(
                 project, existing, identities, canonical_index,
             ):
                 # A valid candidate for the only canonical experience has no
@@ -409,7 +562,7 @@ def bind_projects_to_experience_slots(
                     chosen = identity_by_id[existing]
                     origin = "llm_id_validated"
                     confidence = existing_score
-                elif best and best[1] >= 0.72 and best[1] - runner_score >= 0.16:
+                elif best and best[0].experience_id not in used and best[1] >= 0.72 and best[1] - runner_score >= 0.16:
                     chosen = best[0]
                     origin = "corrected_by_title_and_local_fact"
                     confidence = best[1]
@@ -418,7 +571,7 @@ def bind_projects_to_experience_slots(
                     stats.rejected_binding_count += 1
         elif existing:
             stats.rejected_binding_count += 1
-        elif best and best[1] >= 0.72 and best[1] - runner_score >= 0.16:
+        elif best and best[0].experience_id not in used and best[1] >= 0.72 and best[1] - runner_score >= 0.16:
             chosen = best[0]
             origin = "title_and_local_fact"
             confidence = best[1]
@@ -433,7 +586,13 @@ def bind_projects_to_experience_slots(
 
         if chosen:
             source_id = chosen.experience_id
-            if canonical_mode and (canonical_index is None or source_id not in canonical_index.source_experience_ids):
+            conflicting_field_owner = canonical_mode and bool(_bound_fact_owner_ids(project) - {source_id})
+            if conflicting_field_owner:
+                # Owner matching cannot relocate already validated field evidence.
+                chosen = None
+                stats.provenance_conflict_count += 1
+                stats.rejected_binding_count += 1
+            elif canonical_mode and (canonical_index is None or source_id not in canonical_index.source_experience_ids):
                 chosen = None
                 stats.rejected_binding_count += 1
             else:
@@ -452,6 +611,9 @@ def bind_projects_to_experience_slots(
             project["source_binding_locked"] = False
             if canonical_mode:
                 stats.unresolved_owner_count += 1
+                if best and best[0].experience_id in used:
+                    code = "competing_owner_candidate_unresolved"
+                    stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
 
         stats.bindings.append({
             "project_index": position,

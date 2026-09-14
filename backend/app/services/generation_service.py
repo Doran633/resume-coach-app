@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from copy import deepcopy
 from pathlib import Path
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -59,6 +60,7 @@ from .resume_delivery_quality_gate_service import (
 )
 from .experience_slot_service import (
     bind_projects_to_experience_slots,
+    validate_model_project_evidence,
     contain_ownerless_projects,
     freeze_canonical_projection_candidates,
     write_owner_delivery_contract_log,
@@ -161,7 +163,7 @@ def _to_string_list(value) -> list[str]:
 
 
 def normalize_llm_payload(data: dict) -> dict:
-    normalized = dict(data)
+    normalized = deepcopy(data)
     for key in ["normal_version", "bold_version", "boundary_version", "recommended_version"]:
         normalized[key] = _to_text(normalized.get(key))
 
@@ -199,16 +201,35 @@ def normalize_llm_payload(data: dict) -> dict:
     for project in raw_projects:
         if not isinstance(project, dict):
             project = {"name": "项目经历", "intro": project}
-        projects.append(
-            {
+        item = {
                 "name": _to_text(project.get("name")) or "项目经历",
                 "meta": _to_text(project.get("meta")),
                 "time": _to_text(project.get("time")) or "[待填写]",
                 "intro": _to_text(project.get("intro")),
                 "role": _to_text(project.get("role")),
-                "details": _to_string_list(project.get("details")),
+                "details": [],
             }
-        )
+        # Model IDs are candidate references, never a grant of frozen authority.
+        owner = project.get("source_experience_id")
+        if isinstance(owner, str) and owner.strip():
+            item["source_experience_id"] = owner.strip()
+        for key in ("source_fact_ids", "source_claim_ids", "intro_source_fact_ids",
+                    "intro_source_claim_ids", "role_source_fact_ids", "role_source_claim_ids"):
+            if key in project:
+                item[key] = deepcopy(project[key])
+        raw_details = project.get("details")
+        values = raw_details if isinstance(raw_details, list) else _to_string_list(raw_details)
+        rows = {key: [] for key in ("detail_fact_ids", "detail_claim_ids") if key in project}
+        for index, value in enumerate(values):
+            text = _to_text(value).strip()
+            if not text:
+                continue
+            item["details"].append(text)
+            for key in rows:
+                source = project[key]
+                rows[key].append(deepcopy(source[index]) if isinstance(source, list) and index < len(source) else [])
+        item.update(rows)
+        projects.append(item)
     sections["projects"] = projects
     sections["education"] = {str(k): _to_text(v) for k, v in (sections.get("education") or {}).items()} if isinstance(sections.get("education"), dict) else {}
     sections["interview_preparation"] = _to_string_list(sections.get("interview_preparation"))
@@ -430,6 +451,10 @@ def build_llm_generation(
             )
             parsed = parse_llm_json(llm_result.text)
             payload = schemas.GenerationPayload.model_validate(normalize_llm_payload(parsed))
+            if consumer_views is not None:
+                payload = validate_model_project_evidence(
+                    payload, consumer_views, attempt_id=request.attempt_id or "",
+                )
             return payload, {
                 "model": llm_result.model,
                 "mode": "openai",
