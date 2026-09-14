@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.17.1
+## 当前架构：v0.9.17.2
+
+v0.9.17.2 保留 Canonical 初始项目证据：generation 显式选择保留分支，Cleanup 不再给合法空 intro/role 填入提示正文，也不按五个项目、八条详情截断；Hard Fact Guard 不再用全请求关键词和否定信息重新改写项目内容。原始索引对应的字段 Fact/Claim 行继续同步清理，未改变正文保留来源，实质改变不保留失效证明。默认 legacy 调用与其他简历区块行为保留。
+
+本版不放宽模型支持验证，`unverified_rewrite` 仍可能拒绝正常改写；后续 Reconciliation 等数量限制、Validity 删除和 Gate 失败后仍保存的出口未在本版修改。初始正文完整不等于最终交付完整，详见 [Canonical Initial Evidence Preservation](docs/canonical-initial-evidence-preservation.md)。
 
 v0.9.17.1 关闭 Canonical 模型返回“JSON 合法即可继续”的旧成功路径：正常/长输入共享内部逐字段 Fact/Claim 声明协议，规范化及 schema 默认补齐之前检查真实字段、原始来源行，并复用现有 owner、eligibility、lineage 与正文支持验证。来源缺失、非法或无法验证时在原调用上限内重试；耗尽后明确失败，不借 JSON 错误进入 Stable Fallback，不删除所有不确定正文伪装成功。独立 legacy 接口及纯 JSON 解析失败兼容保留。
 

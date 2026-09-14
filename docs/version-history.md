@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.17.2：Canonical Initial Evidence Preservation
+
+- generation 显式选择 Canonical Cleanup/Hard Fact Guard 分支；没有从模型字段推断可信状态，没有新增业务模块或语义真源。
+- Cleanup 保持合法空正文，并退出项目和详情的静默数量截断；沿用原始索引同步清理及失效来源处理，不将聚合来源当作字段绑定。
+- Hard Fact Guard 的 Canonical 项目内容退出全局关键词及否定替换，避免其他 owner 的“没有获奖”等信息改写本 owner 事实；其他区块和默认 legacy 行为不变。
+- 当前控制返回初始重放7失败、3通过；修复后34项专项及全量1006项测试通过，未修改旧断言。电子商务、竞赛/校园完整保留样本在业务修改后验收。历史原始模型返回不在本次证据范围内。
+- 后续 Reconciliation 仍可能将九条详情减至八条；模型任意改写支持、下游删除及最终失败出口保留，不宣称端到端质量已解决。详见 [阶段说明](canonical-initial-evidence-preservation.md)。
+
 ## v0.9.17.1：Trusted Initial Presentation Contract
 
 - 正常/长输入模板仅调整内部 JSON 格式与字段声明；同请求冻结证据及逐字段来源协议供首次请求和重试复用，不改写作风格、包装强度或调用上限。

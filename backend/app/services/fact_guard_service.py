@@ -278,7 +278,12 @@ def _clean_projects(projects, facts: dict[str, bool]) -> list[dict]:
     return cleaned_projects
 
 
-def guard_hard_facts(payload: schemas.GenerationPayload | dict, raw_input: str) -> schemas.GenerationPayload:
+def guard_hard_facts(
+    payload: schemas.GenerationPayload | dict,
+    raw_input: str,
+    *,
+    canonical_mode: bool = False,
+) -> schemas.GenerationPayload:
     facts = _provided_facts(raw_input)
     data = _as_payload_dict(payload)
 
@@ -293,7 +298,10 @@ def guard_hard_facts(payload: schemas.GenerationPayload | dict, raw_input: str) 
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
     sections["summary"] = _clean_list(sections.get("summary"), facts)
     sections["skills"] = _clean_list(sections.get("skills"), facts)
-    sections["projects"] = _clean_projects(sections.get("projects"), facts)
+    # Canonical project evidence must not be reinterpreted using request-wide
+    # keyword flags. This bypass grants no trust; the receiver validates sources.
+    if not canonical_mode:
+        sections["projects"] = _clean_projects(sections.get("projects"), facts)
     sections["education"] = _guard_education(sections.get("education"), raw_input, facts)
     sections["interview_preparation"] = _clean_list(sections.get("interview_preparation"), facts)
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}

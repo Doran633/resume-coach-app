@@ -194,21 +194,21 @@ def _clean_claims(claims, stats: CleanupStats) -> list[dict]:
     return cleaned_claims
 
 
-def _clean_projects(projects, stats: CleanupStats) -> list[dict]:
+def _clean_projects(projects, stats: CleanupStats, *, canonical_mode: bool = False) -> list[dict]:
     if not isinstance(projects, list):
         stats.add_fallback("resume_sections.projects")
         return []
 
     cleaned_projects = []
-    for index, project in enumerate(projects[:5]):
+    for index, project in enumerate(projects if canonical_mode else projects[:5]):
         if not isinstance(project, dict):
             project = {"name": "项目经历", "intro": project}
         cleaned_project = {
             "name": _clean_text(project.get("name"), stats, f"resume_sections.projects[{index}].name"),
             "meta": _clean_text(project.get("meta"), stats, f"resume_sections.projects[{index}].meta"),
             "time": _clean_text(project.get("time"), stats, f"resume_sections.projects[{index}].time"),
-            "intro": _clean_text(project.get("intro"), stats, f"resume_sections.projects[{index}].intro"),
-            "role": _clean_text(project.get("role"), stats, f"resume_sections.projects[{index}].role"),
+            "intro": _clean_text(project.get("intro"), stats, f"resume_sections.projects[{index}].intro", fallback=None if canonical_mode else DEFAULT_TEXT),
+            "role": _clean_text(project.get("role"), stats, f"resume_sections.projects[{index}].role", fallback=None if canonical_mode else DEFAULT_TEXT),
             "details": [],
         }
         removed = {"fact_ids": set(), "claim_ids": set()}
@@ -231,7 +231,7 @@ def _clean_projects(projects, stats: CleanupStats) -> list[dict]:
         # Filter text and its attachments using the original row index.
         for row_index, value in enumerate(details):
             text = _clean_text(value, stats, f"resume_sections.projects[{index}].details[{row_index}]", fallback=None)
-            retained = bool(text) and len(cleaned_project["details"]) < 8
+            retained = bool(text) and (canonical_mode or len(cleaned_project["details"]) < 8)
             unchanged = retained and provenance_text_unchanged(value, text)
             if retained:
                 cleaned_project["details"].append(text)
@@ -254,7 +254,12 @@ def _clean_projects(projects, stats: CleanupStats) -> list[dict]:
     return cleaned_projects
 
 
-def cleanup_generation_payload(payload: schemas.GenerationPayload | dict, source: str | None = None) -> schemas.GenerationPayload:
+def cleanup_generation_payload(
+    payload: schemas.GenerationPayload | dict,
+    source: str | None = None,
+    *,
+    canonical_mode: bool = False,
+) -> schemas.GenerationPayload:
     stats = CleanupStats(source=source)
     data = deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
 
@@ -274,7 +279,7 @@ def cleanup_generation_payload(payload: schemas.GenerationPayload | dict, source
     sections["personal_info"] = _clean_string_dict(sections.get("personal_info"), stats, "resume_sections.personal_info")
     sections["summary"] = _clean_list(sections.get("summary"), stats, "resume_sections.summary")
     sections["skills"] = _clean_list(sections.get("skills"), stats, "resume_sections.skills")
-    sections["projects"] = _clean_projects(sections.get("projects"), stats)
+    sections["projects"] = _clean_projects(sections.get("projects"), stats, canonical_mode=canonical_mode)
     sections["education"] = _clean_string_dict(sections.get("education"), stats, "resume_sections.education")
     sections["interview_preparation"] = _clean_list(sections.get("interview_preparation"), stats, "resume_sections.interview_preparation")
     data["resume_sections"] = sections

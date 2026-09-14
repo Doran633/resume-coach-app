@@ -681,9 +681,9 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_llm", parent_stage="llm")
     projection_observer.checkpoint(payload, "after_llm", parent_stage="llm")
     payload = normalize_resume_section_schema(payload)
-    payload = cleanup_generation_payload(payload, source=mode)
+    payload = cleanup_generation_payload(payload, source=mode, canonical_mode=True)
     log_generation_stage(payload, "after_normalize")
-    payload = guard_hard_facts(payload, request.raw_input)
+    payload = guard_hard_facts(payload, request.raw_input, canonical_mode=True)
     payload, resume_fallback_stats = fill_resume_sections(
         payload, stage="generation", raw_input=request.raw_input, return_stats=True,
         semantic_build=semantic_build,
