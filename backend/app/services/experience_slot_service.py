@@ -1,5 +1,6 @@
 import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -47,6 +48,9 @@ class SlotBindingStats:
     owner_mutation_blocked_count: int = 0
     unresolved_owner_count: int = 0
     attempt_id: str = ""
+    request_id: str = ""
+    model_attempt: int = 0
+    contract_passed: bool | None = None
     evidence_reason_counts: dict[str, int] = field(default_factory=dict)
     verified_field_count: int = 0
     unverified_field_count: int = 0
@@ -181,6 +185,103 @@ def _reference_ids(value: object) -> list[str] | None:
     return list(dict.fromkeys(v.strip() for v in value))
 
 
+class ModelEvidenceContractError(RuntimeError):
+    """Only fixed reason codes, never model text, cross the failure boundary."""
+
+    def __init__(self, reasons: dict[str, int]):
+        self.reason_counts = dict(reasons)
+        if any(code.startswith("format_") for code in reasons):
+            self.code = "MODEL_EVIDENCE_FORMAT"
+        elif any(code.startswith("missing_") for code in reasons):
+            self.code = "MODEL_EVIDENCE_MISSING"
+        elif "unverified_rewrite" in reasons:
+            self.code = "MODEL_EVIDENCE_UNSUPPORTED"
+        else:
+            self.code = "MODEL_EVIDENCE_INVALID"
+        super().__init__(self.code + ": " + ", ".join(sorted(reasons)))
+
+
+def validate_model_output_structure(
+    raw: object, consumer_views, *, request_id: str = "", attempt_id: str = "",
+    model_attempt: int = 0,
+) -> None:
+    """Check the actual declarations before normalization can erase defects."""
+    stats = SlotBindingStats(
+        stage="generation_model_evidence_received", request_id=request_id,
+        attempt_id=attempt_id, model_attempt=model_attempt,
+    )
+
+    def reject(code: str) -> None:
+        stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
+
+    def check_row(text: str, container: dict, fact_key: str, claim_key: str) -> None:
+        reasons: set[str] = set()
+        for key in (fact_key, claim_key):
+            if key not in container:
+                if text.strip():
+                    reasons.add("missing_field_reference")
+                continue
+            ids = _reference_ids(container[key])
+            if ids is None:
+                reasons.add("format_field_reference")
+            elif text.strip() and not ids:
+                reasons.add("missing_field_reference")
+            elif not text.strip() and ids:
+                reasons.add("orphan_field_reference")
+        for code in sorted(reasons):
+            reject(code)
+        if reasons and text.strip():
+            stats.unverified_field_count += 1
+
+    sections = raw.get("resume_sections") if isinstance(raw, dict) else None
+    projects = sections.get("projects") if isinstance(sections, dict) else None
+    if not isinstance(projects, list):
+        reject("format_projects")
+    else:
+        if not projects and any(consumer_views.facts_for_owner(owner) for owner in consumer_views.experience_ids):
+            reject("missing_projects")
+        for project in projects:
+            if not isinstance(project, dict):
+                reject("format_project")
+                continue
+            owner = project.get("source_experience_id")
+            if not owner:
+                reject("missing_owner_reference")
+            elif not isinstance(owner, str) or consumer_views.scope_for_owner(owner) is None:
+                reject("invalid_owner_reference")
+            for field_name in ("intro", "role"):
+                if field_name not in project:
+                    reject("missing_body_field")
+                elif not isinstance(project[field_name], str):
+                    reject("format_body_field")
+                else:
+                    check_row(project[field_name], project, f"{field_name}_source_fact_ids", f"{field_name}_source_claim_ids")
+            details = project.get("details")
+            if not isinstance(details, list) or any(not isinstance(text, str) for text in details):
+                reject("format_details")
+                continue
+            for key in ("detail_fact_ids", "detail_claim_ids"):
+                rows = project.get(key)
+                if key not in project:
+                    continue
+                if not isinstance(rows, list) or len(rows) != len(details):
+                    reject("format_detail_rows")
+            for index, text in enumerate(details):
+                row = {}
+                for key in ("detail_fact_ids", "detail_claim_ids"):
+                    rows = project.get(key)
+                    if isinstance(rows, list) and index < len(rows):
+                        row[key] = rows[index]
+                check_row(text, row, "detail_fact_ids", "detail_claim_ids")
+            if all(not str(project.get(key) or "").strip() for key in ("intro", "role")) and not any(text.strip() for text in details):
+                if isinstance(owner, str) and consumer_views.facts_for_owner(owner):
+                    reject("missing_project_body")
+    if stats.evidence_reason_counts:
+        stats.contract_passed = False
+        _write_log(stats)
+        raise ModelEvidenceContractError(stats.evidence_reason_counts)
+
+
 def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindingStats) -> bool:
     local = {fact.fact_id: fact for fact in facts}
     allowed_claims = set(claim_ids)
@@ -257,15 +358,34 @@ def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindi
 
 
 def validate_model_project_evidence(
-    payload: schemas.GenerationPayload, consumer_views, *, attempt_id: str = "",
-    write_log: bool = True,
-) -> schemas.GenerationPayload:
+    payload: schemas.GenerationPayload | dict, consumer_views, *, attempt_id: str = "",
+    write_log: bool = True, require_complete: bool = False,
+    request_id: str = "", model_attempt: int = 0,
+) -> schemas.GenerationPayload | dict:
     """Validate candidate references without inventing bindings or rewriting body."""
-    updated = payload.model_copy(deep=True)
-    stats = SlotBindingStats(stage="generation_model_evidence_received", attempt_id=attempt_id)
-    for project in updated.resume_sections.projects:
+    if isinstance(payload, dict):
+        # Inspect source evidence before unrelated schema failures or defaults
+        # can conceal it. Raw Canonical responses always require the contract.
+        require_complete = True
+        validate_model_output_structure(
+            payload, consumer_views, request_id=request_id, attempt_id=attempt_id,
+            model_attempt=model_attempt,
+        )
+        updated = deepcopy(payload)
+        projects = updated["resume_sections"]["projects"]
+    else:
+        updated = payload.model_copy(deep=True)
+        projects = updated.resume_sections.projects
+    stats = SlotBindingStats(
+        stage="generation_model_evidence_received", attempt_id=attempt_id,
+        request_id=request_id, model_attempt=model_attempt,
+    )
+    for project in projects:
         owner = str(project.get("source_experience_id") or "")
         scope = consumer_views.scope_for_owner(owner)
+        if require_complete and scope is None:
+            code = "invalid_owner_reference" if owner else "missing_owner_reference"
+            stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
         invalid = _validate_project_evidence(
             project, consumer_views.facts_for_owner(owner) if scope else (),
             scope.eligible_claim_ids if scope else (), stats,
@@ -275,8 +395,12 @@ def validate_model_project_evidence(
             # singleton-owner declaration. Independent valid fields still
             # retain their owner and provenance when another field is rejected.
             project.pop("source_experience_id", None)
+    if require_complete:
+        stats.contract_passed = not bool(stats.evidence_reason_counts)
     if write_log:
         _write_log(stats)
+    if require_complete and not stats.contract_passed:
+        raise ModelEvidenceContractError(stats.evidence_reason_counts)
     return updated
 
 
@@ -290,6 +414,9 @@ def _write_log(stats: SlotBindingStats) -> None:
             "rejected_binding_count": stats.rejected_binding_count,
             "provenance_conflict_count": stats.provenance_conflict_count,
             "attempt_id": stats.attempt_id,
+            "request_id": stats.request_id,
+            "model_attempt": stats.model_attempt,
+            "contract_passed": stats.contract_passed,
             "verified_field_count": stats.verified_field_count,
             "unverified_field_count": stats.unverified_field_count,
             "evidence_reason_counts": stats.evidence_reason_counts,

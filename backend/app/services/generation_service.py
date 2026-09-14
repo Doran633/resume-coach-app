@@ -59,6 +59,7 @@ from .resume_delivery_quality_gate_service import (
     validate_resume_delivery_quality,
 )
 from .experience_slot_service import (
+    ModelEvidenceContractError,
     bind_projects_to_experience_slots,
     validate_model_project_evidence,
     contain_ownerless_projects,
@@ -428,10 +429,11 @@ def build_mock_generation(request: schemas.GenerateRequest) -> schemas.Generatio
 
 def build_llm_generation(
     request: schemas.GenerateRequest, long_input_context: LongInputContext,
-    *, consumer_views: CanonicalConsumerViews | None = None,
+    *, consumer_views: CanonicalConsumerViews | None = None, request_id: str = "",
 ) -> tuple[schemas.GenerationPayload, dict]:
     prompt = build_generation_prompt(request, long_input_context, consumer_views=consumer_views)
     last_error = ""
+    evidence_error: ModelEvidenceContractError | None = None
 
     max_attempts = max(1, min(int(os.getenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")), 2))
     for attempt in range(max_attempts):
@@ -450,11 +452,12 @@ def build_llm_generation(
                 attempt_id=request.attempt_id or "",
             )
             parsed = parse_llm_json(llm_result.text)
-            payload = schemas.GenerationPayload.model_validate(normalize_llm_payload(parsed))
             if consumer_views is not None:
-                payload = validate_model_project_evidence(
-                    payload, consumer_views, attempt_id=request.attempt_id or "",
+                parsed = validate_model_project_evidence(
+                    parsed, consumer_views, attempt_id=request.attempt_id or "",
+                    require_complete=True, request_id=request_id, model_attempt=attempt + 1,
                 )
+            payload = schemas.GenerationPayload.model_validate(normalize_llm_payload(parsed))
             return payload, {
                 "model": llm_result.model,
                 "mode": "openai",
@@ -467,6 +470,14 @@ def build_llm_generation(
                 "output_tokens": llm_result.output_tokens,
                 "estimated_cost_cny": llm_result.estimated_cost_cny,
             }
+        except ModelEvidenceContractError as exc:
+            evidence_error = exc
+            # Reuse the same frozen evidence and call budget. Do not echo model
+            # text or merge bodies from different attempts into a trusted result.
+            prompt += (
+                "\n\n上次返回未满足内部来源契约：" + str(exc)
+                + "。请按已有内部 JSON 字段协议重新输出完整对象；不得自报可信或冻结状态。"
+            )
         except (JSONRepairError, ValueError) as exc:
             last_error = str(exc)
             prompt = (
@@ -481,6 +492,10 @@ def build_llm_generation(
             code = "MODEL_TIMEOUT" if "timed out" in str(exc).lower() else "GENERATION_FAILED"
             raise GenerationServiceError(str(exc), code=code) from exc
 
+    if evidence_error is not None:
+        # A subsequent parse failure must not turn a provenance failure into
+        # the legacy JSON-error fallback success path.
+        raise GenerationServiceError(str(evidence_error), code=evidence_error.code) from evidence_error
     raise GenerationServiceError(f"LLM JSON validation failed after retry: {last_error}")
 
 
@@ -623,7 +638,9 @@ def create_generation(
         llm_log["model"] = "mock"
     elif mode == "openai":
         try:
-            payload, llm_log = build_llm_generation(request, long_input_context, consumer_views=consumer_views)
+            payload, llm_log = build_llm_generation(
+                request, long_input_context, consumer_views=consumer_views, request_id=request_id,
+            )
             stability_log["model"] = llm_log.get("model")
             stability_log["llm_success"] = True
         except GenerationServiceError as exc:

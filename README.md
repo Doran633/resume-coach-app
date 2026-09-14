@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.16.2
+## 当前架构：v0.9.17.1
+
+v0.9.17.1 关闭 Canonical 模型返回“JSON 合法即可继续”的旧成功路径：正常/长输入共享内部逐字段 Fact/Claim 声明协议，规范化及 schema 默认补齐之前检查真实字段、原始来源行，并复用现有 owner、eligibility、lineage 与正文支持验证。来源缺失、非法或无法验证时在原调用上限内重试；耗尽后明确失败，不借 JSON 错误进入 Stable Fallback，不删除所有不确定正文伪装成功。独立 legacy 接口及纯 JSON 解析失败兼容保留。
+
+现有支持验证仍仅覆盖 Fact 字面文本、排版/句末标点等价及有限组合，不能证明任意专业化改写。未调用真实付费模型，成功率与真实输入验收尚未完成；不代表下游删除、名称或岗位问题已解决。详见 [Trusted Initial Presentation Contract](docs/trusted-initial-presentation-contract.md)。
 
 v0.9.16.2 修复 Canonical 模型返回至初始投影的来源契约：规范化保留候选 owner 和逐字段 Fact/Claim 行，但不接收模型自报冻结标记；按同请求、同 owner、eligibility、lineage 和可确定的正文支持验证来源。Cleanup、Hard Fact Guard 及经批准的 Sanitizer intro 适配同步维护正文与附件；Binder 不再仅按列表先后占用 owner，不跨正文搬附件。缺失或无法验证的来源仍不补绑，现有模型输出协议不保证完整字段附件，因此不代表所有正常模型改写已取得来源证明。未改 Prompt、Planner、Coverage 或 Gate，详见 [完成报告与分步部署](docs/canonical-model-output-evidence-contract.md)。
 
@@ -25,7 +29,8 @@ raw_input
   -> Semantic Compilation
   -> CanonicalSemanticBuild / Display Name Qualification / Canonical Consumer Views
   -> Canonical Model Evidence / Existing LLM Templates (normal, long, retry)
-  -> Model Return Normalization / Candidate Evidence Validation
+  -> Raw Model Contract Check / Required Evidence Validation / Normalization
+     (bounded retry; explicit failure if evidence contract remains unmet)
   -> Existing Cleanup / Hard Fact Guard / Initial Candidates
   -> Owner Freeze / Ownerless Containment / Canonical Initial Projection
   -> Existing Presentation Pipeline (frozen semantic authority)

@@ -348,9 +348,14 @@ def test_actual_receiver_does_not_upgrade_unknown_model_evidence(kind, monkeypat
             project["detail_fact_ids"][0] = ["EXP-999-F001"]
         else:
             project["details"][0] = "独立负责全部架构设计并提升性能300%"
-    captured = real_receiver(CASES[0], data, monkeypatch, tmp_path)
-    # Inspect the actual post-network payload before fallback can add its own candidates.
-    received = captured["stages"][0][1]
+    # v0.9.17.1 intentionally closes the old continuation path. Keep the
+    # standalone validator's non-upgrade assertions as a separate invariant.
+    with pytest.raises(generation.GenerationServiceError, match="MODEL_EVIDENCE_"):
+        real_receiver(CASES[0], data, monkeypatch, tmp_path)
+    received = validate_model_project_evidence(
+        schemas.GenerationPayload.model_validate(generation.normalize_llm_payload(data)),
+        build_canonical_consumer_views(build), write_log=False,
+    )
     assert len(received.resume_sections.projects) == len(build.identities)
     for project in received.resume_sections.projects:
         if kind == "missing":

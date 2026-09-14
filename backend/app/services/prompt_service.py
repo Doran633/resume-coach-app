@@ -144,6 +144,7 @@ def build_generation_prompt(
         is_long = bool(long_input_context and long_input_context.long_input_mode)
         template = load_prompt("generate_resume_coach_result_long.md" if is_long else "generate_resume_coach_result.md")
         return template.format(
+            model_output_contract=_canonical_output_contract(),
             target_role=request.target_role, mode=request.mode,
             packaging_level=request.packaging_level,
             experience_type="、".join(dict.fromkeys(
@@ -162,6 +163,7 @@ def build_generation_prompt(
     if long_input_context and long_input_context.long_input_mode:
         template = load_prompt("generate_resume_coach_result_long.md")
         return template.format(
+            model_output_contract="",
             target_role=request.target_role,
             mode=request.mode,
             packaging_level=request.packaging_level,
@@ -174,6 +176,7 @@ def build_generation_prompt(
 
     template = load_prompt("generate_resume_coach_result.md")
     return template.format(
+        model_output_contract="",
         target_role=request.target_role,
         mode=request.mode,
         packaging_level=request.packaging_level,
@@ -184,3 +187,41 @@ def build_generation_prompt(
         experience_fact_ledger_context=build_fact_ledger_context(request.raw_input),
         segmentation_question_context=segmentation_question_context,
     )
+
+
+def _canonical_output_contract() -> str:
+    """Internal return format only; no new writing policy or semantic state."""
+    contract = {
+        "applies_to": "resume_sections.projects",
+        "required_fields": {
+            "source_experience_id": "当前 canonical_model_evidence 中的 owner ID",
+            "name": "已提供的 project_header.name",
+            "meta": "已提供的 project_header.meta",
+            "time": "已提供的 project_header.time",
+            "intro": "string，空正文使用空字符串",
+            "role": "string，空正文使用空字符串",
+            "details": "list[string]，每项为一条正文",
+        },
+        "field_references": {
+            "intro": ["intro_source_fact_ids", "intro_source_claim_ids"],
+            "role": ["role_source_fact_ids", "role_source_claim_ids"],
+            "details": ["detail_fact_ids", "detail_claim_ids"],
+        },
+        "reference_format": {
+            "intro_role": "list[string]；非空正文必须同时声明 Fact ID 和 Claim ID",
+            "details": "list[list[string]]；与 details 原始索引和长度一一对应，包括空行",
+            "empty_body": "允许省略该字段来源或使用空数组；不得附带孤立来源",
+            "multiple_facts": "一行表达多个事实时，Fact ID 按表达顺序声明，Claim ID 为对应 lineage 集合",
+            "lineage": "只引用本 owner eligible_facts 中的 fact_id 及其 source_claim_ids",
+            "aggregates": "source_fact_ids/source_claim_ids 仅为项目聚合集合，不能代替任何字段来源",
+            "position": "实习使用已提供的 project_header.position",
+        },
+        "backend_verification": {
+            "declaration_is_not_proof": True,
+            "accepted_support": "现有验证器仅确定验证引用 Fact 的 resume_ready_text、排版/句末标点等价形式和按声明顺序用分号或句号连接的组合",
+            "unsupported": "合法 ID 不能证明任意改写；来源缺失、非法或正文无法验证会使该次返回不满足契约",
+            "trust_flags": "不得声明 immutable_source_experience_id、source_binding_locked 或其他后端冻结/可信状态",
+            "failure": "不确定内容不能通过省略来源、清空已有正文或整段替换来声明成功",
+        },
+    }
+    return "<canonical_model_output_contract>\n" + json.dumps(contract, ensure_ascii=False) + "\n</canonical_model_output_contract>"

@@ -72,6 +72,26 @@ def evidence(prompt):
     return json.JSONDecoder().raw_decode(data)[0]
 
 
+def declared_network_return(request, prompt):
+    """Controlled protocol fixture from sent evidence, not a real model replay."""
+    data = generation.build_mock_generation(request).model_dump()
+    projects = []
+    for owner in evidence(prompt)["owners"]:
+        facts = owner["eligible_facts"]
+        project = dict(owner["project_header"], source_experience_id=owner["source_experience_id"])
+        for index, field in enumerate(("intro", "role")):
+            fact = facts[index] if index < len(facts) else None
+            project[field] = fact["resume_ready_text"] if fact else ""
+            project[f"{field}_source_fact_ids"] = [fact["fact_id"]] if fact else []
+            project[f"{field}_source_claim_ids"] = fact["source_claim_ids"] if fact else []
+        project["details"] = [f["resume_ready_text"] for f in facts[2:]]
+        project["detail_fact_ids"] = [[f["fact_id"]] for f in facts[2:]]
+        project["detail_claim_ids"] = [f["source_claim_ids"] for f in facts[2:]]
+        projects.append(project)
+    data["resume_sections"]["projects"] = projects
+    return json.dumps(data, ensure_ascii=False)
+
+
 def capture_generation(raw, monkeypatch, tmp_path, *, forbid_rebuild=False, deliver=False, retry=False):
     monkeypatch.setenv("LLM_MODE", "openai")
     monkeypatch.setattr(generation.resource_protection, "check_daily_budget", lambda: SimpleNamespace(allowed=True))
@@ -130,7 +150,7 @@ def capture_generation(raw, monkeypatch, tmp_path, *, forbid_rebuild=False, deli
         assert captured["build"] == captured["before"]
         if deliver:
             return LLMResult(
-                text="not json" if retry and len(captured["prompts"]) == 1 else model_text,
+                text="not json" if retry and len(captured["prompts"]) == 1 else declared_network_return(request, prompt),
                 model="offline-fixed-return", latency_ms=0,
             )
         raise CapturedModelCall()
@@ -145,7 +165,6 @@ def capture_generation(raw, monkeypatch, tmp_path, *, forbid_rebuild=False, deli
         target_role="后端开发", mode="full_resume", packaging_level="稳妥",
         experience_type="综合经历", raw_input=raw, attempt_id="v0916-replay",
     )
-    model_text = generation.build_mock_generation(request).model_dump_json() if deliver else ""
     try:
         with Session(engine) as db:
             if deliver:
@@ -317,14 +336,13 @@ def test_retry_does_not_call_prompt_preparation_again(monkeypatch):
     original = generation.build_generation_prompt
     calls = []
     prompts = []
-    output = generation.build_mock_generation(request_for(raw)).model_dump_json()
     def prepare(*args, **kwargs):
         calls.append(1)
         assert len(calls) == 1
         return original(*args, **kwargs)
     def call(prompt):
         prompts.append(prompt)
-        return LLMResult(text="not json" if len(prompts) == 1 else output, model="offline", latency_ms=0)
+        return LLMResult(text="not json" if len(prompts) == 1 else declared_network_return(request_for(raw), prompt), model="offline", latency_ms=0)
     monkeypatch.setenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")
     monkeypatch.setattr(generation, "build_generation_prompt", prepare)
     monkeypatch.setattr(generation, "call_openai", call)

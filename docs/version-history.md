@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.17.1：Trusted Initial Presentation Contract
+
+- 正常/长输入模板仅调整内部 JSON 格式与字段声明；同请求冻结证据及逐字段来源协议供首次请求和重试复用，不改写作风格、包装强度或调用上限。
+- 规范化及 schema 默认补齐之前核对 owner、正文类型、字段存在性、原始详情行及孤立附件，并复用既有 ID、eligibility、Claim lineage 和有限正文支持验证；其他 schema 错误不能掩盖来源错误。合法 ID 不等于正文受支持，项目聚合来源不能代替字段来源。
+- 契约失败使用 MODEL_EVIDENCE_FORMAT/MISSING/INVALID/UNSUPPORTED 明确出口；即使后一次响应解析失败，也不能借旧 JSON fallback 路径返回成功。独立合法字段不连带删除，不跨重试搬附件。沿用既有脱敏日志，并关联 request、attempt 与模型尝试次数。
+- 三份准确输入使用控制返回验证真实接收、初始投影、保存/DOCX；历史原始模型返回缺失，不能视作历史完整重放。真实模型成功率未验收；任意改写支持、下游三等奖删除、名称与岗位问题仍保留。详见 [阶段报告](trusted-initial-presentation-contract.md)。
+
 ## v0.9.16.2：Canonical Model Output Evidence Contract
 
 - 模型规范化保留候选 owner 和原始索引对应的 Fact/Claim 行，不接收模型自报冻结状态；既有 Slot 服务复用同请求证据，验证 ID、owner、eligibility、lineage 及字面支持。不用聚合来源或相似度猜测字段绑定。
