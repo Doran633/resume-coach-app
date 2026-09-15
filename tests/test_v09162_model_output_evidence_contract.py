@@ -31,6 +31,17 @@ ATTACHMENTS = (
 )
 
 
+def reference_return(data):
+    """Explicit wire fixture migration; body assertions still use original data."""
+    result = deepcopy(data)
+    keys = ("source_experience_id", "intro_source_fact_ids", "role_source_fact_ids", "detail_fact_ids")
+    result["resume_sections"]["projects"] = [
+        {key: deepcopy(project[key]) for key in keys}
+        for project in data["resume_sections"]["projects"]
+    ]
+    return result
+
+
 def request(case):
     return schemas.GenerateRequest(
         anonymous_user_id="v09162", session_id="v09162", attempt_id="v09162-controlled",
@@ -179,7 +190,7 @@ def real_receiver(case, data, monkeypatch, tmp_path, *, deliver=False):
 @pytest.mark.parametrize("case", CASES, ids=lambda x: str(x["result_id"]))
 def test_actual_receiver_preserves_legal_field_lineage(case, monkeypatch, tmp_path):
     build, data = controlled_return(case)
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     projects = {p.get("source_experience_id"): p for p in captured["payload"].resume_sections.projects}
     assert set(projects) == {i.experience_id for i in build.identities}
     for original in data["resume_sections"]["projects"]:
@@ -289,7 +300,7 @@ def test_normalization_preserves_one_field_with_multiple_declared_facts():
 def test_actual_generation_save_and_docx(case, monkeypatch, tmp_path):
     from docx import Document
     build, data = controlled_return(case)
-    captured = real_receiver(case, data, monkeypatch, tmp_path, deliver=True)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path, deliver=True)
     saved = captured["saved"]["resume_sections"]["projects"]
     assert {p["source_experience_id"] for p in saved} == {i.experience_id for i in build.identities}
     rendered = "\n".join(p.text for path in tmp_path.glob("*.docx") for p in Document(path).paragraphs)

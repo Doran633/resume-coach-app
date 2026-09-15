@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.17.2
+## 当前架构：v0.9.17.4
+
+v0.9.17.4 将 Canonical 项目模型返回收束为 owner 与 Fact 引用：每个已提供的 eligible Fact 必须且只能分配一次，后端使用同请求冻结文本、Claim lineage 和表头决定组装现有 payload。正常、长输入及重试共用协议，旧自由正文、模型 Claim/聚合附件或自报可信字段均不能冒充引用返回；不放宽既有正文支持验证。经批准，Binder 对全部非空字段已验证且属于声明 owner 的候选直接绑定同一 owner，不再要求冻结展示名称匹配 Identity 标题。
+
+本版不增强包装、不修改冻结语义或下游整理；完整引用有篇幅与模型遵约成功率代价。全量 1048 项离线测试通过，尚未进行真实模型与线上 smoke 验收。下游 Reconciliation 九条详情减为八条、名称待补充及纯 JSON 解析降级出口仍保留，初始完整不代表最终完整。详见 [Canonical Fact Reference Composition](docs/canonical-fact-reference-composition.md)。
 
 v0.9.17.2 保留 Canonical 初始项目证据：generation 显式选择保留分支，Cleanup 不再给合法空 intro/role 填入提示正文，也不按五个项目、八条详情截断；Hard Fact Guard 不再用全请求关键词和否定信息重新改写项目内容。原始索引对应的字段 Fact/Claim 行继续同步清理，未改变正文保留来源，实质改变不保留失效证明。默认 legacy 调用与其他简历区块行为保留。
 

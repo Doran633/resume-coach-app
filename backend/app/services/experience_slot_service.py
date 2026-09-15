@@ -54,6 +54,9 @@ class SlotBindingStats:
     evidence_reason_counts: dict[str, int] = field(default_factory=dict)
     verified_field_count: int = 0
     unverified_field_count: int = 0
+    reference_protocol: str = ""
+    required_fact_count: int = 0
+    assigned_fact_count: int = 0
     bindings: list[dict] = field(default_factory=list)
 
 
@@ -199,6 +202,121 @@ class ModelEvidenceContractError(RuntimeError):
         else:
             self.code = "MODEL_EVIDENCE_INVALID"
         super().__init__(self.code + ": " + ", ".join(sorted(reasons)))
+
+
+def compose_model_fact_references(
+    raw: object, consumer_views, *, request_id: str = "", attempt_id: str = "",
+    model_attempt: int = 0,
+) -> dict:
+    """Materialize the reference-only wire format, never repair model prose."""
+    stats = SlotBindingStats(
+        stage="generation_model_evidence_received", request_id=request_id,
+        attempt_id=attempt_id, model_attempt=model_attempt,
+        reference_protocol="canonical_fact_references_v1",
+    )
+
+    def reject(code: str) -> None:
+        stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
+
+    fields = {"source_experience_id", "intro_source_fact_ids", "role_source_fact_ids", "detail_fact_ids"}
+    facts_by_owner = {
+        owner: consumer_views.facts_for_owner(owner)
+        for owner in consumer_views.experience_ids
+    }
+    required = {fact.fact_id for facts in facts_by_owner.values() for fact in facts}
+    assigned: set[str] = set()
+    owners: set[str] = set()
+    result = []
+    sections = raw.get("resume_sections") if isinstance(raw, dict) else None
+    projects = sections.get("projects") if isinstance(sections, dict) else None
+    if not isinstance(projects, list):
+        reject("format_projects")
+        projects = []
+    for project in projects:
+        if not isinstance(project, dict):
+            reject("format_project")
+            continue
+        if set(project) - fields:
+            reject("format_forbidden_project_fields")
+        if fields - set(project):
+            reject("missing_reference_fields")
+        owner = project.get("source_experience_id")
+        if not isinstance(owner, str) or owner not in facts_by_owner:
+            reject("invalid_owner_reference")
+            continue
+        if owner in owners:
+            reject("duplicate_owner_reference")
+        owners.add(owner)
+        facts = facts_by_owner[owner]
+        local = {fact.fact_id: fact for fact in facts}
+        # Source order, not lexicographic ID order or model list order.
+        order = {fact.fact_id: i for i, fact in enumerate(sorted(facts, key=lambda f: f.source_span))}
+        scope = consumer_views.scope_for_owner(owner)
+        claims = {claim.claim_id for claim in consumer_views.claims_for_owner(owner) if scope.permits_claim(claim.claim_id)}
+        header = consumer_views.planner_view.experience_header_decision_for_owner(owner)
+        if header is None:
+            reject("invalid_frozen_header")
+            continue
+
+        def row(value):
+            if not isinstance(value, list) or any(not isinstance(v, str) or not v or v != v.strip() for v in value):
+                reject("format_field_reference")
+                return "", [], []
+            if any(fid not in local for fid in value):
+                reject("invalid_owner_or_fact_reference")
+                return "", [], []
+            if len(value) != len(set(value)) or assigned.intersection(value):
+                reject("duplicate_fact_reference")
+            if value != sorted(value, key=order.__getitem__):
+                reject("invalid_fact_source_order")
+            assigned.update(value)
+            selected = [local[fid] for fid in value]
+            if any(consumer_views.fact_owner(f.fact_id) != owner or f.claim_id not in claims
+                   or consumer_views.claim_owner(f.claim_id) != owner for f in selected):
+                reject("invalid_claim_lineage")
+                return "", [], []
+            texts = [f.resume_ready_text for f in selected]
+            if any(not text.strip() for text in texts):
+                reject("invalid_empty_fact_text")
+            text = texts[0] if len(texts) == 1 else "；".join(t.rstrip("。；;") for t in texts)
+            return text, list(value), list(dict.fromkeys(f.claim_id for f in selected))
+
+        intro, intro_facts, intro_claims = row(project.get("intro_source_fact_ids", []))
+        role, role_facts, role_claims = row(project.get("role_source_fact_ids", []))
+        rows = project.get("detail_fact_ids", [])
+        if not isinstance(rows, list):
+            reject("format_detail_rows")
+            rows = []
+        detail_rows = [row(value) for value in rows]
+        public_header = {
+            ("name" if field.field_key == "organization" else field.field_key): field.display_text
+            for field in header.fields
+        }
+        result.append({
+            **public_header, "meta": scope.canonical_experience_type,
+            "source_experience_id": owner,
+            "intro": intro, "role": role, "details": [r[0] for r in detail_rows],
+            "intro_source_fact_ids": intro_facts, "intro_source_claim_ids": intro_claims,
+            "role_source_fact_ids": role_facts, "role_source_claim_ids": role_claims,
+            "detail_fact_ids": [r[1] for r in detail_rows],
+            "detail_claim_ids": [r[2] for r in detail_rows],
+            "source_fact_ids": list(dict.fromkeys(intro_facts + role_facts + [fid for r in detail_rows for fid in r[1]])),
+            "source_claim_ids": list(dict.fromkeys(intro_claims + role_claims + [cid for r in detail_rows for cid in r[2]])),
+        })
+    if required - assigned:
+        reject("missing_fact_assignment")
+    stats.required_fact_count = len(required)
+    stats.assigned_fact_count = len(assigned)
+    if stats.evidence_reason_counts:
+        stats.contract_passed = False
+        _write_log(stats)
+        raise ModelEvidenceContractError(stats.evidence_reason_counts)
+    updated = deepcopy(raw)
+    updated["resume_sections"]["projects"] = result
+    stats.stage = "generation_model_fact_references_composed"
+    stats.contract_passed = True
+    _write_log(stats)
+    return updated
 
 
 def validate_model_output_structure(
@@ -419,6 +537,9 @@ def _write_log(stats: SlotBindingStats) -> None:
             "contract_passed": stats.contract_passed,
             "verified_field_count": stats.verified_field_count,
             "unverified_field_count": stats.unverified_field_count,
+            "reference_protocol": stats.reference_protocol,
+            "required_fact_count": stats.required_fact_count,
+            "assigned_fact_count": stats.assigned_fact_count,
             "evidence_reason_counts": stats.evidence_reason_counts,
             "bindings": stats.bindings,
         }
@@ -623,6 +744,7 @@ def bind_projects_to_experience_slots(
 
     positions = list(range(len(updated.resume_sections.projects)))
     invalid_reference_positions: set[int] = set()
+    verified_reference_positions: set[int] = set()
     if canonical_mode and semantic_build is not None and canonical_index is not None:
         priorities = {}
         for position, project in enumerate(updated.resume_sections.projects):
@@ -630,6 +752,7 @@ def bind_projects_to_experience_slots(
                 priorities[position] = (-2, 0, 0, "")
                 continue
             owner = str(project.get("source_experience_id") or "")
+            reasons_before = dict(stats.evidence_reason_counts)
             invalid = _validate_project_evidence(
                 project, [fact for fact in semantic_build.ledger.for_experience(owner)
                           if fact.fact_id in canonical_index.eligible_fact_ids_by_experience.get(owner, ())],
@@ -641,6 +764,8 @@ def bind_projects_to_experience_slots(
             rows += list(zip(project.get("details", []), project.get("detail_fact_ids", [])))
             visible_rows = [(text, ids) for text, ids in rows if str(text or "").strip()]
             complete = bool(visible_rows) and all(ids for text, ids in visible_rows)
+            if complete and not invalid and stats.evidence_reason_counts == reasons_before:
+                verified_reference_positions.add(position)
             best_score = max((_candidate_score(project, i, raw_input, ledger)[0] for i in identities), default=0)
             priorities[position] = (
                 -int(complete), -len(project.get("source_fact_ids", [])), -best_score,
@@ -682,6 +807,12 @@ def bind_projects_to_experience_slots(
                 # positional or keyword-based ownership inference.
                 chosen = identity_by_id[existing]
                 origin = "canonical_singleton_candidate"
+                confidence = 1.0
+            elif canonical_mode and existing not in used and position in verified_reference_positions:
+                # Every visible field already proved its owner-local lineage
+                # and literal support. A frozen display label is not identity evidence.
+                chosen = identity_by_id[existing]
+                origin = "canonical_field_evidence"
                 confidence = 1.0
             else:
                 existing_score, existing_reasons = _candidate_score(project, identity_by_id[existing], raw_input, ledger)

@@ -63,6 +63,13 @@ def load_prompt(name: str) -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
+def _generation_template(name: str, *, canonical: bool = False) -> str:
+    parts = load_prompt(name).split("<!-- legacy-project -->")
+    if len(parts) % 2 == 0:
+        raise ValueError("Unpaired legacy project template block.")
+    return "".join(part for index, part in enumerate(parts) if not canonical or index % 2 == 0)
+
+
 def _canonical_evidence_context(request: schemas.GenerateRequest, views: CanonicalConsumerViews) -> str:
     """Serialize existing decisions once; this is not a second semantic build."""
     background = views.non_experience_context(request.raw_input)
@@ -137,13 +144,15 @@ def build_generation_prompt(
     consumer_views: CanonicalConsumerViews | None = None,
 ) -> str:
     if consumer_views is not None:
-        # Legacy templates retain their writing rules. All old data slots refer
-        # to the same unabridged evidence instead of building competing summaries.
+        # Project prose instructions exit this path; other writing rules and
+        # all evidence still come from the existing templates and frozen views.
         evidence = _canonical_evidence_context(request, consumer_views)
         reference = "见同请求 canonical_model_evidence；不另建摘要。"
         is_long = bool(long_input_context and long_input_context.long_input_mode)
-        template = load_prompt("generate_resume_coach_result_long.md" if is_long else "generate_resume_coach_result.md")
+        template = _generation_template("generate_resume_coach_result_long.md" if is_long else "generate_resume_coach_result.md", canonical=True)
         return template.format(
+            project_task="Canonical projects 仅返回事实引用，不生成正文或表头。以下写作、包装、删改和格式规则仅适用于模型生成的非 projects 字段；项目引用以 canonical_model_output_contract 为唯一协议，不按篇幅省略 Fact。",
+            project_fields="projects: 数组，每项仅含 source_experience_id、intro_source_fact_ids、role_source_fact_ids、detail_fact_ids；不含正文、表头或 Claim 行",
             model_output_contract=_canonical_output_contract(),
             target_role=request.target_role, mode=request.mode,
             packaging_level=request.packaging_level,
@@ -161,8 +170,10 @@ def build_generation_prompt(
     segmentation_questions = build_segmentation_questions(request.raw_input)
     segmentation_question_context = "\n".join(f"- {item}" for item in segmentation_questions) or "无低置信度分段追问。"
     if long_input_context and long_input_context.long_input_mode:
-        template = load_prompt("generate_resume_coach_result_long.md")
+        template = _generation_template("generate_resume_coach_result_long.md")
         return template.format(
+            project_task="",
+            project_fields="projects: 数组，每项包含 name、meta、time、intro、role、details，并尽量包含 source_experience_id；实习可包含 position",
             model_output_contract="",
             target_role=request.target_role,
             mode=request.mode,
@@ -174,8 +185,10 @@ def build_generation_prompt(
             segmentation_question_context=segmentation_question_context,
         )
 
-    template = load_prompt("generate_resume_coach_result.md")
+    template = _generation_template("generate_resume_coach_result.md")
     return template.format(
+        project_task="",
+        project_fields="projects: 对象数组，每项包含 name、meta、time、intro、role、details，并尽量包含 source_experience_id；实习可包含 position",
         model_output_contract="",
         target_role=request.target_role,
         mode=request.mode,
@@ -190,38 +203,33 @@ def build_generation_prompt(
 
 
 def _canonical_output_contract() -> str:
-    """Internal return format only; no new writing policy or semantic state."""
+    """Project placement references; frozen text is materialized by the receiver."""
     contract = {
         "applies_to": "resume_sections.projects",
+        "protocol": "canonical_fact_references_v1",
         "required_fields": {
             "source_experience_id": "当前 canonical_model_evidence 中的 owner ID",
-            "name": "已提供的 project_header.name",
-            "meta": "已提供的 project_header.meta",
-            "time": "已提供的 project_header.time",
-            "intro": "string，空正文使用空字符串",
-            "role": "string，空正文使用空字符串",
-            "details": "list[string]，每项为一条正文",
+            "intro_source_fact_ids": "list[string]；项目定位的完整 Fact 引用，可以为空",
+            "role_source_fact_ids": "list[string]；职责的完整 Fact 引用，可以为空",
+            "detail_fact_ids": "list[list[string]]；每行默认一个完整 Fact 引用",
         },
         "field_references": {
-            "intro": ["intro_source_fact_ids", "intro_source_claim_ids"],
-            "role": ["role_source_fact_ids", "role_source_claim_ids"],
-            "details": ["detail_fact_ids", "detail_claim_ids"],
+            "intro": ["intro_source_fact_ids"],
+            "role": ["role_source_fact_ids"],
+            "details": ["detail_fact_ids"],
         },
         "reference_format": {
-            "intro_role": "list[string]；非空正文必须同时声明 Fact ID 和 Claim ID",
-            "details": "list[list[string]]；与 details 原始索引和长度一一对应，包括空行",
-            "empty_body": "允许省略该字段来源或使用空数组；不得附带孤立来源",
-            "multiple_facts": "一行表达多个事实时，Fact ID 按表达顺序声明，Claim ID 为对应 lineage 集合",
-            "lineage": "只引用本 owner eligible_facts 中的 fact_id 及其 source_claim_ids",
-            "aggregates": "source_fact_ids/source_claim_ids 仅为项目聚合集合，不能代替任何字段来源",
-            "position": "实习使用已提供的 project_header.position",
+            "complete_assignment": "全部 owner 提供的每个 eligible Fact 必须且只能分配一次，不按篇幅或重要性省略；每个 owner 最多一个项目",
+            "empty_body": "四个字段必须存在，空字段用 []；没有适当定位或职责事实时留空，在 details 保留完整事实",
+            "multiple_facts": "默认一 Fact 一行；同一行多个 Fact 必须属于本 owner 且保持原 source_span 顺序；同位置按证据提供顺序",
+            "lineage": "模型只选择 fact_id；后端取得完整 resume_ready_text、Claim lineage 和聚合来源，不要求模型抄写",
+            "headers": "后端使用冻结 project_header；模型不返回 name/meta/time/position",
         },
         "backend_verification": {
             "declaration_is_not_proof": True,
-            "accepted_support": "现有验证器仅确定验证引用 Fact 的 resume_ready_text、排版/句末标点等价形式和按声明顺序用分号或句号连接的组合",
-            "unsupported": "合法 ID 不能证明任意改写；来源缺失、非法或正文无法验证会使该次返回不满足契约",
-            "trust_flags": "不得声明 immutable_source_experience_id、source_binding_locked 或其他后端冻结/可信状态",
-            "failure": "不确定内容不能通过省略来源、清空已有正文或整段替换来声明成功",
+            "accepted_support": "只校验引用存在性、owner、eligibility、lineage、完整分配与组合顺序；后端确定性组装原句后执行既有正文支持校验",
+            "forbidden_fields": "项目对象只允许 required_fields 四个字段；不得返回 intro/role/details、Claim行、聚合ID、表头、冻结/可信标记或其他字段",
+            "failure": "缺失、重复、伪造、跨 owner、不可用引用及额外字段明确失败；不忽略正文后替换原句伪造验证成功",
         },
     }
     return "<canonical_model_output_contract>\n" + json.dumps(contract, ensure_ascii=False) + "\n</canonical_model_output_contract>"

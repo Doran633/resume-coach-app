@@ -5,7 +5,7 @@ import json
 import pytest
 
 from test_v09162_model_output_evidence_contract import (
-    ATTACHMENTS, CASES, controlled_return, real_receiver, request,
+    ATTACHMENTS, CASES, controlled_return, real_receiver, request, reference_return,
 )
 from app.services import generation_service as generation
 from app.services.canonical_semantic_state_service import build_canonical_semantic_build
@@ -71,7 +71,7 @@ def detail_input(count):
 def test_empty_body_fields_remain_empty_through_initial_cleanup(monkeypatch, tmp_path):
     case, build, data = detail_return(detail_input(2))
     before = deepcopy(data)
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     for name in ("cleanup_generation_payload", "guard_hard_facts"):
         assert_evidence_equal(stage(captured, name).resume_sections.projects, before["resume_sections"]["projects"])
     assert data == before
@@ -81,7 +81,7 @@ def test_empty_body_fields_remain_empty_through_initial_cleanup(monkeypatch, tmp
 def test_verified_projects_are_not_truncated_before_candidate_recovery(count, monkeypatch, tmp_path):
     case, build, data = detail_return(project_input(count))
     assert len(build.identities) == count
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     cleaned = stage(captured, "cleanup_generation_payload").resume_sections.projects
     assert len(cleaned) == count
     assert_evidence_equal(cleaned, data["resume_sections"]["projects"])
@@ -95,7 +95,7 @@ def test_verified_detail_rows_are_not_truncated(count, monkeypatch, tmp_path):
     case, build, data = detail_return(detail_input(count))
     expected = data["resume_sections"]["projects"]
     assert len(expected[0]["details"]) == count
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     cleaned = stage(captured, "cleanup_generation_payload").resume_sections.projects
     assert len(cleaned[0]["details"]) == count
     assert_evidence_equal(cleaned, expected)
@@ -106,7 +106,7 @@ def test_verified_detail_rows_are_not_truncated(count, monkeypatch, tmp_path):
 def test_other_owner_negation_cannot_rewrite_verified_award(reverse, monkeypatch, tmp_path):
     raw = "\n".join([NO_AWARD, AWARD] if reverse else [AWARD, NO_AWARD])
     case, build, data = detail_return(raw)
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     guarded = stage(captured, "guard_hard_facts").resume_sections.projects
     expected = data["resume_sections"]["projects"]
     # Check the independently compiled award, not the incidental owner number.
@@ -122,7 +122,7 @@ def test_other_owner_negation_cannot_rewrite_verified_award(reverse, monkeypatch
 def test_exact_input_supported_returns_preserve_initial_evidence(case, monkeypatch, tmp_path):
     build, data = controlled_return(case)
     before_build, before = deepcopy(build), deepcopy(data)
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     for name in ("cleanup_generation_payload", "guard_hard_facts"):
         assert_evidence_equal(stage(captured, name).resume_sections.projects, data["resume_sections"]["projects"])
     assert data == before and build == before_build
@@ -136,7 +136,7 @@ def test_online_fact_and_other_owner_limitation_remain_separate(reverse, monkeyp
     ]
     case, build, data = detail_return("\n".join(reversed(parts) if reverse else parts))
     before = deepcopy(build)
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     assert_evidence_equal(stage(captured, "guard_hard_facts").resume_sections.projects,
                           data["resume_sections"]["projects"])
     assert build == before
@@ -147,7 +147,7 @@ def test_same_owner_fact_and_responsibility_limit_survive(monkeypatch, tmp_path)
     case, build, data = detail_return(raw)
     before = deepcopy(build)
     assert any("没有负责" in c.text for c in build.ledger.excluded_claims)
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     assert_evidence_equal(stage(captured, "guard_hard_facts").resume_sections.projects,
                           data["resume_sections"]["projects"])
     assert any("没有负责" in c.text for c in build.ledger.excluded_claims)
@@ -162,7 +162,7 @@ def test_blank_rows_use_original_indexes_through_receiver(blank_index, monkeypat
     project["details"].insert(blank_index, " \n ")
     project["detail_fact_ids"].insert(blank_index, [])
     project["detail_claim_ids"].insert(blank_index, [])
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     for name in ("cleanup_generation_payload", "guard_hard_facts"):
         assert_evidence_equal(stage(captured, name).resume_sections.projects, expected)
 
@@ -175,7 +175,7 @@ def test_empty_details_and_nonempty_bound_headers_are_preserved(monkeypatch, tmp
         project[f"{field}_source_fact_ids"] = project["detail_fact_ids"][index]
         project[f"{field}_source_claim_ids"] = project["detail_claim_ids"][index]
     project["details"], project["detail_fact_ids"], project["detail_claim_ids"] = [], [], []
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     for name in ("cleanup_generation_payload", "guard_hard_facts"):
         assert_evidence_equal(stage(captured, name).resume_sections.projects, [project])
 
@@ -186,7 +186,7 @@ def test_same_text_different_owner_sources_are_not_merged(monkeypatch, tmp_path)
     projects = data["resume_sections"]["projects"]
     assert len(projects) == 2 and projects[0]["details"] == projects[1]["details"]
     assert projects[0]["detail_fact_ids"] != projects[1]["detail_fact_ids"]
-    captured = real_receiver(case, data, monkeypatch, tmp_path)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path)
     assert_evidence_equal(stage(captured, "cleanup_generation_payload").resume_sections.projects, projects)
 
 
@@ -265,7 +265,7 @@ def test_retry_reuses_frozen_views_without_semantic_rebuild(long_mode, monkeypat
     def forbidden(*args, **kwargs):
         raise AssertionError("unexpected semantic rebuild")
     monkeypatch.setattr(generation, "build_canonical_semantic_build", forbidden)
-    sent = network(monkeypatch, [altered(data, "missing"), data])
+    sent = network(monkeypatch, [altered(data, "missing"), reference_return(data)])
     result, _ = generation.build_llm_generation(
         request(CASES[0]), replace(build.long_input_context, long_input_mode=long_mode),
         consumer_views=views,
@@ -279,7 +279,7 @@ def test_retry_reuses_frozen_views_without_semantic_rebuild(long_mode, monkeypat
 def test_real_save_and_docx_record_downstream_changes_separately(case, monkeypatch, tmp_path):
     build, data = controlled_return(case)
     before = deepcopy(data)
-    captured = real_receiver(case, data, monkeypatch, tmp_path, deliver=True)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path, deliver=True)
     assert_evidence_equal(stage(captured, "guard_hard_facts").resume_sections.projects,
                           data["resume_sections"]["projects"])
     assert data == before
@@ -315,7 +315,7 @@ def test_initial_preservation_does_not_hide_later_detail_loss(monkeypatch, tmp_p
                       "issues": [i.issue_code for i in result.issues]})
         return result
     monkeypatch.setattr(generation, "validate_resume_delivery_quality", observe_gate)
-    captured = real_receiver(case, data, monkeypatch, tmp_path, deliver=True)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path, deliver=True)
     assert_evidence_equal(captured["payload"].resume_sections.projects, data["resume_sections"]["projects"])
     # Downstream limits are observed, not redefined as this release's success criterion.
     report = {"initial_details": 9, "downstream_changes": changes, "gates": gates,
@@ -359,7 +359,7 @@ def test_reserved_full_samples_after_business_changes(sample, monkeypatch, tmp_p
     raw = FULL if sample == "ecommerce" else MULTI_TYPE[sample]
     case, build, data = detail_return(raw)
     expected = deepcopy(data["resume_sections"]["projects"])
-    captured = real_receiver(case, data, monkeypatch, tmp_path, deliver=True)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path, deliver=True)
     for name in ("cleanup_generation_payload", "guard_hard_facts"):
         assert_evidence_equal(stage(captured, name).resume_sections.projects, expected)
     facts = {f.fact_id: f for f in build.ledger.facts}

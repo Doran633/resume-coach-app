@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
 
-from test_v09162_model_output_evidence_contract import CASES, ATTACHMENTS, controlled_return, real_receiver, request
+from test_v09162_model_output_evidence_contract import CASES, ATTACHMENTS, controlled_return, real_receiver, request, reference_return
 from app import models
 from app.database import Base
 from app.services import generation_service as generation
@@ -128,7 +128,7 @@ def test_failure_never_reaches_projection_or_persistence(case, monkeypatch, isol
 def test_supported_response_reaches_real_save_and_docx(case, monkeypatch, tmp_path, isolated):
     build, data = controlled_return(case)
     before = deepcopy(data)
-    captured = real_receiver(case, data, monkeypatch, tmp_path, deliver=True)
+    captured = real_receiver(case, reference_return(data), monkeypatch, tmp_path, deliver=True)
     expected = {p["source_experience_id"]: p for p in data["resume_sections"]["projects"]}
     for project in captured["payload"].resume_sections.projects:
         original = expected[project["source_experience_id"]]
@@ -162,7 +162,7 @@ def test_retry_uses_identical_evidence_protocol_and_one_preparation(case, long_m
         prepared.append(1)
         return original(*a, **kw)
     monkeypatch.setattr(generation, "build_generation_prompt", prepare)
-    sent = network(monkeypatch, [altered(data, "missing"), data])
+    sent = network(monkeypatch, [altered(data, "missing"), reference_return(data)])
     payload, log = generation.build_llm_generation(
         request(case), replace(build.long_input_context, long_input_mode=long_mode), consumer_views=views,
         request_id="req_v09171_retry",
@@ -171,9 +171,9 @@ def test_retry_uses_identical_evidence_protocol_and_one_preparation(case, long_m
     assert evidence(sent[0]) == evidence(sent[1])
     assert output_contract(sent[0]) == output_contract(sent[1])
     assert output_contract(sent[0])["field_references"] == {
-        "intro": ["intro_source_fact_ids", "intro_source_claim_ids"],
-        "role": ["role_source_fact_ids", "role_source_claim_ids"],
-        "details": ["detail_fact_ids", "detail_claim_ids"],
+        "intro": ["intro_source_fact_ids"],
+        "role": ["role_source_fact_ids"],
+        "details": ["detail_fact_ids"],
     }
     assert build == before
     assert payload.resume_sections.projects[0]["detail_fact_ids"] == data["resume_sections"]["projects"][0]["detail_fact_ids"]
@@ -229,7 +229,7 @@ def test_blank_rows_and_multifact_rows_preserve_exact_lineage(monkeypatch, isola
     project["detail_fact_ids"].insert(0, [])
     project["detail_claim_ids"].insert(0, [])
     before = deepcopy(data)
-    network(monkeypatch, [data])
+    network(monkeypatch, [reference_return(data)])
     payload, _ = generation.build_llm_generation(request(CASES[0]), build.long_input_context, consumer_views=build_canonical_consumer_views(build))
     current = payload.resume_sections.projects[0]
     for key in ("details", "detail_fact_ids", "detail_claim_ids"):
@@ -277,7 +277,7 @@ def test_partial_invalid_return_preserves_valid_fields_without_cross_attempt_mer
     assert retained.resume_sections.projects[0]["intro_source_fact_ids"] == original["intro_source_fact_ids"]
     assert retained.resume_sections.projects[0]["role_source_fact_ids"] == original["role_source_fact_ids"]
     assert retained.resume_sections.projects[0]["details"] == bad["resume_sections"]["projects"][0]["details"]
-    sent = network(monkeypatch, [bad, data])
+    sent = network(monkeypatch, [bad, reference_return(data)])
     result, _ = generation.build_llm_generation(request(CASES[0]), build.long_input_context, consumer_views=views)
     assert len(sent) == 2 and bad == before
     assert result.resume_sections.projects[0]["details"] == original["details"]
@@ -290,13 +290,15 @@ def test_contract_failure_logs_only_codes_counts_and_request_correlation(monkeyp
     with pytest.raises(generation.GenerationServiceError) as caught:
         generation.build_llm_generation(request(CASES[0]), build.long_input_context,
                                         consumer_views=build_canonical_consumer_views(build), request_id="req_v09171_private")
-    assert caught.value.code == "MODEL_EVIDENCE_UNSUPPORTED"
+    # Free-text projects now fail format validation before body verification.
+    assert caught.value.code == "MODEL_EVIDENCE_FORMAT"
     text = slots.LOG_PATH.read_text(encoding="utf-8")
     rows = [json.loads(line) for line in text.splitlines()]
     assert len(rows) == 2
     assert {r["model_attempt"] for r in rows} == {1, 2}
     assert all(r["request_id"] == "req_v09171_private" and r["attempt_id"] == request(CASES[0]).attempt_id for r in rows)
-    assert all(r["contract_passed"] is False and r["verified_field_count"] > 0 for r in rows)
+    assert all(r["contract_passed"] is False and r["verified_field_count"] == 0 for r in rows)
+    assert all("format_forbidden_project_fields" in r["evidence_reason_counts"] for r in rows)
     for project in data["resume_sections"]["projects"]:
         for value in [project["name"], project["intro"], project["role"], *project["details"]]:
             assert value not in text

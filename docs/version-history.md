@@ -1,5 +1,14 @@
 # 版本历史
 
+## v0.9.17.4：Canonical Fact Reference Composition
+
+- 基线为 v0.9.17.2 / 92e1fe7589c92cef41993f91259c7d0048791b8c；v0.9.17.3 为只读方案比较，不声明已实施。
+- Canonical 正常/长输入项目使用 owner 与逐字段 Fact 引用协议，所有提供的 eligible Fact 精确分配一次；同 owner 多 Fact 按原来源顺序完整组合，Claim 与聚合来源由后端派生，表头只读冻结决定。
+- 旧自由正文、模型 Claim/聚合附件和可信标记在引用入口明确拒绝；重试不重建语义、不跨响应拼接，耗尽后失败。独立 legacy 和纯 JSON 解析降级路径保持兼容，后者不计为新契约成功。
+- 用户批准窄 Binder 接线：全部非空字段通过既有来源/正文验证时，同 owner 来源可支持绑定，不再因合法冻结名称与 Identity 标题不相似而失去 owner。缺失、错误、跨 owner 或无法验证的字段不能走此分支。
+- 初始专项红测 11 失败、14 通过；完成后全量 1048 项通过。既有控制网络返回改为新引用协议，保留正文及附件断言，并独立保持旧验证器的原句/合理改写/职责扩大反例。不代表历史原始模型返回重放或真实模型成功率验收。
+- 下游 Reconciliation 截断、专业化改写、表头待补充和冻结 eligibility 残留不在本版修复。详见 [阶段说明](canonical-fact-reference-composition.md)。
+
 ## v0.9.17.2：Canonical Initial Evidence Preservation
 
 - generation 显式选择 Canonical Cleanup/Hard Fact Guard 分支；没有从模型字段推断可信状态，没有新增业务模块或语义真源。

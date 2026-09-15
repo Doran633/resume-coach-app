@@ -62,6 +62,7 @@ from .experience_slot_service import (
     ModelEvidenceContractError,
     bind_projects_to_experience_slots,
     validate_model_project_evidence,
+    compose_model_fact_references,
     contain_ownerless_projects,
     freeze_canonical_projection_candidates,
     write_owner_delivery_contract_log,
@@ -453,6 +454,10 @@ def build_llm_generation(
             )
             parsed = parse_llm_json(llm_result.text)
             if consumer_views is not None:
+                parsed = compose_model_fact_references(
+                    parsed, consumer_views, attempt_id=request.attempt_id or "",
+                    request_id=request_id, model_attempt=attempt + 1,
+                )
                 parsed = validate_model_project_evidence(
                     parsed, consumer_views, attempt_id=request.attempt_id or "",
                     require_complete=True, request_id=request_id, model_attempt=attempt + 1,

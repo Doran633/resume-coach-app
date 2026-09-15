@@ -78,15 +78,11 @@ def declared_network_return(request, prompt):
     projects = []
     for owner in evidence(prompt)["owners"]:
         facts = owner["eligible_facts"]
-        project = dict(owner["project_header"], source_experience_id=owner["source_experience_id"])
+        project = dict(source_experience_id=owner["source_experience_id"])
         for index, field in enumerate(("intro", "role")):
             fact = facts[index] if index < len(facts) else None
-            project[field] = fact["resume_ready_text"] if fact else ""
             project[f"{field}_source_fact_ids"] = [fact["fact_id"]] if fact else []
-            project[f"{field}_source_claim_ids"] = fact["source_claim_ids"] if fact else []
-        project["details"] = [f["resume_ready_text"] for f in facts[2:]]
         project["detail_fact_ids"] = [[f["fact_id"]] for f in facts[2:]]
-        project["detail_claim_ids"] = [f["source_claim_ids"] for f in facts[2:]]
         projects.append(project)
     data["resume_sections"]["projects"] = projects
     return json.dumps(data, ensure_ascii=False)
