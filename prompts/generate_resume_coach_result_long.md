@@ -14,7 +14,7 @@
 - 内部 experience_id 事实账本：
 {experience_fact_ledger_context}
 
-长输入摘要和内部检索摘要只用于定位经历边界，裁剪不代表用户原文缺失。不得把摘要末尾、内部标记、省略号或“原文截断/需补充”等提示写入正式简历。项目 meta 必须与 source_experience_id 对应的 experience_type 一致。
+长输入摘要和内部检索摘要只用于定位经历边界，裁剪不代表用户原文缺失。不得把摘要末尾、内部标记、省略号或“原文截断/需补充”等提示写入正式简历。<!-- legacy-project -->项目 meta 必须与 source_experience_id 对应的 experience_type 一致。<!-- legacy-project -->
 
 系统识别出的低置信度分段追问（只能加入 missing_questions，不得自行认定）：
 {segmentation_question_context}
@@ -43,7 +43,7 @@
 12. 如果多个经历都与 RAG 相关，必须写出不同侧重点：应用开发写检索问答链路，测试集写 Top-K、Recall、Groundedness 和评估指标，部署写服务部署、日志和健康检查，不要用一条万能 RAG 句覆盖所有经历。
 <!-- legacy-project -->
 13. 弱经历用户增强：只有课程项目、大作业、简单小项目、学生工作或竞赛参与时，也要整理为可投递的成长型实践表达；不能编造实习、公司、上线、用户数、star、奖项，但要突出需求理解、功能实现、协作沟通、材料沉淀、展示答辩和复盘能力。
-14. 简历正文去负面化：用户说“没有实习 / 没有上线 / 没有获奖 / 只是课程作业”等内容时，不能原样写入 resume_sections.summary 或 projects；这些内容只能进入边界判断、追问或面试准备。没有明确实习事实时，严禁生成“实习经历”模块。
+14. 简历正文去负面化：用户说“没有实习 / 没有上线 / 没有获奖 / 只是课程作业”等内容时，不能原样写入 resume_sections.summary<!-- legacy-project --> 或 projects<!-- legacy-project -->；这些内容只能进入边界判断、追问或面试准备。<!-- legacy-project -->没有明确实习事实时，严禁生成“实习经历”模块。<!-- legacy-project -->
 15. 输出必须是合法 JSON 对象，字段齐全，不要代码块。
 <!-- legacy-project -->
 16. 每段经历优先覆盖事实账本中的 high importance 事实；Canonical 每条 detail 用 detail_fact_ids/detail_claim_ids 对应行声明来源，source_fact_ids 仅为项目聚合；独立 legacy 调用保留可选来源兼容。不能用通用包装句挤占明确事实。
@@ -61,7 +61,7 @@
 <!-- legacy-project -->
 24. skills 按编程语言、AI / 大模型应用、前端开发、后端开发、数据库与存储、测试与评测、工程化与部署、数据分析与机器学习分类；同一技能只出现一次，不使用掌握、精通、熟悉等程度词。
 25. 内部字段和变量必须转换为招聘者可理解的工程能力，不能直接枚举 raw_text、explicit_metrics、retrieved_count、token_usage 等字段；转换不得新增原文不存在的工程机制。
-22. “实习”可能只是目标用户、招聘对象或产品场景；只有作者与公司/组织/岗位存在明确任职或实习关系时才能生成实习经历，project.meta 必须服从对应 source_experience_id 的后端 resolved_type。
+22. “实习”可能只是目标用户、招聘对象或产品场景；只有作者与公司/组织/岗位存在明确任职或实习关系时才能生成实习经历<!-- legacy-project -->，project.meta 必须服从对应 source_experience_id 的后端 resolved_type<!-- legacy-project -->。
 23. resume_sections.interview_preparation、interview_plan 和 knowledge_checklist 只用于网页求职教练展示，不进入正式 DOCX；这些内容仍需完整生成。
 24. 正式简历正文不得出现“如果被问到、建议学习、准备证据、降级表达”等面试准备或系统建议话术。
 <!-- legacy-project -->
@@ -137,7 +137,9 @@ risk_level 只能是 green、yellow、red、black。
 - 专业化表达不能改变 polarity、certainty、temporal_status、source_experience_id、fact_id 或 claim_id。
 - 复杂输入优先保持事实归属和断言边界，不得用更流畅的文案掩盖冲突。
 - Experience ID 和 Fact Ledger 可以保留，但必须用于解释多经历事实边界、事实覆盖或污染治理价值。
+<!-- legacy-project -->
 - 每条 detail 必须包含新的问题、动作、机制、证据或结果；不写文件新增记录、服务清单和无价值字段流转。
+<!-- legacy-project -->
 - 输出前验证所有成对符号完整，不产生空引号、错位引号、未闭合括号或调试标记。
 ## v0.5.4 长输入空格与拼接规则
 
@@ -204,7 +206,7 @@ risk_level 只能是 green、yellow、red、black。
 <!-- legacy-project -->
 - 实习经历的 name 只保留当前 experience_id 对应的公司实体，position 单独保留岗位；不得把“在某公司”写成公司名称。
 <!-- legacy-project -->
-- 用户粘贴的 `#` 标题、`-`、`*`、`+`、`•`、`` 和编号列表仅用于输入结构识别，不得进入 summary、skills、intro、role 或 details。
+- 用户粘贴的 `#` 标题、`-`、`*`、`+`、`•`、`` 和编号列表仅用于输入结构识别，不得进入 summary、skills<!-- legacy-project -->、intro、role 或 details<!-- legacy-project -->。
 <!-- legacy-project -->
 - projects.details 的每个字符串直接以正文开头，DOCX 会自动添加列表样式，不得重复输出 Markdown/List 前缀。
 <!-- legacy-project -->

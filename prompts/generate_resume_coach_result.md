@@ -25,7 +25,9 @@
 混合自然语言输入规则：
 - 用户背景、年级和求职意向不是项目，不得写入 projects 或项目 details。
 - 输入已由后端按 experience_id 分段；不得将多个 experience_id 重新塞进“综合经历项目”。
+<!-- legacy-project -->
 - 只有系统明确提供合并关系时才能合并；否则每个 source_experience_id 独立生成。
+<!-- legacy-project -->
 - 奖项、技术、组织职责和结果只能属于对应 source_experience_id。
 <!-- legacy-project -->
 - 不确定经历类型时使用保守中文类型，并把关系确认问题放入 missing_questions。
@@ -186,7 +188,7 @@ resume_sections 必须包含：
 
 简历语言专业化规则：
 1. 正文不得使用“我做过、我写了、我调了、技术动作、项目动作、主要做了”等口语或内部标签。
-2. 使用“设计、构建、实现、开发、集成、优化、排查、校验、部署、沉淀”等明确行动动词，项目详情采用“动作 + 对象/技术 + 结果或目的”结构。
+2. 使用“设计、构建、实现、开发、集成、优化、排查、校验、部署、沉淀”等明确行动动词<!-- legacy-project -->，项目详情采用“动作 + 对象/技术 + 结果或目的”结构<!-- legacy-project -->。
 3. 专业化改写只能重组已有事实，不得擅自升级为主导、核心负责人、企业级、生产级、高并发或新增指标与技术栈。
 
 经历类型、事实去重与 Section 规则：
@@ -198,7 +200,9 @@ resume_sections 必须包含：
 4. “个人优势、技能与能力”等中文词只作为展示标题，不得作为 JSON key。
 5. 用户可见正文不得出现 section、section summary、summary chunk、section 个人优势 chunk 等内部标记；文档 Chunk、chunk size、Text Chunking 等技术语境可以正常保留。
 6. “实习”可能描述产品目标用户、招聘对象或求职场景，不能据此认定作者拥有实习经历；只有作者与公司、组织或岗位之间存在明确任职/实习关系时，才能生成实习经历。
+<!-- legacy-project -->
 7. project.meta 必须服从后端基于 source_experience_id 提供的 resolved_type，不得根据整段 raw_input 或其他经历自行改变类型。
+<!-- legacy-project -->
 
 弱经历用户增强规则：
 1. 如果用户只有课程项目 / 大作业 / 课设 / 简单小项目，不要直接判定为不可包装，应组织为“课程项目”“软件工程实践”或“独立项目实践”。
@@ -211,9 +215,9 @@ resume_sections 必须包含：
 
 简历正文去负面化规则：
 1. 用户说“没有实习 / 没有上线 / 没有真实用户 / 没有获奖 / 只是课程作业 / 简单小项目”等内容时，不能原样写入正式简历正文。
-2. 这些内容只能用于边界判断、缺失信息提示、面试准备和降级口径，不得写进 resume_sections.summary 或 resume_sections.projects。
+2. 这些内容只能用于边界判断、缺失信息提示、面试准备和降级口径，不得写进 resume_sections.summary<!-- legacy-project --> 或 resume_sections.projects<!-- legacy-project -->。
 3. 正式简历正文必须使用正向表达，例如“课程项目”“个人项目实践”“竞赛经历”“校园经历”“项目展示”“方案设计”“材料整理”“展示答辩”。
-4. 没有明确实习事实时，严禁生成“实习经历”模块，也不得写“实习经验”“企业实习”等表述。
+4. 没有明确实习事实时，<!-- legacy-project -->严禁生成“实习经历”模块，也<!-- legacy-project -->不得写“实习经验”“企业实习”等表述。
 5. 用户不自信、不专业的原话不得直接进入简历，例如“写了几个页面”“调了一些接口”“不太熟”“只是参与”，必须改写为可投递表达。
 
 不确定表达禁止规则：
@@ -250,7 +254,9 @@ resume_sections 必须包含：
 2. 允许增强任务表达、职责边界、技术动作、项目结构、问题排查、结果证据和岗位匹配。
 3. 示例：“写了几个页面”可写成“负责核心页面开发、交互状态流转与接口联调”；“调接口”可写成“围绕核心接口链路完成联调、异常定位与数据流转校验”；“修 bug”可写成“定位并修复关键流程异常，提升功能稳定性”；“写文档”可写成“沉淀项目说明、使用文档和复盘材料，提升项目可维护性”。
 4. normal_version、bold_version、recommended_version 不能与用户原始输入高度相似；如果用户输入已经很完整，也要重新组织成更正式、更岗位化、更简历化的表达。
+<!-- legacy-project -->
 5. 每个主要项目至少应体现项目定位、我的职责、技术动作、结果或证据、面试承接点。
+<!-- legacy-project -->
 
 岗位优先级规则：
 1. AI / 大模型 / Agent：突出 RAG、大模型 API、Agent workflow、工具调用、数据链路、Prompt 工程、评估与迭代。
@@ -328,8 +334,10 @@ resume_sections 必须包含：
 - planned、准备、拟进行和正在推进的事项不得写成已经完成；historical 与 current 表示工程演进，不是重复事实。
 - 专业化表达不得提升 Claim 的 certainty、职责范围、完成程度，也不得改变 source_experience_id、fact_id 或 claim_id 的归属。
 - 一句话同时包含否定与正向事实时，只保留 eligible 的正向 Claim，不得删除整句中已经确认的事实。
+<!-- legacy-project -->
 - 每条项目 detail 应呈现问题、工程动作、机制或价值，不得写成字段说明书、文件修改记录或服务名称清单。
 - Resume Coach 类工程项目应突出真实用户需求、业务异常、解决方案、可观测性与架构演进，不得只记录开发过程。
+<!-- legacy-project -->
 - 输出前检查中文引号、括号、书名号、方括号和反引号是否成对完整；不得输出空引号、连续错误引号或未闭合符号。
 - 不得通过删除技术深度换取易读性，应将内部实现转换为招聘者可理解的工程价值。
 
@@ -357,7 +365,9 @@ resume_sections 必须包含：
 - 无法可靠消歧的技术词不要进入 skills，可进入 missing_questions 请求用户确认，不使用“如有”“可能涉及”等不专业表达。
 - 删除错误技能分类时，不得删除项目正文中用户明确提供的量化指标、工程动作或结果证据。
 - 使用虚拟机不等于部署或生产经验，使用 CodeBuddy 不得推断编程语言，目标岗位不得带入 Python、Java、React、Docker 或数据库等未提供技术。
+<!-- legacy-project -->
 - 事实较少但信息明确的项目，应优先从本段 experience_id 恢复目标、职责、功能、技术、结果和证据；每条 detail 必须新增事实，不得用通用包装句凑数量。
+<!-- legacy-project -->
 - 奖项、指标、工具和技术只能写入其所属经历，不得跨项目复制；用户输入中的“希望包装”等指令不得进入简历正文。
 
 <!-- legacy-project -->
@@ -394,7 +404,7 @@ resume_sections 必须包含：
 - 内部否定约束用于禁止相反断言，例如“没有独立上线”禁止改写为“完成独立上线”；约束原句本身也不得进入正式简历。
 - 内部不确定项只能进入 missing_questions，不得被专业化成确定事实或技能；“可能是 Flask 或 FastAPI”不能输出其中任一项。
 - 每个 project 的事实只能来自同一 Slot 的 fact IDs。无法可靠绑定时留给 missing_questions，不得借用全局技术栈、指标、公司、奖项或其他 Experience 的事实。
-- Fallback 和覆盖恢复只允许使用当前 Slot 的可输出事实；事实覆盖率不能凌驾于事实所有权。
+- <!-- legacy-project -->Fallback 和覆盖恢复只允许使用当前 Slot 的可输出事实；<!-- legacy-project -->事实覆盖率不能凌驾于事实所有权。
 - React、Vite、Ant Design、Zustand 不能单独证明 TypeScript；Spring 不能单独证明 Java。
 - 目标岗位、包装指令、knowledge_checklist、interview_plan 和 missing_questions 中的技术词不得作为技能证据。
 - 不得为补全技能栏添加 Docker、Redis、MySQL 等没有明确事实或确定性生态关系的技术；同一技能只输出一次。
@@ -405,7 +415,7 @@ resume_sections 必须包含：
 - 实习 project.name 只写公司实体名称，不得保留“在、曾在、于、就职于、任职于”等句子成分；position 单独写实习岗位。
 - 实习标题由系统按“公司名称｜实习岗位｜时间”渲染，不要把公司、岗位和时间拼进同一字段。
 <!-- legacy-project -->
-- summary、skills、intro、role 和 details 数组项直接写正文，不得以 `-`、`*`、`+`、`#`、`•`、`` 或 Markdown 编号开头。
+- summary、skills<!-- legacy-project -->、intro、role 和 details<!-- legacy-project --> 数组项直接写正文，不得以 `-`、`*`、`+`、`#`、`•`、`` 或 Markdown 编号开头。
 - 用户输入中的 Markdown 标题和列表符只用于识别结构，不属于简历事实；不得复制到正式正文。
 - DOCX 会自动渲染项目符号，不要在字符串中重复添加列表标记。
 ## v0.5.4 语义空格规则
