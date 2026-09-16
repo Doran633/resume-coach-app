@@ -204,21 +204,33 @@ class ModelEvidenceContractError(RuntimeError):
         super().__init__(self.code + ": " + ", ".join(sorted(reasons)))
 
 
+class ModelJSONObject(dict):
+    """Transient decode metadata; duplicate project keys cannot be overwritten silently."""
+
+    def __init__(self, pairs):
+        super().__init__()
+        self.duplicate_keys = set()
+        for key, value in pairs:
+            if key in self:
+                self.duplicate_keys.add(key)
+            self[key] = value
+
+
 def compose_model_fact_references(
     raw: object, consumer_views, *, request_id: str = "", attempt_id: str = "",
     model_attempt: int = 0,
 ) -> dict:
-    """Materialize the reference-only wire format, never repair model prose."""
+    """Materialize one placement per frozen Fact, never repair model prose."""
     stats = SlotBindingStats(
         stage="generation_model_evidence_received", request_id=request_id,
         attempt_id=attempt_id, model_attempt=model_attempt,
-        reference_protocol="canonical_fact_references_v1",
+        reference_protocol="canonical_fact_placements_v1",
     )
 
     def reject(code: str) -> None:
         stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
 
-    fields = {"source_experience_id", "intro_source_fact_ids", "role_source_fact_ids", "detail_fact_ids"}
+    fields = {"source_experience_id", "fact_placements"}
     facts_by_owner = {
         owner: consumer_views.facts_for_owner(owner)
         for owner in consumer_views.experience_ids
@@ -229,6 +241,9 @@ def compose_model_fact_references(
     result = []
     sections = raw.get("resume_sections") if isinstance(raw, dict) else None
     projects = sections.get("projects") if isinstance(sections, dict) else None
+    if ("resume_sections" in getattr(raw, "duplicate_keys", ())
+            or "projects" in getattr(sections, "duplicate_keys", ())):
+        reject("duplicate_project_key")
     if not isinstance(projects, list):
         reject("format_projects")
         projects = []
@@ -236,6 +251,8 @@ def compose_model_fact_references(
         if not isinstance(project, dict):
             reject("format_project")
             continue
+        if getattr(project, "duplicate_keys", ()):
+            reject("duplicate_project_key")
         if set(project) - fields:
             reject("format_forbidden_project_fields")
         if fields - set(project):
@@ -249,8 +266,8 @@ def compose_model_fact_references(
         owners.add(owner)
         facts = facts_by_owner[owner]
         local = {fact.fact_id: fact for fact in facts}
-        # Source order, not lexicographic ID order or model list order.
-        order = {fact.fact_id: i for i, fact in enumerate(sorted(facts, key=lambda f: f.source_span))}
+        # Stable frozen source order, never JSON object key order.
+        ordered_facts = sorted(facts, key=lambda f: f.source_span)
         scope = consumer_views.scope_for_owner(owner)
         claims = {claim.claim_id for claim in consumer_views.claims_for_owner(owner) if scope.permits_claim(claim.claim_id)}
         header = consumer_views.planner_view.experience_header_decision_for_owner(owner)
@@ -258,18 +275,24 @@ def compose_model_fact_references(
             reject("invalid_frozen_header")
             continue
 
+        placements = project.get("fact_placements")
+        if not isinstance(placements, dict):
+            reject("format_fact_placements")
+            continue
+        if getattr(placements, "duplicate_keys", ()):
+            reject("duplicate_project_key")
+        if set(placements) - set(local):
+            reject("invalid_owner_or_fact_reference")
+        if set(local) - set(placements):
+            reject("missing_fact_assignment")
+        if any(not isinstance(value, str) or value not in ("intro", "role", "detail")
+               for value in placements.values()):
+            reject("format_fact_position")
+        if assigned.intersection(placements):
+            reject("duplicate_fact_reference")
+        assigned.update(fid for fid in placements if fid in local)
+
         def row(value):
-            if not isinstance(value, list) or any(not isinstance(v, str) or not v or v != v.strip() for v in value):
-                reject("format_field_reference")
-                return "", [], []
-            if any(fid not in local for fid in value):
-                reject("invalid_owner_or_fact_reference")
-                return "", [], []
-            if len(value) != len(set(value)) or assigned.intersection(value):
-                reject("duplicate_fact_reference")
-            if value != sorted(value, key=order.__getitem__):
-                reject("invalid_fact_source_order")
-            assigned.update(value)
             selected = [local[fid] for fid in value]
             if any(consumer_views.fact_owner(f.fact_id) != owner or f.claim_id not in claims
                    or consumer_views.claim_owner(f.claim_id) != owner for f in selected):
@@ -281,13 +304,13 @@ def compose_model_fact_references(
             text = texts[0] if len(texts) == 1 else "；".join(t.rstrip("。；;") for t in texts)
             return text, list(value), list(dict.fromkeys(f.claim_id for f in selected))
 
-        intro, intro_facts, intro_claims = row(project.get("intro_source_fact_ids", []))
-        role, role_facts, role_claims = row(project.get("role_source_fact_ids", []))
-        rows = project.get("detail_fact_ids", [])
-        if not isinstance(rows, list):
-            reject("format_detail_rows")
-            rows = []
-        detail_rows = [row(value) for value in rows]
+        grouped = {
+            position: [f.fact_id for f in ordered_facts if placements.get(f.fact_id) == position]
+            for position in ("intro", "role", "detail")
+        }
+        intro, intro_facts, intro_claims = row(grouped["intro"])
+        role, role_facts, role_claims = row(grouped["role"])
+        detail_rows = [row([fid]) for fid in grouped["detail"]]
         public_header = {
             ("name" if field.field_key == "organization" else field.field_key): field.display_text
             for field in header.fields

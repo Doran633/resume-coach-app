@@ -63,6 +63,7 @@ from .experience_slot_service import (
     bind_projects_to_experience_slots,
     validate_model_project_evidence,
     compose_model_fact_references,
+    ModelJSONObject,
     contain_ownerless_projects,
     freeze_canonical_projection_candidates,
     write_owner_delivery_contract_log,
@@ -452,7 +453,9 @@ def build_llm_generation(
                 success=True,
                 attempt_id=request.attempt_id or "",
             )
-            parsed = parse_llm_json(llm_result.text)
+            parsed = parse_llm_json(
+                llm_result.text, object_pairs_hook=ModelJSONObject if consumer_views is not None else None,
+            )
             if consumer_views is not None:
                 parsed = compose_model_fact_references(
                     parsed, consumer_views, attempt_id=request.attempt_id or "",

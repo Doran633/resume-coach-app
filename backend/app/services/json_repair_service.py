@@ -57,13 +57,13 @@ def _close_truncated_json(json_text: str) -> str:
     return json_text
 
 
-def parse_llm_json(text: str) -> dict[str, Any]:
+def parse_llm_json(text: str, *, object_pairs_hook=None) -> dict[str, Any]:
     json_text = _extract_json_object(text)
     try:
-        return json.loads(json_text)
+        return json.loads(json_text, object_pairs_hook=object_pairs_hook)
     except json.JSONDecodeError as exc:
         repaired = _close_truncated_json(json_text)
         try:
-            return json.loads(repaired)
+            return json.loads(repaired, object_pairs_hook=object_pairs_hook)
         except json.JSONDecodeError:
             raise JSONRepairError(f"Invalid JSON from LLM: {exc}") from exc

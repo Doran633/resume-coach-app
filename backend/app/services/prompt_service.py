@@ -152,7 +152,7 @@ def build_generation_prompt(
         template = _generation_template("generate_resume_coach_result_long.md" if is_long else "generate_resume_coach_result.md", canonical=True)
         return template.format(
             project_task="Canonical projects 仅返回事实引用，不生成正文或表头。以下写作、包装、删改和格式规则仅适用于模型生成的非 projects 字段；项目引用以 canonical_model_output_contract 为唯一协议，不按篇幅省略 Fact。",
-            project_fields="projects: 数组，每项仅含 source_experience_id、intro_source_fact_ids、role_source_fact_ids、detail_fact_ids；不含正文、表头或 Claim 行",
+            project_fields="projects: 数组，每项仅含 source_experience_id 和 fact_placements；不含正文、表头或 Claim 行",
             model_output_contract=_canonical_output_contract(),
             target_role=request.target_role, mode=request.mode,
             packaging_level=request.packaging_level,
@@ -203,33 +203,31 @@ def build_generation_prompt(
 
 
 def _canonical_output_contract() -> str:
-    """Project placement references; frozen text is materialized by the receiver."""
+    """One destination per frozen Fact; text and order are owned by the receiver."""
     contract = {
         "applies_to": "resume_sections.projects",
-        "protocol": "canonical_fact_references_v1",
+        "protocol": "canonical_fact_placements_v1",
         "required_fields": {
             "source_experience_id": "当前 canonical_model_evidence 中的 owner ID",
-            "intro_source_fact_ids": "list[string]；项目定位的完整 Fact 引用，可以为空",
-            "role_source_fact_ids": "list[string]；职责的完整 Fact 引用，可以为空",
-            "detail_fact_ids": "list[list[string]]；每行默认一个完整 Fact 引用",
+            "fact_placements": "object；键为本 owner 的完整 Fact ID，值只能为 intro、role 或 detail，分别表示简介、职责或详情位置",
         },
         "field_references": {
-            "intro": ["intro_source_fact_ids"],
-            "role": ["role_source_fact_ids"],
-            "details": ["detail_fact_ids"],
+            "intro": "fact_placements 中值为 intro 的 Fact",
+            "role": "fact_placements 中值为 role 的 Fact",
+            "details": "fact_placements 中值为 detail 的 Fact，每 Fact 一行",
         },
         "reference_format": {
             "complete_assignment": "全部 owner 提供的每个 eligible Fact 必须且只能分配一次，不按篇幅或重要性省略；每个 owner 最多一个项目",
-            "empty_body": "四个字段必须存在，空字段用 []；没有适当定位或职责事实时留空，在 details 保留完整事实",
-            "multiple_facts": "默认一 Fact 一行；同一行多个 Fact 必须属于本 owner 且保持原 source_span 顺序；同位置按证据提供顺序",
+            "empty_body": "两个字段必须存在；没有分配到 intro 或 role 的 Fact 时，由后端保留空正文，不要求填满位置",
+            "multiple_facts": "不指定分组或排列顺序；后端按冻结 source_span 顺序组装，同位置沿用证据顺序；intro/role 的完整原句按既有规则连接",
             "lineage": "模型只选择 fact_id；后端取得完整 resume_ready_text、Claim lineage 和聚合来源，不要求模型抄写",
             "headers": "后端使用冻结 project_header；模型不返回 name/meta/time/position",
         },
         "backend_verification": {
             "declaration_is_not_proof": True,
-            "accepted_support": "只校验引用存在性、owner、eligibility、lineage、完整分配与组合顺序；后端确定性组装原句后执行既有正文支持校验",
-            "forbidden_fields": "项目对象只允许 required_fields 四个字段；不得返回 intro/role/details、Claim行、聚合ID、表头、冻结/可信标记或其他字段",
-            "failure": "缺失、重复、伪造、跨 owner、不可用引用及额外字段明确失败；不忽略正文后替换原句伪造验证成功",
+            "accepted_support": "只校验引用存在性、owner、eligibility、lineage、精确分配集合与位置枚举；后端确定性组装原句后执行既有正文支持校验，位置不构成新的职责证明",
+            "forbidden_fields": "项目对象只允许 required_fields 两个字段；不得返回旧引用数组、intro/role/details、Claim行、聚合ID、表头、冻结/可信标记或其他字段",
+            "failure": "重复 JSON 键、缺失、伪造、跨 owner、不可用引用、非法位置及额外字段明确失败；不覆盖重复键，不忽略正文后替换原句伪造验证成功",
         },
     }
     return "<canonical_model_output_contract>\n" + json.dumps(contract, ensure_ascii=False) + "\n</canonical_model_output_contract>"

@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.17.4.1
+## 当前架构：v0.9.17.4.2
+
+v0.9.17.4.2 将 Canonical 项目内部返回改为每个 Fact 一个位置：仅返回 owner 与 fact_placements，位置为 intro/role/detail，后端按冻结原文顺序组装完整正文及附件。旧三组引用不再作为 Canonical 成功入口；重复 JSON 键、遗漏、跨 owner 和非法位置明确拒绝，不通过覆盖或去重修复。经批准，共享 JSON 解析器仅增加可选 object_pairs_hook，legacy 默认解析行为不变。
+
+模型不再安排详情分组或组内顺序，位置声明也不新增职责证明。上游冻结、Binder 和下游整理未改；真实模型效果与下游保留情况分别验收，不将引用成功等同于最终交付正确。详见 [Canonical Fact Placement Contract](docs/canonical-fact-placement-contract.md)。
 
 v0.9.17.4.1 补齐 Canonical 项目旧任务退出：复用既有模板选择机制，将项目正文写作、层次填充、信息恢复、表头赋值和混合格式规则中的项目部分隔离到独立 legacy 路径。仅改两份模板，不新增业务模块、不修改 Fact 引用协议或验证器；非项目写作、安全约束和完整事实证据继续保留。
 

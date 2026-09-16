@@ -171,9 +171,9 @@ def test_retry_uses_identical_evidence_protocol_and_one_preparation(case, long_m
     assert evidence(sent[0]) == evidence(sent[1])
     assert output_contract(sent[0]) == output_contract(sent[1])
     assert output_contract(sent[0])["field_references"] == {
-        "intro": ["intro_source_fact_ids"],
-        "role": ["role_source_fact_ids"],
-        "details": ["detail_fact_ids"],
+        "intro": "fact_placements 中值为 intro 的 Fact",
+        "role": "fact_placements 中值为 role 的 Fact",
+        "details": "fact_placements 中值为 detail 的 Fact，每 Fact 一行",
     }
     assert build == before
     assert payload.resume_sections.projects[0]["detail_fact_ids"] == data["resume_sections"]["projects"][0]["detail_fact_ids"]
@@ -221,6 +221,7 @@ def test_contract_retries_respect_existing_call_limit(limit, monkeypatch, isolat
 def test_blank_rows_and_multifact_rows_preserve_exact_lineage(monkeypatch, isolated):
     build, data = controlled_return(CASES[0])
     project = data["resume_sections"]["projects"][0]
+    individual = deepcopy(project)
     project["details"][0:2] = ["；".join(text.rstrip("。；;") for text in project["details"][:2])]
     for key in ("detail_fact_ids", "detail_claim_ids"):
         project[key][0:2] = [list(dict.fromkeys(sum(project[key][:2], [])))]
@@ -229,11 +230,16 @@ def test_blank_rows_and_multifact_rows_preserve_exact_lineage(monkeypatch, isola
     project["detail_fact_ids"].insert(0, [])
     project["detail_claim_ids"].insert(0, [])
     before = deepcopy(data)
+    # Existing materialized payload normalization still preserves combined rows.
+    normalized = generation.normalize_llm_payload(data)['resume_sections']['projects'][0]
+    for key in ('details','detail_fact_ids','detail_claim_ids'):
+        assert normalized[key] == expected[key]
     network(monkeypatch, [reference_return(data)])
     payload, _ = generation.build_llm_generation(request(CASES[0]), build.long_input_context, consumer_views=build_canonical_consumer_views(build))
     current = payload.resume_sections.projects[0]
     for key in ("details", "detail_fact_ids", "detail_claim_ids"):
-        assert current[key] == expected[key]
+        # Placement wire format no longer requests detail grouping or empty rows.
+        assert current[key] == individual[key]
     assert data == before
 
 

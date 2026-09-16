@@ -16,20 +16,15 @@ from app.services import generation_service as generation
 from app.services import experience_slot_service as slots
 from app.services.canonical_consumer_view_service import build_canonical_consumer_views
 from app.services.llm_service import LLMResult
-from test_v09162_model_output_evidence_contract import CASES, controlled_return, request, real_receiver
+from test_v09162_model_output_evidence_contract import CASES, controlled_return, request, real_receiver, reference_return
 from test_v0916_canonical_model_evidence import evidence
 
 
-KEYS = ('source_experience_id', 'intro_source_fact_ids', 'role_source_fact_ids', 'detail_fact_ids')
+KEYS = ('source_experience_id', 'fact_placements')
 
 
 def references(data):
-    result = deepcopy(data)
-    result['resume_sections']['projects'] = [
-        {key: deepcopy(project[key]) for key in KEYS}
-        for project in data['resume_sections']['projects']
-    ]
-    return result
+    return reference_return(data)
 
 
 @pytest.fixture
@@ -87,10 +82,11 @@ def test_invalid_selection_never_enters_cleanup_or_save(kind, monkeypatch, isola
     _, body = controlled_return(case)
     data = references(body)
     p = data['resume_sections']['projects'][0]
-    if kind == 'missing': p['detail_fact_ids'].pop()
-    elif kind == 'duplicate': p['detail_fact_ids'].append(p['detail_fact_ids'][0])
-    elif kind == 'foreign': p['detail_fact_ids'][0] = data['resume_sections']['projects'][1]['detail_fact_ids'][0]
-    elif kind == 'unknown': p['detail_fact_ids'][0] = ['EXP-999-F001']
+    fid = next(iter(p['fact_placements']))
+    if kind == 'missing': p['fact_placements'].popitem()
+    elif kind == 'duplicate': data['resume_sections']['projects'].append(deepcopy(p))
+    elif kind == 'foreign': p['fact_placements'][next(iter(data['resume_sections']['projects'][1]['fact_placements']))] = 'detail'
+    elif kind == 'unknown': p['fact_placements']['EXP-999-F001'] = 'detail'
     elif kind == 'old_body': p['intro'] = '独立主导系统架构'
     elif kind == 'trust': p['source_binding_locked'] = True
     elif kind == 'header': p['name'] = '模型决定的名称'
@@ -98,9 +94,9 @@ def test_invalid_selection_never_enters_cleanup_or_save(kind, monkeypatch, isola
     elif kind == 'aggregate': p['source_fact_ids'] = body['resume_sections']['projects'][0]['source_fact_ids']
     elif kind == 'extra': p['ignored'] = 'must reject'
     elif kind == 'wrong_order':
-        p['intro_source_fact_ids'] = p['role_source_fact_ids'] + p['intro_source_fact_ids']
-        p['role_source_fact_ids'] = []
-    elif kind == 'wrong_shape': p['detail_fact_ids'][0] = 'not an array'
+        # Model ordering is no longer a wire capability; old arrays are rejected.
+        p['intro_source_fact_ids'] = list(reversed(p['fact_placements']))
+    elif kind == 'wrong_shape': p['fact_placements'][fid] = ['intro','detail']
     elif kind == 'duplicate_owner': data['resume_sections']['projects'].append(deepcopy(p))
     elif kind == 'missing_owner': data['resume_sections']['projects'].pop()
     monkeypatch.setattr(generation, 'call_openai', lambda prompt: LLMResult(text=json.dumps(data, ensure_ascii=False), model='controlled', latency_ms=0))
@@ -128,17 +124,14 @@ def test_combination_empty_rows_and_owner_order(monkeypatch, isolated):
     data = references(body)
     data['resume_sections']['projects'].reverse()
     for p in data['resume_sections']['projects']:
-        p['detail_fact_ids'].insert(0, p['intro_source_fact_ids'] + p['role_source_fact_ids'])
-        p['intro_source_fact_ids'], p['role_source_fact_ids'] = [], []
-        p['detail_fact_ids'].insert(0, [])
-        p['detail_fact_ids'].insert(3, [])
+        p['fact_placements'] = {fid:'detail' for fid in reversed(p['fact_placements'])}
     (payload, _), _, build = receive(monkeypatch, CASES[0], [data])
     for p in payload.resume_sections.projects:
         facts = list(build.ledger.for_experience(p['source_experience_id']))
         assert p['intro'] == p['role'] == ''
-        assert p['details'][0] == '；'.join(f.resume_ready_text.rstrip('。；;') for f in facts[:2])
-        assert p['detail_fact_ids'][0] == [f.fact_id for f in facts[:2]]
-        assert p['detail_claim_ids'][0] == list(dict.fromkeys(f.claim_id for f in facts[:2]))
+        assert p['details'] == [f.resume_ready_text for f in facts]
+        assert p['detail_fact_ids'] == [[f.fact_id] for f in facts]
+        assert p['detail_claim_ids'] == [[f.claim_id] for f in facts]
         assert len(p['details']) == len(p['detail_fact_ids']) == len(p['detail_claim_ids'])
 
 
@@ -146,7 +139,7 @@ def test_retry_keeps_frozen_evidence_and_cannot_escape_via_json(monkeypatch, iso
     _, body = controlled_return(CASES[0])
     valid = references(body)
     bad = deepcopy(valid)
-    bad['resume_sections']['projects'][0]['detail_fact_ids'].pop()
+    bad['resume_sections']['projects'][0]['fact_placements'].popitem()
     (payload, log), sent, _ = receive(monkeypatch, CASES[0], [bad, valid])
     assert log['attempt'] == len(sent) == 2
     with pytest.raises(generation.GenerationServiceError, match='MODEL_EVIDENCE_'):
@@ -258,7 +251,7 @@ def test_reference_log_distinguishes_materialization_from_text_validation(monkey
     rows = [json.loads(line) for line in slots.LOG_PATH.read_text(encoding='utf-8').splitlines()]
     composed = next(r for r in rows if r['stage'] == 'generation_model_fact_references_composed')
     assert composed['required_fact_count'] == composed['assigned_fact_count'] == 12
-    assert composed['reference_protocol'] == 'canonical_fact_references_v1'
+    assert composed['reference_protocol'] == 'canonical_fact_placements_v1'
     assert rows[-1]['stage'] == 'generation_model_evidence_received'
     assert rows[-1]['verified_field_count'] == 12 and rows[-1]['contract_passed'] is True
     text = slots.LOG_PATH.read_text(encoding='utf-8')

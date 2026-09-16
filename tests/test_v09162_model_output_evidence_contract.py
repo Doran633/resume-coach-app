@@ -32,13 +32,22 @@ ATTACHMENTS = (
 
 
 def reference_return(data):
-    """Explicit wire fixture migration; body assertions still use original data."""
+    """Migrate disjoint fixture references only; never conceal duplicate evidence."""
     result = deepcopy(data)
-    keys = ("source_experience_id", "intro_source_fact_ids", "role_source_fact_ids", "detail_fact_ids")
-    result["resume_sections"]["projects"] = [
-        {key: deepcopy(project[key]) for key in keys}
-        for project in data["resume_sections"]["projects"]
-    ]
+    projects = []
+    for project in data["resume_sections"]["projects"]:
+        placements = {}
+        for position, rows in (
+            ("intro", [project["intro_source_fact_ids"]]),
+            ("role", [project["role_source_fact_ids"]]),
+            ("detail", project["detail_fact_ids"]),
+        ):
+            for row in rows:
+                for fid in row:
+                    assert fid not in placements, "Duplicate fixture references need an explicit rejection test"
+                    placements[fid] = position
+        projects.append({"source_experience_id": project["source_experience_id"], "fact_placements": placements})
+    result["resume_sections"]["projects"] = projects
     return result
 
 

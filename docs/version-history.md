@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.17.4.2：Canonical Fact Placement Contract
+
+- 基线 main / 317ae858 / 0.9.17.4.1。固定上一轮第三次真实模型返回：10个不同 Fact、20次引用，旧协议拒绝重复；不是历史服务器请求的完整重放。
+- Canonical 项目只返回 source_experience_id 与 fact_placements，模型不再安排详情组合或顺序；后端验证精确集合、owner、lineage和位置后，用冻结文本和来源顺序组装现有 payload。
+- 经批准，共享解析函数增加可选 object_pairs_hook，正常与修复分支均透传。仅新项目协议检查重复键，其他字段与独立 legacy 保持原解析契约；契约错误不转为 JSON fallback 成功。
+- 旧三组引用退出 Canonical 成功入口，必要网络测试迁移协议但保留正文、附件和拒绝断言；没有新增业务模块或改动 Binder、上游冻结及下游整理。
+- 真实模型调用、离线测试、下游残留及回滚边界见 [阶段说明](canonical-fact-placement-contract.md)。
+
 ## v0.9.17.4.1：Canonical Project Task Cleanup
 
 - 基线为 v0.9.17.4 / d88ac9f。复用 prompt_service 既有 legacy-project 区块选择，不改业务 Python、内部引用协议、验证器或模型调用上限。

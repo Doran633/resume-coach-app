@@ -24,11 +24,11 @@ LEGACY_HASHES = {
     False: '6dbf53d7ccd1f1868d3597c542ce0e22f8883474e15ad72c7824667b299b1319',
     True: '9972ac822e336a89982dc62af8f3d77f6372aad41607aa0ea53cb2dea8d0bc09',
 }
-CONTRACT_HASH = 'f37ea2a876d0eb281e4530840254512b5ce56d034d222e256dbba0326e462338'
+CONTRACT_HASH = '0adedd039f42daa4f750160c980d026ffcc2bef54ba4c66672d29603d9a3c136'
 # Filled after reviewing the entire captured static task, not generated at test runtime.
 REVIEWED_TASK_HASHES = {
-    False: 'a54fe62c781e484e0d5cc923eda4fbe9de5ff5ce4e8ca6e660b8b6aad2155fb8',
-    True: '322823bc9f055b33f4c46db92e60defde43b48537933a42b38b6b2d1fc867d73',
+    False: '51a81253b2c20f281c6988523325f20af168fc72411e33269150c4d4a87dafee',
+    True: '7077b067c227449ffafe579eac4d6e7f924633f4815ea390c77ce3574ec131ee',
 }
 RETIRED = {
     False: (
@@ -70,10 +70,16 @@ def run_receiver(case, kind, long_mode, monkeypatch):
     good = references(body)
     for p in good['resume_sections']['projects']:
         ids = [f.fact_id for f in views.facts_for_owner(p['source_experience_id'])]
-        p.update(intro_source_fact_ids=[], role_source_fact_ids=[], detail_fact_ids=[[fid] for fid in ids])
+        p['fact_placements'] = {fid:'detail' for fid in ids}
     wire = deepcopy(good)
+    if kind in ('within_row','across_fields','overlap','retry_corrected'):
+        # Old overlap fixtures remain negative controls after protocol retirement.
+        wire['resume_sections']['projects'] = [dict(
+            source_experience_id=p['source_experience_id'], intro_source_fact_ids=[],
+            role_source_fact_ids=[], detail_fact_ids=[[fid] for fid in p['fact_placements']],
+        ) for p in good['resume_sections']['projects']]
     p = wire['resume_sections']['projects'][0]
-    ids = [r[0] for r in p['detail_fact_ids']]
+    ids = list(good['resume_sections']['projects'][0]['fact_placements'])
     if kind == 'within_row':
         p['detail_fact_ids'][0].append(ids[0])
     elif kind in ('across_fields', 'retry_corrected'):
@@ -81,7 +87,7 @@ def run_receiver(case, kind, long_mode, monkeypatch):
     elif kind == 'overlap':
         p['detail_fact_ids'] = [ids[:2], ids[1:3]] + [[fid] for fid in ids[3:]]
     elif kind == 'combination':
-        p['detail_fact_ids'] = [ids[:2]] + [[fid] for fid in ids[2:]]
+        p['fact_placements'] = {fid:('intro' if i < 2 else 'detail') for i,fid in enumerate(ids)}
     before = deepcopy(build), repr(views), deepcopy(wire)
     sent = []
     def network(prompt):
@@ -123,7 +129,7 @@ def test_entire_actual_task_and_retry(case, long_mode, kind, monkeypatch, tmp_pa
     assert digest(reviewed_task(sent[0])) == REVIEWED_TASK_HASHES[long_mode]
     assert sha256(prompts._canonical_output_contract().encode()).hexdigest() == CONTRACT_HASH
     if len(sent) == 2:
-        suffix = '\n\n上次返回未满足内部来源契约：MODEL_EVIDENCE_INVALID: duplicate_fact_reference。请按已有内部 JSON 字段协议重新输出完整对象；不得自报可信或冻结状态。'
+        suffix = '\n\n上次返回未满足内部来源契约：MODEL_EVIDENCE_FORMAT: format_fact_placements, format_forbidden_project_fields, missing_fact_assignment, missing_reference_fields。请按已有内部 JSON 字段协议重新输出完整对象；不得自报可信或冻结状态。'
         assert sent[1] == sent[0] + suffix
     expected = {f.fact_id for owner in build.identities for f in build.ledger.for_experience(owner.experience_id)}
     actual = [fid for p in output.resume_sections.projects for fid in p['source_fact_ids']]
@@ -139,11 +145,14 @@ def test_unchanged_duplicate_rejection_and_composition(kind, long_mode, monkeypa
         assert output is not None and error is None and len(sent) == 1
         assert all(row['contract_passed'] for row in rows)
     else:
-        assert output is None and error == 'MODEL_EVIDENCE_INVALID' and len(sent) == 2
+        assert output is None and error == 'MODEL_EVIDENCE_FORMAT' and len(sent) == 2
         assert len(rows) == 2
         for row in rows:
-            assert row['required_fact_count'] == row['assigned_fact_count'] == 10
-            assert row['evidence_reason_counts'] == {'duplicate_fact_reference':1}
+            assert row['required_fact_count'] == 10 and row['assigned_fact_count'] == 0
+            assert row['evidence_reason_counts'] == {
+                'format_fact_placements':2, 'format_forbidden_project_fields':2,
+                'missing_reference_fields':2, 'missing_fact_assignment':1,
+            }
 
 
 @pytest.mark.parametrize('long_mode', [False, True])
