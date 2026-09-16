@@ -180,9 +180,13 @@ def resolve_identity_type(
     ]
     employment_hits = [hit for pattern in employment_patterns for hit in _hits(pattern, text)]
     role_internship = bool(re.search(
-        r"(?:产品运营|运营|市场|增长|数据|研发|开发|测试|设计|算法|前端|后端|人力|财务|行政)[^。；\n]{0,12}实习(?:生)?",
+        # A role and its duties must form one local relation. Skills elsewhere
+        # in the owner cannot turn a requested job into an employment record.
+        r"(?:产品运营|运营|市场|增长|数据|研发|开发|测试|设计|算法|前端|后端|人力|财务|行政)[^。；\n]{0,12}实习(?:生)?"
+        r"[，,、\s]*(?:期间)?[，,\s]*(?:[\d年月日./至到~～\-]+\s*)?"
+        r"(?:我)?(?:主要)?(?:负责|参与|完成|协助|跟进|执行)\S+",
         text,
-    )) and _has_duty_relation(local)
+    ))
     heading_internship = bool(re.fullmatch(r".+实习(?:生)?(?:经历|工作)?", heading)) and _has_duty_relation(local) and not excluded
     if employment_hits:
         scores["实习经历"] += 20

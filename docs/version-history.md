@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.18.1.1：Experience Admission and Claim Qualification Correction
+
+- 基线 main / 5df9beae52cec64d42901a2dbe01b4f54ea5e01e / v0.9.18.1；三份完整普通用户输入的当前代码重放，不冒充历史模型返回。
+- 原文分区退出无依据首段默认建 owner；背景、意向和通用技能保留原始范围，混合段中的真实工作保留，未确认片段沿用待澄清机制。
+- 复用局部角色与否定作用域，让“目前尚未开展”进入 negative/denied/excluded；对象名称中的否定词不单独否定已完成职责。
+- 类型服务退出岗位词与任意远处履职词拼接的实习证据，保留有来源的岗位标题和合法正文关系。无新分类器、Prompt 或下游改动。
+- 经批准，仅迁移旧时间测试的纯指令与纯上线计划两项：不建立 owner/时间决定，原文和追问保留。其他旧预期不变；验证、残留和回滚边界见 [阶段说明](experience-admission-and-claim-qualification.md)。
+
 ## v0.9.18.1：Canonical Claim Qualification and Type Evidence Correction
 
 - 基线 main / 0201ceae40944b512bb5d404a59dcad8b59e714e / v0.9.17.6，工作区干净。复用用户导出的准确请求225和完整课程双项目输入，当前重放不代表历史原始模型返回。

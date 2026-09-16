@@ -9,6 +9,7 @@ from .semantic_experience_segmentation_service import (
     ExplicitExperienceBoundary,
     find_labeled_input_boundaries,
     input_section_kind,
+    input_context_kind,
 )
 
 
@@ -59,7 +60,8 @@ INSTRUCTION_PATTERNS = (
     r"(?:以用户原文|以实际情况|以事实为准|不要编造|不能编造)",
 )
 NEGATIVE_PATTERNS = (
-    r"(?:没有|并未|不曾|并没有|不负责|未负责|不是我负责|无法确认|未(?:曾|参与|实现|完成|上线|获奖|使用|部署)).{0,40}",
+    r"^(?:(?:但|但是|不过)\s*)?(?:(?:我|本人|团队|项目|系统|平台)\s*)?(?:(?:截至目前|目前|现在)\s*)?"
+    r"(?:尚未|还未|没有|并未|不曾|并没有|不负责|未负责|不是我负责|无法确认|未(?:曾|参与|实现|完成|上线|获奖|使用|部署)).{0,40}",
     r"(?:不要|不得|不能|别(?:把|将|写|编|补|删)).{0,40}(?:编造|补充|写成|归入|混入|串用|夸大)",
 )
 UNCERTAIN_PATTERNS = (
@@ -98,9 +100,10 @@ def _strip_fact_shell(text: str) -> str:
 def _roles_for(text: str) -> tuple[str, ...]:
     value = _compact(text)
     roles: list[str] = []
-    if input_section_kind(value) or any(re.search(pattern, value, re.IGNORECASE) for pattern in STRUCTURE_PATTERNS):
+    context_kind = input_context_kind(value)
+    if (input_section_kind(value) and context_kind != "intent") or any(re.search(pattern, value, re.IGNORECASE) for pattern in STRUCTURE_PATTERNS):
         roles.append(STRUCTURE_MARKER)
-    if any(re.search(pattern, value, re.IGNORECASE) for pattern in TARGET_ROLE_PATTERNS):
+    if context_kind == "intent" or any(re.search(pattern, value, re.IGNORECASE) for pattern in TARGET_ROLE_PATTERNS):
         roles.append(TARGET_ROLE_CONTEXT)
     if any(re.search(pattern, value, re.IGNORECASE) for pattern in UNCERTAIN_PATTERNS):
         roles.append(UNCERTAIN_FACT)

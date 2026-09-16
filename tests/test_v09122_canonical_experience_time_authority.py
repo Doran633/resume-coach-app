@@ -152,6 +152,15 @@ def test_instruction_negative_uncertain_and_planned_time_cannot_support_authorit
     )
 
     for raw in samples:
+        if raw.startswith(("\u8bf7\u5199\u6210", "\u8ba1\u5212\u4e0a\u7ebf")):
+            # Approved admission change: pure instruction/plan stays pending.
+            from app.services.semantic_experience_segmentation_service import segment_semantic_experiences
+            build = build_canonical_semantic_build(raw)
+            partition = segment_semantic_experiences(raw)
+            assert not build.identities and not build.experience_time_decisions
+            assert partition.clarification_questions
+            assert raw[slice(*partition.ambiguous_source_spans[0])] == raw.rstrip("\u3002")
+            continue
         decision = _time(raw)
         assert not decision.qualified
         assert decision.display_time == TIME_PENDING_DISPLAY

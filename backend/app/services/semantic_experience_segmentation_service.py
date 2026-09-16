@@ -12,15 +12,32 @@ LOG_PATH = LOG_DIR / "experience_segmentation.jsonl"
 AUTO_SPLIT_THRESHOLD = 0.72
 CAUTIOUS_SPLIT_THRESHOLD = 0.48
 
-BACKGROUND_PATTERNS = [
-    r"我是(?:一名)?(?:大[一二三四五]|研[一二三]|本科|硕士|博士)(?:学生)?",
-    r"目前是(?:大[一二三四五]|研[一二三])",
-]
-INTENT_PATTERNS = [
-    r"希望(?:包装得)?更?适合[^。；;]+(?:岗位|方向)",
-    r"想投[^。；;]+(?:岗位|方向)",
-    r"目标岗位是[^。；;]+",
-]
+SELF_CONTEXT_PREFIX = r"(?:(?:我|本人)\s*)?(?:(?:目前|现在)\s*)?"
+CAREER_INTENT_PREFIX = (
+    r"(?:(?:这段经历让(?:我|本人))|" + SELF_CONTEXT_PREFIX + r")"
+    r"(?:(?:希望|想要|想)(?:申请|应聘|找|投递|投)|希望投递|"
+    r"目标岗位(?:是|为)?|求职(?:意向|方向)(?:是|为)?|希望(?:包装得)?更?适合)"
+)
+
+
+def input_context_kind(text: str) -> str:
+    """Classify a local assertion, not a substring inside an experience object."""
+    value = re.sub(r"\s+", "", text).strip("，,。；;")
+    if re.match(r"^" + CAREER_INTENT_PREFIX + r"\S+", value):
+        return "intent"
+    if re.fullmatch(
+        SELF_CONTEXT_PREFIX + r"(?:是)?(?:一名)?[^，,。；;]*"
+        r"(?:本科生|本科在读|本科学生|硕士生|硕士在读|博士生|博士在读|大[一二三四五]学生|研[一二三]学生)", value
+    ) or re.fullmatch(r"(?:预计)?\d{4}年毕业", value):
+        return "background"
+    if re.match(
+        r"^" + SELF_CONTEXT_PREFIX
+        + r"(?:平时(?:主要)?(?:使用|用)|熟悉|了解|接触过|(?:也)?(?:能够|能|会)(?:使用|用)|做项目时用过)\S+", value
+    ):
+        return "skills"
+    return ""
+
+
 START_PATTERNS = [
     r"(?:利用|使用).{0,8}(?:AI|人工智能).{0,8}(?:做过|开发过|设计过)",
     r"(?:做过|开发过|设计了|设计过|完成过|独立设计|独立开发|独立完成|从零设计|从零开发)",
@@ -242,6 +259,7 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
         segments.extend(preamble.segments)
         discarded += preamble.discarded_context_count
         context_spans.extend(preamble.non_experience_source_spans)
+        ambiguous_spans.extend(preamble.ambiguous_source_spans)
     for index, marker in enumerate(markers):
         end = markers[index + 1].start_offset if index + 1 < len(markers) else len(source)
         if marker.boundary_source == "non_experience_section":
@@ -456,11 +474,23 @@ def _experience_source_ranges(
     source: str, *, context_spans: list[tuple[int, int]] | None = None,
 ) -> tuple[list[tuple[int, int]], int]:
     """Select original ranges instead of deleting text and inventing offsets."""
-    excluded = sorted(
-        (match.start(), match.end())
-        for pattern in BACKGROUND_PATTERNS + INTENT_PATTERNS
-        for match in re.finditer(pattern, source, flags=re.IGNORECASE)
-    )
+    excluded = []
+    # Keep offsets in the original source. Commas expose independently stated
+    # background/intent, but ordinary experience clauses are not reassembled.
+    for match in re.finditer(r"[^，,。；;]+", source):
+        value = match.group()
+        # Only an independently asserted action ends a skill/background prefix.
+        # Intent operators can scope over conjunctions and must not be stripped.
+        for connector in re.finditer(r"并且|并|随后|同时", value):
+            if (
+                input_context_kind(value[:connector.start()]) in {"skills", "background"}
+                and _has_initial_experience_evidence(value[connector.end():])
+            ):
+                excluded.append((match.start(), match.start() + connector.end()))
+                break
+        else:
+            if input_context_kind(value):
+                excluded.append((match.start(), match.end()))
     ranges = []
     cursor = 0
     for start, end in excluded:
@@ -530,6 +560,24 @@ def _has_start_signal(text: str) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in START_PATTERNS) or bool(
         re.search(r"^是.{0,24}实践队", text)
     )
+
+
+def _has_initial_experience_evidence(text: str) -> bool:
+    """Admission is weaker than proving a *second* independent experience.
+
+    Local actions with objects and completed/passive relations can describe a
+    first unnamed experience. Context assertions never supply that evidence.
+    """
+    value = re.sub(r"\s+", " ", text).strip()
+    if input_context_kind(value):
+        return False
+    return _has_start_signal(value) or _has_independent_experience_anchor(value)[0] or bool(re.search(
+        r"(?:负责|参与|完成|实现|使用|采用|开发|设计|编写|整理|搭建|建立|创建|优化|修复|提交|压缩)\s*[^，,。；;\s]+|"
+        r"[^，,。；;]+(?:进行了|被合并|降低到|提升到|上传)\s*[^，,。；;]*|"
+        r"项目名(?:称)?(?:明确)?(?:是|为|叫)\s*\S+|"
+        r"(?:课设|课程项目)\s*[:：]\s*\S+",
+        value,
+    ))
 
 
 def _has_independent_experience_anchor(text: str) -> tuple[bool, str]:
@@ -709,6 +757,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
             # of shifting every explicit experience_id by one slot.
             preamble_result = segment_semantic_experiences(preamble)
             context_spans.extend(preamble_result.non_experience_source_spans)
+            ambiguous_spans.extend(preamble_result.ambiguous_source_spans)
             for item in preamble_result.segments:
                 segments.append(SemanticExperienceSegment(
                     experience_id=f"EXP-{len(segments) + 1:03d}",
@@ -809,12 +858,9 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
             low_confidence += 1
             continue
         if not grouped or separated_by_context:
-            if re.match(
-                r"^(?:(?:本科|硕士|博士|大[一二三四])在读|预计\d{4}年毕业|"
-                r"(?:希望|想要)(?:申请|应聘)|求职意向|学习过.+课程)", clause
-            ) and not _has_start_signal(clause):
-                discarded += 1
-                context_spans.append((start, end))
+            if not _has_initial_experience_evidence(clause):
+                ambiguous_spans.append((start, end))
+                low_confidence += 1
                 continue
             grouped.append({
                 "raw_text": clause,

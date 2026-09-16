@@ -16,6 +16,7 @@ from .input_semantic_role_service import (
     normalize_layout_text,
     split_semantic_units,
 )
+from .semantic_experience_segmentation_service import CAREER_INTENT_PREFIX
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "input_claim_resolution.jsonl"
@@ -156,7 +157,7 @@ class ClaimResolution:
 
 
 CLAUSE_SUBJECT = r"(?:我|本人|项目|系统|平台|团队|框架|技术栈)"
-NEGATION_PREFIX = r"(?:没有|并未|未曾|不曾|并没有|并非|未|不是|不负责|没有负责|无法确认)"
+NEGATION_PREFIX = r"(?:尚未|还未|没有|并未|未曾|不曾|并没有|并非|未|不是|不负责|没有负责|无法确认)"
 PROSPECTIVE_PREFIX = (
     r"(?:(?:后续|下一步)\s*)?(?:" + CLAUSE_SUBJECT + r"\s*)?"
     # Keep the existing local activity syntax, also admitting participation,
@@ -170,6 +171,7 @@ CLAUSE_BOUNDARY = re.compile(
     + CLAUSE_SUBJECT + r"\s*" + NEGATION_PREFIX + r"|"
     + CLAUSE_SUBJECT + r"\s*(?:可能|也许|或许|大概|似乎|不确定)|"
     + PROSPECTIVE_PREFIX + r"|"
+    + CAREER_INTENT_PREFIX + r"|截至目前|尚未|还未|"
     r"没有|并未|未曾|不曾|并没有|不负责|无法确认|"
     r"未(?:参与|实现|完成|上线|获奖|使用|部署|负责)|"
     r"请|不要|不得|别|也有可能|也可能|可能|计划|准备|"
@@ -181,7 +183,8 @@ UNCERTAINTY_PATTERN = re.compile(
 )
 PROBABLE_PATTERN = re.compile(r"(?:推测|大概率|较可能)", re.I)
 NEGATION_PATTERN = re.compile(
-    r"^(?:但是|但|不过|而)?\s*(?:" + CLAUSE_SUBJECT + r"\s*)?" + NEGATION_PREFIX, re.I
+    r"^(?:但是|但|不过|而)?\s*(?:(?:截至目前|目前|现在)\s*)?"
+    r"(?:" + CLAUSE_SUBJECT + r"\s*)?(?:(?:截至目前|目前|现在)\s*)?" + NEGATION_PREFIX, re.I
 )
 INSTRUCTION_PATTERN = re.compile(
     r"(?:请|不要|不得|别|希望|想要|需要).{0,48}(?:包装|突出|强调|匹配|简历|岗位|写成|编|补|串|混|删除|省略)|"
