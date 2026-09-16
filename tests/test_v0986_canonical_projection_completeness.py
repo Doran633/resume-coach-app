@@ -266,7 +266,9 @@ def test_generation_uses_all_projection_checkpoints_without_changing_its_public_
     generation_service.LOG_DIR.mkdir()
     monkeypatch.setattr(projection_service, "LOG_PATH", tmp_path / "projection.jsonl")
     try:
-        response = generation_service.create_generation(
+        from delivery_closure_helpers import rejected_delivery_payload
+        final = rejected_delivery_payload(
+            generation_service,
             db,
             schemas.GenerateRequest(
                 anonymous_user_id="anon-v0986",
@@ -278,13 +280,12 @@ def test_generation_uses_all_projection_checkpoints_without_changing_its_public_
                 raw_input=RAW,
                 attempt_id="attempt_v0986_generation",
             ),
-            request_id="req_v0986_generation",
+            request_id="req_v0986_generation", critical_code='DUPLICATE_FACT',
         )
     finally:
         db.close()
 
-    assert response.generation_result_id > 0
-    assert response.result.resume_sections.projects
+    assert final.resume_sections.projects
     assert len(observers) == 1
     stages = {
         row["stage"] for row in observers[0].events
@@ -292,6 +293,7 @@ def test_generation_uses_all_projection_checkpoints_without_changing_its_public_
     }
     assert {
         "after_llm", "after_owner_freeze", "after_ownerless_containment",
-        "after_presentation", "before_persistence", "generation_persisted",
+        "after_presentation", "before_persistence",
     }.issubset(stages)
+    assert 'generation_persisted' not in stages
     assert projection_service.LOG_PATH.exists()

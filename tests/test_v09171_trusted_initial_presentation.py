@@ -43,7 +43,7 @@ def network(monkeypatch, replies):
     def call(prompt):
         reply = replies[min(len(sent), len(replies) - 1)]
         sent.append(prompt)
-        return LLMResult(text=reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False), model="controlled", latency_ms=0)
+        return LLMResult(finish_reason="stop", text=reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False), model="controlled", latency_ms=0)
     monkeypatch.setattr(generation, "call_openai", call)
     return sent
 
@@ -321,7 +321,7 @@ def test_full_inputs_use_actual_sent_evidence_for_controlled_response(raw, monke
     sent = []
     def call(prompt):
         sent.append(prompt)
-        return LLMResult(text=declared_network_return(request(case), prompt), model="controlled-protocol", latency_ms=0)
+        return LLMResult(finish_reason="stop", text=declared_network_return(request(case), prompt), model="controlled-protocol", latency_ms=0)
     monkeypatch.setattr(generation, "call_openai", call)
     result, _ = generation.build_llm_generation(request(case), build.long_input_context, consumer_views=build_canonical_consumer_views(build))
     assert len(sent) == 1 and build == before

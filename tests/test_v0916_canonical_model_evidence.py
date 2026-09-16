@@ -144,7 +144,7 @@ def capture_generation(raw, monkeypatch, tmp_path, *, forbid_rebuild=False, deli
         captured["prompts"].append(prompt)
         assert captured["build"] == captured["before"]
         if deliver:
-            return LLMResult(
+            return LLMResult(finish_reason="stop",
                 text="not json" if retry and len(captured["prompts"]) == 1 else declared_network_return(request, prompt),
                 model="offline-fixed-return", latency_ms=0,
             )
@@ -337,7 +337,7 @@ def test_retry_does_not_call_prompt_preparation_again(monkeypatch):
         return original(*args, **kwargs)
     def call(prompt):
         prompts.append(prompt)
-        return LLMResult(text="not json" if len(prompts) == 1 else declared_network_return(request_for(raw), prompt), model="offline", latency_ms=0)
+        return LLMResult(finish_reason="stop", text="not json" if len(prompts) == 1 else declared_network_return(request_for(raw), prompt), model="offline", latency_ms=0)
     monkeypatch.setenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")
     monkeypatch.setattr(generation, "build_generation_prompt", prepare)
     monkeypatch.setattr(generation, "call_openai", call)

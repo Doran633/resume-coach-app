@@ -345,8 +345,8 @@ def test_pure_json_failure_keeps_existing_fallback_and_canonical_cleanup(monkeyp
     try:
         Base.metadata.create_all(engine)
         with Session(engine) as db:
-            response = generation.create_generation(db, request(CASES[0]), request_id="req_v09172_parse")
-            assert response.generation_result_id
+            from delivery_closure_helpers import rejected_delivery_payload
+            rejected_delivery_payload(generation, db, request(CASES[0]), critical_code='COACH_LANGUAGE_LEAK', request_id="req_v09172_parse")
     finally:
         engine.dispose()
     assert len(sent) == 2 and calls == ["fallback", "cleanup"]

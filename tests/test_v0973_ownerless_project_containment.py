@@ -136,17 +136,19 @@ def test_generation_persists_no_project_without_a_valid_frozen_owner(monkeypatch
         monkeypatch.setenv("LLM_MODE", "mock")
         monkeypatch.setattr(generation_service, "LOG_DIR", tmp_path)
         monkeypatch.setattr(generation_service, "build_mock_generation", lambda _request: _payload([_unowned()]))
-        response = generation_service.create_generation(
+        from delivery_closure_helpers import rejected_delivery_payload
+        final = rejected_delivery_payload(
+            generation_service,
             db,
             schemas.GenerateRequest(
                 anonymous_user_id="anon-ownerless", session_id="session-ownerless", target_role="后端开发",
                 mode="full_resume", packaging_level="大胆", experience_type="项目经历", raw_input=RAW,
                 attempt_id="attempt_ownerless_test",
             ),
-            request_id="req_ownerless_test",
+            request_id="req_ownerless_test", critical_code='EMPTY_VISIBLE_SECTION',
         )
 
-        projects = response.result.resume_sections.projects
+        projects = final.resume_sections.projects
         assert all(project.get("source_experience_id") for project in projects)
         assert all(project.get("source_experience_id") == build_canonical_semantic_build(RAW).identities[0].experience_id for project in projects)
     finally:

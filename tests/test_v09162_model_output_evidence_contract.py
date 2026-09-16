@@ -150,7 +150,7 @@ def real_receiver(case, data, monkeypatch, tmp_path, *, deliver=False):
                 monkeypatch.setattr(module, key, tmp_path if key == "LOG_DIR" else tmp_path / value.name)
     captured = {"stages": []}
     output = json.dumps(data, ensure_ascii=False)
-    monkeypatch.setattr(generation, "call_openai", lambda prompt: LLMResult(
+    monkeypatch.setattr(generation, "call_openai", lambda prompt: LLMResult(finish_reason="stop",
         text=output, model="offline-controlled-return", latency_ms=0,
     ))
     for name in (

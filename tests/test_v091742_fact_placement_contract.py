@@ -43,7 +43,7 @@ def receive(case, replies, monkeypatch, long_mode=False):
     def network(prompt):
         reply = replies[min(len(sent), len(replies)-1)]
         sent.append(prompt)
-        return LLMResult(text=reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False), model='placement-control', latency_ms=0)
+        return LLMResult(finish_reason="stop", text=reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False), model='placement-control', latency_ms=0)
     monkeypatch.setattr(generation, 'call_openai', network)
     try:
         output = generation.build_llm_generation(request(case), replace(build.long_input_context, long_input_mode=long_mode), consumer_views=views)
@@ -191,7 +191,7 @@ def test_duplicate_keys_cannot_reach_fallback_or_persistence(monkeypatch, isolat
     text = json.dumps(placements(body),ensure_ascii=False)
     text = text.replace('"fact_placements":', '"fact_placements": {}, "fact_placements":',1)
     replies = iter([text,'not json'])
-    monkeypatch.setattr(generation,'call_openai',lambda prompt: LLMResult(text=next(replies),model='control',latency_ms=0))
+    monkeypatch.setattr(generation,'call_openai',lambda prompt: LLMResult(finish_reason="stop", text=next(replies),model='control',latency_ms=0))
     touched = []
     for name in ('cleanup_generation_payload','build_stable_generation_fallback'):
         original = getattr(generation,name)

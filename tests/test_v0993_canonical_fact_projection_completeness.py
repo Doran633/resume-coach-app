@@ -301,14 +301,15 @@ def test_production_post_freeze_chain_and_persistence_preserve_new_projection(tm
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     with sessionmaker(bind=engine)() as db:
-        response = generation.create_generation(db, schemas.GenerateRequest(
+        from delivery_closure_helpers import rejected_delivery_payload
+        final = rejected_delivery_payload(generation, db, schemas.GenerateRequest(
             anonymous_user_id="v0993", session_id="v0993", target_role="后端开发",
             mode="full_resume", packaging_level="稳妥", experience_type="项目经历", raw_input=RAW,
             attempt_id="attempt_v0993",
-        ), request_id="req_v0993")
-        saved = db.get(models.GenerationResult, response.generation_result_id)
-        assert saved.result_json
+        ), request_id="req_v0993", critical_code='EMPTY_VISIBLE_SECTION')
+        assert {fid for p in final.resume_sections.projects for row in p['detail_fact_ids'] for fid in row} == {f.fact_id for f in facts}
     logs = [json.loads(line) for line in projection.LOG_PATH.read_text(encoding="utf-8").splitlines()]
     assert logs[0]["detail_selected_count"] == 1
     assert logs[-1]["detail_retained_count"] == 1
     assert logs[-1]["detail_unretained_fact_ids"] == []
+    assert all(row['stage'] != 'generation_canonical_project_projection_saved' for row in logs)

@@ -39,8 +39,8 @@ def _visible_projection(payload: schemas.GenerationPayload) -> dict:
                 key: project.get(key)
                 for key in (
                     "name", "position", "meta", "time", "intro", "role", "details",
-                    "source_experience_id", "source_fact_ids", "role_source_fact_ids",
-                    "detail_fact_ids", "source_claim_ids", "role_source_claim_ids",
+                    "source_experience_id", "source_fact_ids", "intro_source_fact_ids", "role_source_fact_ids",
+                    "detail_fact_ids", "source_claim_ids", "intro_source_claim_ids", "role_source_claim_ids",
                     "detail_claim_ids",
                 )
                 if key in project

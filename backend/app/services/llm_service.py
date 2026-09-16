@@ -14,6 +14,7 @@ class LLMResult:
     input_tokens: int = 0
     output_tokens: int = 0
     estimated_cost_cny: float = 0.0
+    finish_reason: str | None = None
 
 
 class LLMServiceError(RuntimeError):
@@ -111,4 +112,5 @@ def call_openai(prompt: str) -> LLMResult:
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         estimated_cost_cny=estimated_cost,
+        finish_reason=data['choices'][0].get('finish_reason'),
     )

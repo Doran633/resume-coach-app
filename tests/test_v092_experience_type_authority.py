@@ -218,7 +218,8 @@ def test_generation_applies_type_freeze_once_then_only_validates(tmp_path, monke
             raw_input=PAPER_PROJECT,
             attempt_id="attempt_v092_type_freeze",
         )
-        response = generation_service.create_generation(db, request, request_id="req_v092_type_freeze")
+        from delivery_closure_helpers import rejected_delivery_payload
+        final = rejected_delivery_payload(generation_service, db, request, critical_code='DUPLICATE_FACT', request_id="req_v092_type_freeze")
 
         assert [(item["stage"], item["apply"]) for item in calls] == [
             ("generation_type_freeze", True),
@@ -226,7 +227,8 @@ def test_generation_applies_type_freeze_once_then_only_validates(tmp_path, monke
         ]
         assert all(item["raw_input"] is None for item in calls)
         assert all(item["has_canonical_types"] for item in calls)
-        assert "canonical_experience_type" not in response.result.model_dump_json()
+        # No public response is produced for this rejected fixture; type work still executes once.
+        assert final.resume_sections.projects
     finally:
         generation_service.LOG_DIR = original_log_dir
         state_service.LOG_PATH = original_state_log

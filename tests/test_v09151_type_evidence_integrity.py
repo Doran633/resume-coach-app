@@ -207,9 +207,14 @@ def test_actual_mock_generation_persists_frozen_types_and_headers(key, tmp_path,
                 target_role="后端开发", mode="full_resume", packaging_level="稳妥",
                 experience_type="综合经历", raw_input=SAMPLES[key], attempt_id="v09151_" + key,
             )
-            response = service.create_generation(db, request, request_id="req_v09151_" + key)
-            row = db.get(models.GenerationResult, response.generation_result_id)
-            projects = json.loads(row.result_json)["resume_sections"]["projects"]
+            if key in ('frontend', 'backend', 'ai'):
+                from delivery_closure_helpers import rejected_delivery_payload
+                final = rejected_delivery_payload(service, db, request, critical_code='DUPLICATE_FACT', request_id="req_v09151_" + key)
+                projects = final.resume_sections.projects
+            else:
+                response = service.create_generation(db, request, request_id="req_v09151_" + key)
+                row = db.get(models.GenerationResult, response.generation_result_id)
+                projects = json.loads(row.result_json)["resume_sections"]["projects"]
             assert len(projects) == 2
             by_owner = {p["source_experience_id"]: p for p in projects}
             assert set(by_owner) == {"EXP-001", "EXP-002"}

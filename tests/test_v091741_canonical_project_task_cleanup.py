@@ -93,7 +93,7 @@ def run_receiver(case, kind, long_mode, monkeypatch):
     def network(prompt):
         sent.append(prompt)
         response = good if kind == 'retry_corrected' and len(sent) == 2 else wire
-        return LLMResult(text=json.dumps(response, ensure_ascii=False), model='controlled-task-cleanup', latency_ms=0)
+        return LLMResult(finish_reason="stop", text=json.dumps(response, ensure_ascii=False), model='controlled-task-cleanup', latency_ms=0)
     monkeypatch.setattr(generation, 'call_openai', network)
     output = error = None
     try:
@@ -163,7 +163,7 @@ def test_full_legacy_template_and_actual_legacy_receiver_unchanged(long_mode, mo
     sent = []
     def network(prompt):
         sent.append(prompt)
-        return LLMResult(text=json.dumps(body,ensure_ascii=False),model='legacy-control',latency_ms=0)
+        return LLMResult(finish_reason="stop", text=json.dumps(body,ensure_ascii=False),model='legacy-control',latency_ms=0)
     monkeypatch.setattr(generation,'call_openai',network)
     output, _ = generation.build_llm_generation(request(COURSE), replace(build.long_input_context,long_input_mode=long_mode))
     assert output.resume_sections.projects and len(sent) == 1

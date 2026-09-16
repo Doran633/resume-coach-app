@@ -436,6 +436,7 @@ def build_llm_generation(
     prompt = build_generation_prompt(request, long_input_context, consumer_views=consumer_views)
     last_error = ""
     evidence_error: ModelEvidenceContractError | None = None
+    completion_error: GenerationServiceError | None = None
 
     max_attempts = max(1, min(int(os.getenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")), 2))
     for attempt in range(max_attempts):
@@ -453,6 +454,25 @@ def build_llm_generation(
                 success=True,
                 attempt_id=request.attempt_id or "",
             )
+            if consumer_views is not None:
+                finish_reason = llm_result.finish_reason
+                completed = finish_reason == "stop"
+                completion_code = "" if completed else ("MODEL_OUTPUT_TRUNCATED" if finish_reason == "length" else "MODEL_FINISH_INVALID")
+                reason = finish_reason if finish_reason in ("stop", "length", "content_filter", "tool_calls", "function_call", None) else "unknown"
+                _write_llm_log({
+                    "stage": "generation_model_completion_received",
+                    "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+                    "request_id": request_id, "attempt_id": request.attempt_id or "",
+                    "model_attempt": attempt + 1, "finish_reason": reason,
+                    "completion_passed": completed,
+                    "error_code": completion_code,
+                    "input_tokens": llm_result.input_tokens,
+                    "output_tokens": llm_result.output_tokens,
+                })
+                if not completed:
+                    completion_error = GenerationServiceError("Model response did not finish normally.", code=completion_code)
+                    # Keep the frozen evidence and retry budget; do not repair a partial response.
+                    continue
             parsed = parse_llm_json(
                 llm_result.text, object_pairs_hook=ModelJSONObject if consumer_views is not None else None,
             )
@@ -477,6 +497,7 @@ def build_llm_generation(
                 "input_tokens": llm_result.input_tokens,
                 "output_tokens": llm_result.output_tokens,
                 "estimated_cost_cny": llm_result.estimated_cost_cny,
+                "finish_reason": llm_result.finish_reason,
             }
         except ModelEvidenceContractError as exc:
             evidence_error = exc
@@ -500,6 +521,8 @@ def build_llm_generation(
             code = "MODEL_TIMEOUT" if "timed out" in str(exc).lower() else "GENERATION_FAILED"
             raise GenerationServiceError(str(exc), code=code) from exc
 
+    if completion_error is not None:
+        raise completion_error
     if evidence_error is not None:
         # A subsequent parse failure must not turn a provenance failure into
         # the legacy JSON-error fallback success path.
@@ -974,6 +997,15 @@ def create_generation(
         "unresolved_quality_issue_codes": sorted({issue.issue_code for issue in final_quality_issues}),
         "unresolved_critical_issue_count": sum(issue.severity == "critical" for issue in final_quality_issues),
     })
+    if not repair_recheck_evaluation.stats.gate_passed:
+        stability_log.update(
+            delivery_gate_passed=False, error_code="DELIVERY_QUALITY_FAILED",
+            request_id=request_id, attempt_id=request.attempt_id or "",
+        )
+        _write_generation_stability_log(stability_log)
+        mutation_tracer.flush()
+        projection_observer.flush()
+        raise GenerationServiceError("Final delivery quality check failed.", code="DELIVERY_QUALITY_FAILED")
     evaluate_resume_output_quality(
         payload,
         semantic_build=semantic_build,

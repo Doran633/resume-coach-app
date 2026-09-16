@@ -134,17 +134,17 @@ def test_generation_service_uses_fallback_when_llm_json_fails():
             generation_service.LOG_DIR = Path(tmpdir)
 
             def fake_call_openai(prompt: str) -> LLMResult:
-                return LLMResult(text="not a json response", model="fake-model", latency_ms=12)
+                return LLMResult(finish_reason="stop", text="not a json response", model="fake-model", latency_ms=12)
 
             generation_service.call_openai = fake_call_openai
             engine = create_engine("sqlite:///:memory:")
             Base.metadata.create_all(bind=engine)
             db = sessionmaker(bind=engine)()
-            response = generation_service.create_generation(db, request())
-            text = response.result.model_dump_json()
+            from delivery_closure_helpers import rejected_delivery_payload
+            payload = rejected_delivery_payload(generation_service, db, request())
+            text = payload.model_dump_json()
 
-            assert response.generation_result_id is not None
-            assert len(response.result.resume_sections.projects) >= 2
+            assert len(payload.resume_sections.projects) >= 2
             assert "计算机相关专业" not in text
             stability_log = generation_service.LOG_DIR / "generation_stability.jsonl"
             assert stability_log.exists()

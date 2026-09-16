@@ -1,5 +1,14 @@
 # 版本历史
 
+## v0.9.17.6：Canonical Delivery Closure and Legacy Exit
+
+- 基线 main / 9c2293171e17deffb2a9b02c1ded5799077bcd9b / 0.9.17.5，初始工作区干净。只修改 generation、llm 与 immutable_delivery_revision 三个业务服务。
+- LLMResult 保留供应商 finish_reason，Canonical 在解析前检查结束状态；stop 才进入解析，length、缺失、未知或其他结束状态耗尽重试后明确失败，不经 JSON fallback 成功。
+- 最终 Gate 失败在保存前抛出 DELIVERY_QUALITY_FAILED，记录 request/attempt 和脱敏问题，保留必要输入记录；队列原有异常处理正确标记失败，无须改队列。成功路径继续冻结并保存同一份已检查内容。
+- Revision 可见内容比较补上 intro_source_fact_ids 与 intro_source_claim_ids，防止简介附件改变未被发现。既有去重/分层旧写入调用没有重新进入 Canonical，未新增恢复或评分。
+- 经用户批准，九项旧测试从“质量失败仍保存”迁移为真实 Gate 前内容检查与拒绝保存；原输入、业务执行及类型/来源/投影断言保留。控制网络返回补充 stop，不把生产缺失状态默认为 stop。
+- 本轮真实调用两次，均首轮 stop、保存和导出成功，仍有 INCOMPLETE_SENTENCE；上轮截断返回已固定，当前明确拒绝。测试、成功率限制、残留与回滚见 [阶段说明](canonical-delivery-closure-and-legacy-exit.md)。
+
 ## v0.9.17.5：Canonical Post-Processing Evidence Preservation
 
 - 基线 main / 7ee52e611dbdc25024238b70ce0e0184624249a9 / v0.9.17.4.2，初始工作区干净；当前控制实验与历史 DOCX 分开记录。
