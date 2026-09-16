@@ -157,9 +157,19 @@ class ClaimResolution:
 
 CLAUSE_SUBJECT = r"(?:我|本人|项目|系统|平台|团队|框架|技术栈)"
 NEGATION_PREFIX = r"(?:没有|并未|未曾|不曾|并没有|并非|未|不是|不负责|没有负责|无法确认)"
+PROSPECTIVE_PREFIX = (
+    r"(?:(?:后续|下一步)\s*)?(?:" + CLAUSE_SUBJECT + r"\s*)?"
+    # Keep the existing local activity syntax, also admitting participation,
+    # research and prepositional role relations. A modal-looking noun alone
+    # (or a completed preparation/model-fitting verb) is not a plan assertion.
+    r"(?:计划|准备|打算|拟|希望|想要)\s*"
+    r"(?=新增|增加|开展|进行|开发|上线|部署|实现|重构|迁移|优化|接入|支持|参与|研究|在|向|为)"
+)
 CLAUSE_BOUNDARY = re.compile(
     r"[，,](?=\s*(?:但|但是|不过|而|只|仅|实际|后来|后续|随后|最终|目前|现在|"
     + CLAUSE_SUBJECT + r"\s*" + NEGATION_PREFIX + r"|"
+    + CLAUSE_SUBJECT + r"\s*(?:可能|也许|或许|大概|似乎|不确定)|"
+    + PROSPECTIVE_PREFIX + r"|"
     r"没有|并未|未曾|不曾|并没有|不负责|无法确认|"
     r"未(?:参与|实现|完成|上线|获奖|使用|部署|负责)|"
     r"请|不要|不得|别|也有可能|也可能|可能|计划|准备|"
@@ -180,7 +190,7 @@ INSTRUCTION_PATTERN = re.compile(
 )
 PLANNED_PATTERN = re.compile(
     r"(?:后续将|下一步(?:将|计划)?|正在推进|希望增加|考虑增加)|"
-    r"(?:^|[，,。；;])\s*(?:计划|准备|打算|拟)\s*(?:新增|增加|开展|进行|开发|上线|部署|实现|重构|迁移|优化|接入|支持)",
+    r"^\s*" + PROSPECTIVE_PREFIX + r"\s*\S+",
     re.I,
 )
 HISTORICAL_PATTERN = re.compile(r"(?:早期|最初|原先|此前|第一阶段|原型阶段|曾经|曾使用)", re.I)

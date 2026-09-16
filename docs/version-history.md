@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.18.1：Canonical Claim Qualification and Type Evidence Correction
+
+- 基线 main / 0201ceae40944b512bb5d404a59dcad8b59e714e / v0.9.17.6，工作区干净。复用用户导出的准确请求225和完整课程双项目输入，当前重放不代表历史原始模型返回。
+- Claim层修正局部计划语境及主语限制分句，继续使用原有eligibility契约；研究计划进入withheld与内部约束，独立已完成事实保留。名词、拟合及过去准备动作对照不被当作计划排除。
+- Type层退出仅凭实验室/课题组与任意职责动作邻近的科研评分，要求研究任务或明确本地组织研究关系；成立的科研关系不会被开发词累计压过，显式类型优先级不变。
+- 仅修改两个业务文件，没有修改旧测试预期、Prompt、模型协议、Ledger或下游写入者。原有类型计划过滤因省略动作的岗位标题反例仍须保留，不虚报已退出全部重复判断。
+- 准确样本、保留样本、保存/DOCX控制联合回归及残留、回滚边界见 [阶段说明](canonical-claim-qualification-and-type-evidence.md)。付费模型与服务器验收未执行。
+
 ## v0.9.17.6：Canonical Delivery Closure and Legacy Exit
 
 - 基线 main / 9c2293171e17deffb2a9b02c1ded5799077bcd9b / 0.9.17.5，初始工作区干净。只修改 generation、llm 与 immutable_delivery_revision 三个业务服务。

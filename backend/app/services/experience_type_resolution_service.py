@@ -82,8 +82,8 @@ def _eligible_local_claim_text(identity: ExperienceIdentity, resolution: ClaimRe
         normalize_layout_text(claim.text)
         for claim in resolution.eligible_claims
         if claim.source_experience_id == identity.experience_id
-        # Older Claim parsing can leave a prospective clause eligible.  It is
-        # not evidence of an existing role; other Claims remain independent.
+        # Keep the existing exclusion until Claim parsing also qualifies
+        # elliptical prospective role headings (not just activity assertions).
         and not re.match(r"^(?:我|本人)?\s*(?:计划|准备|打算|拟|希望|想要)", normalize_layout_text(claim.text))
     )
 
@@ -207,8 +207,21 @@ def resolve_identity_type(
     if ownership_hits:
         positive.extend(f"项目关系:{hit[:40]}" for hit in ownership_hits[:6])
 
+    # A research task is the object of participation, not just an organization
+    # or a product name near a duty verb. A bare topic must end at a clause
+    # boundary, so a topic-management product is not evidence of research.
+    research_hits = _hits(
+        r"(?:参与|负责|开展|承担)[^。；\n，,]{0,32}"
+        r"(?:课题(?:组研究|研究)?|实验研究)(?:工作|任务)?(?=[，,。；\n]|$)|"
+        r"在[^。；\n，,]{0,24}(?:课题组|实验室)(?:中)?(?:参与|负责|开展|承担)"
+        r"[^。；\n，,]{0,32}研究(?:工作|任务)?(?=[，,。；\n]|$)|"
+        r"(?:参与|负责)[^。；\n，,]{0,32}论文(?:研究|发表|投稿)(?=[，,。；\n]|$)",
+        text,
+    )
+    if research_hits:
+        scores["科研经历"] = 16
+        positive.extend(f"科研经历:{hit[:40]}" for hit in research_hits[:3])
     semantic_rules = [
-        ("科研经历", r"(?:参与|负责|开展|承担)[^。；\n]{0,32}(?:课题|实验研究)|(?:课题组|实验室)[^。；\n]{0,32}(?:参与|负责|开展|承担)|(?:参与|负责)[^。；\n]{0,32}论文(?:研究|发表|投稿)", 16),
         ("竞赛获奖", r"(?:参加|参与|代表[^。；\n]{0,20}参加)[^。；\n]{0,40}(?:竞赛|比赛)[^。；\n]{0,40}(?:获奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖)|(?:竞赛|比赛)[^。；\n]{0,40}(?:获奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖)", 16),
         ("竞赛经历", r"(?:参加|参与|代表[^。；\n]{0,20}参加)[^。；\n]{0,40}(?:竞赛|比赛)|(?:竞赛|比赛)[^。；\n]{0,40}(?:赛题|路演|答辩|展示)", 14),
         ("开源经历", r"(?:向|为|在)[^。；\n]{0,40}(?:开源项目|开源社区|社区|仓库)[^。；\n]{0,40}(?:提交|贡献|修复|维护)|(?<![A-Za-z0-9_])(?:PR|Pull Request)(?![A-Za-z0-9_])[^。；\n]{0,32}(?:合并|merged|被合并)|(?<![A-Za-z0-9_])(?:maintainer|contributor)(?![A-Za-z0-9_])", 16),
@@ -230,11 +243,11 @@ def resolve_identity_type(
             scores["校园 / 社团经历"] = max(scores["校园 / 社团经历"], 16)
             positive.append("校园 / 社团经历:local_section_heading_and_eligible_role")
 
-    # Development activity is compatible with a confirmed internship heading;
-    # accumulating project keywords cannot negate that employment context.
+    # Development is compatible with confirmed employment/research relations;
+    # accumulating project keywords cannot negate those contexts.
     ranked = sorted(
         ((kind, score) for kind, score in scores.items()
-         if not (heading_internship and kind == "项目经历")),
+         if not ((heading_internship or research_hits) and kind == "项目经历")),
         key=lambda item: item[1], reverse=True,
     )
     resolved, top_score = ranked[0]
