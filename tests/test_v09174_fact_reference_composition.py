@@ -259,11 +259,14 @@ def test_reference_log_distinguishes_materialization_from_text_validation(monkey
 
 
 @pytest.mark.parametrize('kind', ['valid', 'missing', 'foreign', 'rewrite', 'orphan'])
-def test_binder_direct_owner_requires_complete_verified_fields(kind, isolated):
+@pytest.mark.parametrize('pending_candidate', [False, True])
+def test_binder_direct_owner_requires_complete_verified_fields(kind, pending_candidate, isolated):
     build, body = controlled_return(CASES[0])
     data = slots.compose_model_fact_references(references(body), build_canonical_consumer_views(build))
     p = data['resume_sections']['projects'][1]
-    assert p['name'] == '项目：【待填写】'
+    assert p['name'] == '项目：自习室预约平台'
+    if pending_candidate:
+        p['name'] = '项目：【待填写】'
     if kind == 'missing': p['detail_fact_ids'][0] = []
     elif kind == 'foreign': p['detail_fact_ids'][0] = body['resume_sections']['projects'][0]['detail_fact_ids'][0]
     elif kind == 'rewrite': p['details'][0] += '，独立主导百万用户服务'

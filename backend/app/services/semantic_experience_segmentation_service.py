@@ -149,6 +149,7 @@ class SemanticExperienceSegment:
     start_offset: int
     end_offset: int
     segmentation_confidence: float
+    source_boundary: "ExplicitExperienceBoundary | None" = None
     segmentation_reasons: list[str] = field(default_factory=list)
     explicit_tech_terms: list[str] = field(default_factory=list)
     explicit_metrics: list[str] = field(default_factory=list)
@@ -288,6 +289,7 @@ def _segment_labeled_input(source: str, markers: list[ExplicitExperienceBoundary
             declared_experience_type=marker.declared_experience_type,
             boundary_source=marker.boundary_source,
             source_label=marker.label if marker.boundary_source == "explicit_heading" else "",
+            source_boundary=marker,
             canonical_project_name=str(hierarchy["canonical_project_name"]),
             project_aliases=list(hierarchy["project_aliases"]),
             parent_project_name=str(hierarchy["parent_project_name"]),
@@ -775,6 +777,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                     parent_project_name=item.parent_project_name,
                     phase_name=item.phase_name,
                     relation_type=item.relation_type,
+                    source_boundary=item.source_boundary,
                 ))
                 preamble_segment_count += 1
         for index, boundary in enumerate(explicit_boundaries):
@@ -804,6 +807,7 @@ def segment_semantic_experiences(raw_input: str, write_log: bool = False, stage:
                 segmentation_confidence=1.0,
                 segmentation_reasons=["用户显式经历边界"],
                 source_label=boundary.label,
+                source_boundary=boundary,
                 canonical_project_name=str(hierarchy["canonical_project_name"]),
                 project_aliases=list(hierarchy["project_aliases"]),
                 parent_project_name=str(hierarchy["parent_project_name"]),

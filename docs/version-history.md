@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.18.2：Canonical Header Evidence Alignment
+
+- 基线 main / 61fae97 / v0.9.18.1.1。三份完整输入固化名称缺失、岗位含部门连接词及省略结束年份范围丢失；属于当前代码重放，不是历史模型响应快照。
+- 名称仅消费当前 owner 的可核对原始标题或合格 Claim，修正 labeled_experience 接线；退出推断 title/alias 自证与原文绕过 Claim 资格的候选路径。同级不同名称不按列表顺序强选。
+- 企业、岗位提取保留精确原文字段范围，不将匿名企业描述或合作方作为已知雇主，不凭短岗位词补专业方向。时间支持同年省略、至今及完整学年，冲突或无依据的跨年保持待澄清。
+- 经批准，四个上游记录/适配文件仅透传已有边界；两项旧名称来源断言改为精确原文范围，五种 Binder 对照迁移正确名称并追加待填写候选，绑定业务不变。
+- 未修改 Prompt、类型/资格、Ledger、模型协议、Gate/Router 或 renderer。冻结事实不变、保存/DOCX验证、残留及回滚边界见 [阶段说明](canonical-header-evidence-alignment.md)。
+
 ## v0.9.18.1.1：Experience Admission and Claim Qualification Correction
 
 - 基线 main / 5df9beae52cec64d42901a2dbe01b4f54ea5e01e / v0.9.18.1；三份完整普通用户输入的当前代码重放，不冒充历史模型返回。

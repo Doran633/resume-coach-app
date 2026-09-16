@@ -95,17 +95,50 @@ def extract_company(local_raw_text: str) -> str:
 
 def extract_canonical_internship_company(local_text: str) -> str:
     """Return only a company participating in an explicit internship relation."""
-    text = str(local_text or "").strip()
-    for pattern in CANONICAL_INTERNSHIP_COMPANY_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            return match.group("company").strip()
-    return ""
+    candidates = canonical_internship_field_matches(local_text, field_key="organization")
+    return candidates[0][0] if candidates else ""
 
 
 def extract_canonical_internship_position(local_text: str) -> str:
     """Reuse the local position parser without accepting an LLM fallback."""
-    return extract_internship_position(local_text)
+    candidates = canonical_internship_field_matches(local_text, field_key="position")
+    return candidates[0][0] if candidates else PLACEHOLDER
+
+
+def canonical_internship_field_matches(
+    local_text: str, *, field_key: str, heading: bool = False,
+) -> tuple[tuple[str, tuple[int, int]], ...]:
+    """Extract local employment fields with original offsets, not legacy guesses."""
+    text = str(local_text or "")
+    candidates = []
+    if field_key == "organization":
+        for pattern in CANONICAL_INTERNSHIP_COMPANY_PATTERNS:
+            for match in pattern.finditer(text):
+                value = match.group('company')
+                if re.match(r"^(?:一家|某|某家|某某|在|于)", value) and not value.startswith("在线"):
+                    continue
+                span = match.span('company')
+                if not any(span[0] < old[1] and old[0] < span[1] for _, old in candidates):
+                    candidates.append((value, span))
+    else:
+        position = r"(?P<position>[^，,。；;：:\r\n]{2,30}?)(?:岗位)?实习(?:生)?"
+        patterns = [
+            re.compile(r"(?:担任|任职为|从事|做)\s*" + position),
+            re.compile(r"(?:有限公司|公司|企业|事务所|研究院)\s*" + position),
+            re.compile(r"^\s*" + position + (r"\s*$" if heading else r"(?=[，,\s]|$)")),
+        ]
+        for pattern in patterns:
+            for match in pattern.finditer(text):
+                value = match.group('position').strip()
+                if re.search(r"(?:公司|企业|部门|担任|从事|负责|希望|申请|没有|计划|不确定|^的|\d{4}年)", value):
+                    continue
+                start = match.start('position') + match.group('position').find(value)
+                # Only the existing internship suffix is normalized. No role,
+                # grade or discipline is inferred from a short position name.
+                span = (start, match.end())
+                if not any(span[0] < old[1] and old[0] < span[1] for _, old in candidates):
+                    candidates.append((value + '实习', span))
+    return tuple(candidates)
 
 
 def _company_from_internship_title(title: str, position: str) -> str:

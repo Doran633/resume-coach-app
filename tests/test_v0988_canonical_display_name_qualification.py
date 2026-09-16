@@ -41,14 +41,16 @@ def _views(raw: str):
 
 
 def test_explicit_heading_name_is_qualified_without_becoming_a_new_fact():
-    build, views = _views("项目二：论文阅读助手\n使用 FastAPI 实现论文检索与摘要阅读。")
+    raw = "项目二：论文阅读助手\n使用 FastAPI 实现论文检索与摘要阅读。"
+    build, views = _views(raw)
     decision = build.display_name_qualifications[0]
 
     assert decision.qualified
     assert decision.display_name == "论文阅读助手"
     assert decision.candidate_source == "explicit_heading_name"
     assert decision.reason_codes == ("explicit_heading_name",)
-    assert decision.source_span == build.identities[0].source_span
+    assert raw[slice(*decision.source_span)] == decision.display_name
+    assert decision.source_span != build.identities[0].source_span
     assert views.planner_view.display_name_qualification_for_owner("EXP-001") is decision
     assert all("论文阅读助手" not in fact.resume_ready_text for fact in build.ledger.facts)
 

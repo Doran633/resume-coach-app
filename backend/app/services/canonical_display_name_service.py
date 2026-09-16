@@ -47,6 +47,10 @@ _NEGATIVE_ASSERTION_TITLE = re.compile(
     re.I,
 )
 _INSTRUCTION_TITLE = re.compile(r"^(?:请|不要|不得|别|希望|需要|想要)", re.I)
+_NON_ENTITY_TITLE = re.compile(
+    r"^(?:(?:我|本人|团队)\s*)?(?:负责|参与|完成|实现|使用|通过|组织|获得|部署|"
+    r"计划|准备|打算|拟|尚未|目前尚未|可能|不确定|对.+的(?:基本)?流程)", re.I,
+)
 _EXPLICIT_NAME_DECLARATION = re.compile(
     r"(?:项目(?:名称|名)|产品(?:名称|名)|活动(?:名称|名)|课题(?:名称|名))"
     r"\s*(?:是|为|明确为|叫|[:：])\s*(?P<name>[^，,。；;\n]{2,60})",
@@ -140,6 +144,7 @@ def _candidate_from_match(
     source: str,
     identity: ExperienceIdentity,
     source_claim_ids: tuple[str, ...] = (),
+    base_offset: int | None = None,
 ) -> _DisplayNameCandidate | None:
     # A verb phrase can match inside a negative statement (for example,
     # "没有开发 AI 系统").  The surrounding source still belongs to the
@@ -150,12 +155,18 @@ def _candidate_from_match(
     value = _clean_entity_name(match.group("name"))
     if not value or _comparison_key(value) in {_comparison_key(item) for item in _GENERIC_ENTITY_NAMES}:
         return None
-    # The identity span is the source-owner proof.  It deliberately does not
-    # expose the local source text to downstream consumers.
+    original = match.group("name")
+    left = len(original) - len(original.lstrip())
+    article = re.match(r"(?:一个|一套)\s*", original[left:])
+    if article:
+        left += article.end()
+    start = match.start("name") + left
+    end = match.start("name") + len(original.rstrip(" \t\r\n:：-—|｜"))
+    offset = identity.source_span[0] if base_offset is None else base_offset
     return _DisplayNameCandidate(
         value=value,
         source=source,
-        source_span=identity.source_span,
+        source_span=(offset + start, offset + end),
         source_claim_ids=source_claim_ids,
     )
 
@@ -166,6 +177,7 @@ def _entity_candidates(
     *,
     source_prefix: str,
     source_claim_ids: tuple[str, ...] = (),
+    base_offset: int | None = None,
 ) -> tuple[_DisplayNameCandidate, ...]:
     candidates: list[_DisplayNameCandidate] = []
     for pattern, source in (
@@ -180,6 +192,7 @@ def _entity_candidates(
                 source=source,
                 identity=identity,
                 source_claim_ids=source_claim_ids,
+                base_offset=base_offset,
             )
             if candidate is not None:
                 candidates.append(candidate)
@@ -206,40 +219,68 @@ def _eligible_claim_candidates(
                 identity,
                 source_prefix="eligible_claim",
                 source_claim_ids=(claim.claim_id,),
+                base_offset=claim.source_span[0],
             )
         )
     return tuple(candidates)
 
 
-def _heading_candidate(identity: ExperienceIdentity) -> tuple[_DisplayNameCandidate, ...]:
-    """Explicit headings are structural proof; semantic titles are not."""
-    if identity.boundary_source not in {"explicit_heading", "legacy_explicit_heading"}:
+def owner_heading_evidence(
+    identity: ExperienceIdentity, raw_input: str | None,
+) -> tuple[str, tuple[int, int]] | None:
+    """Read the existing partition's boundary; never discover another boundary."""
+    boundary = identity.source_boundary
+    if boundary is None or raw_input is None:
+        return None
+    start, end = identity.source_span
+    if raw_input[start:end] != identity.raw_text or not 0 <= boundary.start_offset <= start < end:
+        return None
+    if boundary.boundary_source == "explicit_heading":
+        if not boundary.title:
+            return None
+        region = raw_input[boundary.start_offset:boundary.body_start_offset]
+        local = region.find(boundary.title)
+        if local < 0:
+            return None
+        begin = boundary.start_offset + local
+        return boundary.title, (begin, begin + len(boundary.title))
+    if boundary.boundary_source != "labeled_experience":
+        return None
+    begin = boundary.start_offset
+    if raw_input[begin:begin + len(boundary.label)] != boundary.label:
+        return None
+    tail = raw_input[begin + len(boundary.label):end]
+    declaration = re.match(r"[ \t]*[:：][ \t]*(?P<name>[^\r\n。！？；;，,]+)", tail)
+    if declaration:
+        value = declaration.group('name').strip()
+        local = declaration.start('name') + declaration.group('name').find(value)
+        begin += len(boundary.label) + local
+        return value, (begin, begin + len(value))
+    return boundary.label, (begin, begin + len(boundary.label))
+
+
+def _heading_candidate(identity: ExperienceIdentity, raw_input: str | None) -> tuple[_DisplayNameCandidate, ...]:
+    evidence = owner_heading_evidence(identity, raw_input)
+    if evidence is None:
         return ()
-    candidates: list[_DisplayNameCandidate] = []
-    for value in (identity.canonical_project_name, identity.title, *identity.project_aliases):
-        compact = _display_form(value)
-        if compact:
-            candidates.append(
-                _DisplayNameCandidate(
-                    value=compact,
-                    source="explicit_heading_name",
-                    source_span=identity.source_span,
-                )
-            )
-    return tuple(candidates)
+    value, span = evidence
+    if _NON_ENTITY_TITLE.search(value):
+        return ()
+    return (_DisplayNameCandidate(value, "explicit_heading_name", span),)
 
 
 def _candidates_for_owner(
     identity: ExperienceIdentity,
     resolution: ClaimResolution,
+    raw_input: str | None,
 ) -> tuple[_DisplayNameCandidate, ...]:
     """Return only provenance-bearing local candidates, in authority order."""
-    raw_candidates = _entity_candidates(identity.raw_text, identity, source_prefix="local")
+    claim_candidates = _eligible_claim_candidates(identity, resolution)
     ordered = (
-        *_heading_candidate(identity),
-        *(item for item in raw_candidates if item.source.endswith("name_declaration")),
-        *_eligible_claim_candidates(identity, resolution),
-        *(item for item in raw_candidates if not item.source.endswith("name_declaration")),
+        *_heading_candidate(identity, raw_input),
+        *(_DisplayNameCandidate(item.value, "local_name_declaration", item.source_span, item.source_claim_ids)
+          for item in claim_candidates if item.source.endswith("name_declaration")),
+        *(item for item in claim_candidates if not item.source.endswith("name_declaration")),
     )
     deduped: list[_DisplayNameCandidate] = []
     seen: set[str] = set()
@@ -271,32 +312,43 @@ def _untrusted_identity_candidate_reasons(identity: ExperienceIdentity) -> tuple
 def _qualify_identity_name(
     identity: ExperienceIdentity,
     resolution: ClaimResolution,
+    raw_input: str | None = None,
 ) -> CanonicalDisplayNameQualification:
     """Choose one explicitly sourced name; identity titles never self-prove."""
     fallback_reasons: list[str] = []
-    candidates = _candidates_for_owner(identity, resolution)
+    candidates = _candidates_for_owner(identity, resolution, raw_input)
     candidate_sources = tuple(dict.fromkeys(candidate.source for candidate in candidates))
+    qualified = []
     for candidate in candidates:
         display_name = _display_form(candidate.value)
         if not display_name or _is_generic_label(display_name):
             fallback_reasons.append("generic_structure_label")
             continue
-        if _is_semantic_constraint_title(display_name):
+        if _is_semantic_constraint_title(display_name) or _NON_ENTITY_TITLE.search(display_name):
             fallback_reasons.append("constraint_statement_title")
             continue
-        reason = candidate.source
-        return CanonicalDisplayNameQualification(
-            experience_id=identity.experience_id,
-            display_name=display_name,
-            candidate_source=candidate.source,
-            source_span=candidate.source_span,
-            status=QUALIFIED,
-            reason_codes=(reason,),
-            source_claim_ids=candidate.source_claim_ids,
-            name_fingerprint=stable_hash(display_name, purpose="canonical_display_name"),
-            candidate_sources=candidate_sources,
-            rejected_candidate_reason_codes=tuple(dict.fromkeys(fallback_reasons)),
-        )
+        qualified.append(candidate)
+    if qualified:
+        rank = lambda item: (0 if item.source in {"explicit_heading_name", "local_name_declaration"}
+                             else 2 if item.source.endswith("product_identifier") else 1)
+        best_rank = min(map(rank, qualified))
+        best = [item for item in qualified if rank(item) == best_rank]
+        if len({_comparison_key(item.value) for item in best}) > 1:
+            fallback_reasons.append("ambiguous_local_names")
+        else:
+            candidate = min(best, key=lambda item: item.source_span)
+            return CanonicalDisplayNameQualification(
+                experience_id=identity.experience_id,
+                display_name=_display_form(candidate.value),
+                candidate_source=candidate.source,
+                source_span=candidate.source_span,
+                status=QUALIFIED,
+                reason_codes=(candidate.source,),
+                source_claim_ids=candidate.source_claim_ids,
+                name_fingerprint=stable_hash(candidate.value, purpose="canonical_display_name"),
+                candidate_sources=candidate_sources,
+                rejected_candidate_reason_codes=tuple(dict.fromkeys(fallback_reasons)),
+            )
 
     # A semantic identity title may be useful for compilation diagnostics, but
     # without an independent source it is not a display-name candidate.
@@ -322,6 +374,7 @@ def _qualify_identity_name(
 def build_canonical_display_name_qualifications(
     identities: tuple[ExperienceIdentity, ...],
     claim_resolutions: tuple[ClaimResolution, ...],
+    *, raw_input: str | None = None,
 ) -> tuple[CanonicalDisplayNameQualification, ...]:
     """Make exactly one immutable display-name decision per compiled identity."""
     resolutions = {
@@ -330,7 +383,7 @@ def build_canonical_display_name_qualifications(
         if resolution.claims
     }
     return tuple(
-        _qualify_identity_name(identity, resolutions.get(identity.experience_id, ClaimResolution()))
+        _qualify_identity_name(identity, resolutions.get(identity.experience_id, ClaimResolution()), raw_input)
         for identity in identities
     )
 

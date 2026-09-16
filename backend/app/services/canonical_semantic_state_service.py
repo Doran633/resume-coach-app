@@ -13,6 +13,7 @@ from .experience_fact_ledger_service import (
 from .canonical_display_name_service import (
     CanonicalDisplayNameQualification,
     build_canonical_display_name_qualifications,
+    owner_heading_evidence,
 )
 from .experience_identity_service import ExperienceIdentity, build_experience_identities
 from .experience_type_resolution_service import resolve_identity_type
@@ -26,9 +27,7 @@ from .input_claim_resolution_service import (
 from .input_semantic_role_service import InputSemanticAnalysis, analyze_experience_semantics
 from .long_input_service import LongInputContext, analyze_long_input
 from .resume_title_format_service import (
-    PLACEHOLDER as LEGACY_HEADER_PLACEHOLDER,
-    extract_canonical_internship_company,
-    extract_canonical_internship_position,
+    canonical_internship_field_matches,
 )
 from .structured_log_service import stable_hash
 
@@ -436,7 +435,7 @@ _DATE_TOKEN = (
     r"(?:19|20)\d{2}(?:\s*年(?:\s*\d{1,2}\s*月?)?|\s*[./]\s*\d{1,2})?"
 )
 _TIME_RANGE_PATTERN = re.compile(
-    rf"(?P<start>{_DATE_TOKEN})\s*(?:[-—–~～]|至|到)\s*(?P<end>{_DATE_TOKEN}|至今|目前)",
+    rf"(?P<start>{_DATE_TOKEN})\s*(?:[-—–~～]|至|到)\s*(?P<end>{_DATE_TOKEN}|\d{{1,2}}\s*月|至今|今|目前)",
     re.I,
 )
 _TERM_PATTERN = re.compile(
@@ -471,6 +470,9 @@ def _is_non_experience_time_reference(text: str, start: int, end: int) -> bool:
         _NON_EXPERIENCE_TIME_CONTEXT.search(before)
         or _NON_EXPERIENCE_TIME_CONTEXT.search(after)
         or _TIME_DISQUALIFYING_PREFIX.search(before)
+        or re.match(r"\s*毕业", after)
+        or (re.search(r"(?:时间|日期)(?:为|是|[:：])?\s*$", before)
+            and not re.search(r"(?:^|[，,。；;\s])(?:项目|经历|实习|任职|科研|竞赛)?时间(?:为|是|[:：])?\s*$", before))
     )
 
 
@@ -485,17 +487,37 @@ def _time_candidates_from_text(
     candidates: list[_CanonicalTimeCandidate] = []
     rejected: list[str] = []
     occupied: list[tuple[int, int]] = []
-    for pattern, specificity in ((_TIME_RANGE_PATTERN, 3), (_TERM_PATTERN, 2), (_SINGLE_DATE_PATTERN, 1)):
+    for pattern, specificity in ((_TERM_PATTERN, 2), (_TIME_RANGE_PATTERN, 3), (_SINGLE_DATE_PATTERN, 1)):
         for match in pattern.finditer(text):
             if any(match.start() < end and start < match.end() for start, end in occupied):
                 continue
+            occupied.append((match.start(), match.end()))
             if _is_non_experience_time_reference(text, match.start(), match.end()):
                 rejected.append("non_experience_temporal_reference")
                 continue
+            if pattern is _TIME_RANGE_PATTERN:
+                start_value, end_value = match.group('start'), match.group('end')
+                start_numbers = [int(n) for n in re.findall(r'\d+', start_value)]
+                end_numbers = [int(n) for n in re.findall(r'\d+', end_value)]
+                if end_numbers and end_numbers[0] < 100:
+                    if len(start_numbers) < 2 or end_numbers[0] < start_numbers[1]:
+                        rejected.append("ambiguous_cross_year_range")
+                        continue
+                    end_numbers.insert(0, start_numbers[0])
+                if any(len(nums) > 1 and not 1 <= nums[1] <= 12 for nums in (start_numbers, end_numbers)):
+                    rejected.append("invalid_calendar_month")
+                    continue
+                if end_numbers and tuple(end_numbers) < tuple(start_numbers):
+                    rejected.append("reversed_time_range")
+                    continue
             value = _compact_time(match.group(0))
             if not value:
                 continue
-            occupied.append((match.start(), match.end()))
+            if pattern is _SINGLE_DATE_PATTERN:
+                numbers = [int(n) for n in re.findall(r'\d+', value)]
+                if len(numbers) > 1 and not 1 <= numbers[1] <= 12:
+                    rejected.append("invalid_calendar_month")
+                    continue
             candidates.append(_CanonicalTimeCandidate(
                 display_time=value,
                 source=source,
@@ -506,22 +528,29 @@ def _time_candidates_from_text(
     return tuple(candidates), tuple(rejected)
 
 
+def _time_value_key(value: str) -> tuple:
+    numbers = tuple(int(n) for n in re.findall(r'\d+', value))
+    if len(numbers) == 3 and numbers[2] < 100:
+        numbers = (*numbers[:2], numbers[0], numbers[2])
+    qualifier = 'ongoing' if re.search(r'至今|目前', value) else re.sub(r'[\d\s年学./月到至\-—–~～]', '', value)
+    return numbers, qualifier
+
+
 def _build_experience_time_decision(
     identity: ExperienceIdentity,
     claim_resolution: ClaimResolution,
+    raw_input: str | None = None,
 ) -> CanonicalExperienceTimeDecision:
     """Derive one display-safe time from the current owner only."""
     candidates: list[_CanonicalTimeCandidate] = []
     rejected: list[str] = []
-    # Identity.title is a local source-span field. It is not a semantic fact
-    # authority, but explicit heading time is a valid display-time source.
-    title_candidates, title_rejected = _time_candidates_from_text(
-        str(identity.title or ""),
-        source="identity_title_time",
-        base_span=identity.source_span,
-    )
-    candidates.extend(title_candidates)
-    rejected.extend(title_rejected)
+    heading = owner_heading_evidence(identity, raw_input)
+    if heading is not None:
+        title_candidates, title_rejected = _time_candidates_from_text(
+            heading[0], source="source_heading_time", base_span=heading[1],
+        )
+        candidates.extend(title_candidates)
+        rejected.extend(title_rejected)
     for claim in claim_resolution.eligible_claims:
         if claim.source_experience_id != identity.experience_id:
             continue
@@ -534,11 +563,33 @@ def _build_experience_time_decision(
         candidates.extend(claim_candidates)
         rejected.extend(claim_rejected)
 
-    if candidates:
-        selected = sorted(
-            candidates,
-            key=lambda item: (-item.specificity, item.source_span[0], item.source),
-        )[0]
+    ranges = [item for item in candidates if item.specificity == 3]
+    retained = []
+    for item in candidates:
+        local_end = item.source_span[1] - identity.source_span[0]
+        tail = identity.raw_text[local_end:]
+        point, _ = _time_value_key(item.display_time)
+        # A dated completed action inside a stated experience range is an event,
+        # not another experience interval. Conflicting/uncontained dates remain.
+        bounded_action = item.specificity == 1 and re.match(r"\s*(?:完成|提交|发布|上线)", tail)
+        contained = any(
+            len(interval := _time_value_key(parent.display_time)[0]) == 4
+            and len(point) == 2 and interval[:2] <= point <= interval[2:]
+            for parent in ranges
+        )
+        if bounded_action and contained:
+            rejected.append("bounded_task_date")
+        else:
+            retained.append(item)
+    candidates = retained
+
+    # Repeated identical evidence is harmless; competing dates do not authorize
+    # a longest/first-date choice. A rejected range must not degrade to its start.
+    unique = {_time_value_key(item.display_time) for item in candidates}
+    if len(unique) == 1 and not any(reason in rejected for reason in (
+        "ambiguous_cross_year_range", "invalid_calendar_month", "reversed_time_range",
+    )):
+        selected = min(candidates, key=lambda item: item.source_span)
         return CanonicalExperienceTimeDecision(
             experience_id=identity.experience_id,
             display_time=selected.display_time,
@@ -551,6 +602,8 @@ def _build_experience_time_decision(
             candidate_sources=tuple(dict.fromkeys(item.source for item in candidates)),
             rejected_candidate_reason_codes=tuple(sorted(set(rejected))),
         )
+    if len(unique) > 1:
+        rejected.append("ambiguous_local_times")
     return CanonicalExperienceTimeDecision(
         experience_id=identity.experience_id,
         display_time=TIME_PENDING_DISPLAY,
@@ -635,28 +688,23 @@ def _internship_field_candidates(
     claim_resolution: ClaimResolution,
     *,
     field_key: str,
+    raw_input: str | None = None,
 ) -> tuple[tuple[str, str, tuple[int, int], tuple[str, ...]], ...]:
-    extractor = (
-        extract_canonical_internship_company
-        if field_key == "organization"
-        else extract_canonical_internship_position
-    )
     candidates: list[tuple[str, str, tuple[int, int], tuple[str, ...]]] = []
-    if identity.boundary_source in {"explicit_heading", "legacy_explicit_heading"}:
-        title = str(identity.title or "").strip()
+    heading = owner_heading_evidence(identity, raw_input)
+    if heading is not None:
+        title, title_span = heading
         if title and not _DISALLOWED_HEADER_SOURCE.search(title):
-            value = extractor(title)
-            if value and value != LEGACY_HEADER_PLACEHOLDER:
-                candidates.append((value, "explicit_heading", identity.source_span, ()))
+            for value, span in canonical_internship_field_matches(title, field_key=field_key, heading=True):
+                candidates.append((value, "explicit_heading", (title_span[0] + span[0], title_span[0] + span[1]), ()))
     for claim in claim_resolution.eligible_claims:
         if claim.source_experience_id != identity.experience_id:
             continue
         text = str(claim.text or "").strip()
         if not text or _DISALLOWED_HEADER_SOURCE.search(text):
             continue
-        value = extractor(text)
-        if value and value != LEGACY_HEADER_PLACEHOLDER:
-            candidates.append((value, "eligible_claim", claim.source_span, (claim.claim_id,)))
+        for value, span in canonical_internship_field_matches(text, field_key=field_key):
+            candidates.append((value, "eligible_claim", (claim.source_span[0] + span[0], claim.source_span[0] + span[1]), (claim.claim_id,)))
     unique: list[tuple[str, str, tuple[int, int], tuple[str, ...]]] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -673,11 +721,13 @@ def _internship_field_decision(
     *,
     field_key: str,
     label: str,
+    raw_input: str | None = None,
 ) -> CanonicalHeaderFieldDecision:
     candidates = _internship_field_candidates(
         identity,
         claim_resolution,
         field_key=field_key,
+        raw_input=raw_input,
     )
     if len(candidates) == 1:
         value, source, span, claim_ids = candidates[0]
@@ -705,6 +755,7 @@ def _build_experience_header_decision(
     name_decision: CanonicalDisplayNameQualification,
     time_decision: CanonicalExperienceTimeDecision,
     claim_resolution: ClaimResolution,
+    raw_input: str | None = None,
 ) -> CanonicalExperienceHeaderDecision:
     experience_type = type_decision.canonical_experience_type
     fields: list[CanonicalHeaderFieldDecision] = []
@@ -712,9 +763,11 @@ def _build_experience_header_decision(
         fields.extend((
             _internship_field_decision(
                 identity, claim_resolution, field_key="organization", label="企业",
+                raw_input=raw_input,
             ),
             _internship_field_decision(
                 identity, claim_resolution, field_key="position", label="岗位",
+                raw_input=raw_input,
             ),
         ))
     else:
@@ -899,12 +952,13 @@ def build_canonical_semantic_build(
         for identity in identities
     )
     experience_time_decisions = tuple(
-        _build_experience_time_decision(identity, claim_resolution_by_owner[identity.experience_id])
+        _build_experience_time_decision(identity, claim_resolution_by_owner[identity.experience_id], raw_input)
         for identity in identities
     )
     display_name_qualifications = build_canonical_display_name_qualifications(
         identities,
         claim_resolutions,
+        raw_input=raw_input,
     )
     experience_header_decisions = tuple(
         _build_experience_header_decision(
@@ -913,6 +967,7 @@ def build_canonical_semantic_build(
             name_decision,
             time_decision,
             claim_resolution_by_owner[identity.experience_id],
+            raw_input,
         )
         for identity, type_decision, name_decision, time_decision in zip(
             identities,

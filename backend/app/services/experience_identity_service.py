@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 from .long_input_service import LongInputContext, LongInputSegment, analyze_long_input
 from .semantic_experience_segmentation_service import (
+    ExplicitExperienceBoundary,
     infer_project_hierarchy_metadata,
     segment_semantic_experiences,
 )
@@ -30,6 +31,7 @@ class ExperienceIdentity:
     declared_experience_type: str = ""
     boundary_source: str = "semantic"
     immutable_experience_id: str = ""
+    source_boundary: ExplicitExperienceBoundary | None = None
 
 
 def _experience_type(segment: LongInputSegment) -> str:
@@ -98,6 +100,7 @@ def build_experience_identities(
                 declared_experience_type=segment.declared_experience_type,
                 boundary_source=segment.boundary_source,
                 immutable_experience_id=f"EXP-{len(identities) + 1:03d}",
+                source_boundary=segment.source_boundary,
             )
         )
     return identities

@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 
 from .semantic_experience_segmentation_service import (
+    ExplicitExperienceBoundary,
     SemanticSegmentationResult,
     segment_semantic_experiences,
 )
@@ -15,6 +16,7 @@ class ExperienceSegment:
     declared_experience_type: str = ""
     boundary_source: str = "semantic"
     source_span: tuple[int, int] = (0, 0)
+    source_boundary: ExplicitExperienceBoundary | None = None
 
 
 def split_experience_segments(
@@ -34,6 +36,7 @@ def split_experience_segments(
         declared_experience_type=item.declared_experience_type,
         boundary_source=item.boundary_source,
         source_span=(item.start_offset, item.end_offset),
+        source_boundary=item.source_boundary,
     ) for item in semantic.segments]
 
 

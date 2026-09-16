@@ -97,7 +97,8 @@ def test_result_177_equivalent_uses_explicit_name_not_summary_identity_title():
     assert qualification.qualified
     assert qualification.display_name == "大学生消费行为数据分析"
     assert qualification.candidate_source == "local_name_declaration"
-    assert qualification.source_span == build.identities[0].source_span
+    assert RESULT_177_EQUIVALENT[slice(*qualification.source_span)] == qualification.display_name
+    assert qualification.source_span != build.identities[0].source_span
     assert qualification.display_name != build.identities[0].title
 
 

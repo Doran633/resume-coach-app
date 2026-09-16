@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from .experience_segmentation_service import ExperienceSegment, split_experience_segments
 from .supported_inference_service import build_supported_inference_context
+from .semantic_experience_segmentation_service import ExplicitExperienceBoundary
 
 
 TECH_TERMS = [
@@ -71,6 +72,7 @@ class LongInputSegment:
     declared_experience_type: str = ""
     boundary_source: str = "semantic"
     source_span: tuple[int, int] = (0, 0)
+    source_boundary: ExplicitExperienceBoundary | None = None
 
 
 @dataclass
@@ -126,6 +128,7 @@ def enrich_segments(segments: list[ExperienceSegment]) -> list[LongInputSegment]
                 declared_experience_type=segment.declared_experience_type,
                 boundary_source=segment.boundary_source,
                 source_span=segment.source_span,
+                source_boundary=segment.source_boundary,
             )
         )
     return enriched
