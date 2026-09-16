@@ -807,7 +807,6 @@ def create_generation(
     )
     mutation_tracer.checkpoint(payload, "after_reconciliation", parent_stage="reconcile_resume_projects")
     log_generation_stage(payload, "after_reconciliation")
-    payload = deduplicate_resume_facts(payload, stage="generation_pre_coverage")
     payload = resolve_project_types(
         payload,
         canonical_type_decisions=semantic_build.canonical_type_by_experience_id,
@@ -824,15 +823,10 @@ def create_generation(
     mutation_tracer.checkpoint(payload, "after_fact_coverage", parent_stage="guard_fact_coverage")
     log_generation_stage(payload, "after_fact_coverage")
     narrative_changes: dict[str, int] = {}
-    payload = layer_resume_sections(payload, stage="generation")
-    payload = ensure_resume_fact_increment(payload, narrative_changes)
+    # Canonical content has already been composed from complete frozen facts.
+    # Legacy layering/increment/quality passes must not select or truncate it again.
     payload = organize_adaptive_narrative(payload, narrative_changes)
-    payload = ensure_information_gain(payload, narrative_changes)
-    payload = deduplicate_resume_facts(payload, stage="generation")
-    payload = ensure_dedup_quality(payload, stage="generation")
-    payload = deduplicate_fact_clusters(
-        payload, stage="generation", change_stats=narrative_changes,
-    )
+    payload = deduplicate_resume_facts(payload, stage="generation", semantic_build=semantic_build)
     payload = guard_template_language(
         payload,
         narrative_changes,

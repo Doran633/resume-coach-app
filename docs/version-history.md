@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.17.5：Canonical Post-Processing Evidence Preservation
+
+- 基线 main / 7ee52e611dbdc25024238b70ce0e0184624249a9 / v0.9.17.4.2，初始工作区干净；当前控制实验与历史 DOCX 分开记录。
+- Reconciliation 的 Canonical 分支退出项目/详情预算和无依据名称子串过滤。generation 退出分层、增量、信息评分、质量去重及获批聚类去重调用，保留原有排序，集中到一次既有事实去重入口。
+- Canonical 去重仅删除同 owner、精确 Fact/Claim 来源相同且正文完全等价的冗余行；无来源、不同限定、部分重叠和同文异源保留。空白清理同步附件，intro/role 存续来源不因 details 变化丢失。
+- 旧函数因独立 legacy 兼容继续存在，不再竞争 Canonical 事实去留；没有修改既有测试预期、Prompt、模型协议或 Gate。
+- 三次授权模型调用已用完。固定样本两次返回截断，重试后保存；保留样本正常返回、首轮保存，临时导出目录故障修复后仅离线重放导出。不能据此宣称普遍稳定。测试、残留与回滚边界见 [阶段说明](canonical-post-processing-evidence-preservation.md)。
+
 ## v0.9.17.4.2：Canonical Fact Placement Contract
 
 - 基线 main / 317ae858 / 0.9.17.4.1。固定上一轮第三次真实模型返回：10个不同 Fact、20次引用，旧协议拒绝重复；不是历史服务器请求的完整重放。

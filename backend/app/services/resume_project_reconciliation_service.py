@@ -339,7 +339,7 @@ def reconcile_resume_projects(
     stats.projects_before = len(projects)
 
     comprehensive = [item for item in projects if _is_comprehensive(item)]
-    concrete = [item for item in projects if not _is_comprehensive(item)]
+    concrete = projects if canonical_mode else [item for item in projects if not _is_comprehensive(item)]
     stats.comprehensive_projects_found = len(comprehensive)
 
     if comprehensive and not concrete and len(identities) == 1 and not canonical_mode:
@@ -388,7 +388,7 @@ def reconcile_resume_projects(
             else:
                 stats.unmatched_details += 1
 
-    if comprehensive and concrete:
+    if comprehensive and concrete and not canonical_mode:
         stats.comprehensive_projects_removed = len(comprehensive)
 
     if not canonical_mode:
@@ -401,13 +401,10 @@ def reconcile_resume_projects(
             identities=None,
             require_same_frozen_owner=False,
         )
-    _apply_detail_budget(
-        concrete,
-        "" if canonical_mode else raw_input,
-        semantic_build.ledger if semantic_build is not None else None,
-        ownership_index=ownership if canonical_mode else None,
-        scoped_access_stats=scoped_access_stats,
-    )
+    if not canonical_mode:
+        _apply_detail_budget(
+            concrete, raw_input, scoped_access_stats=scoped_access_stats,
+        )
     if not canonical_mode:
         coverage = _assign_project_sources(concrete, identities, stats)
     stats.uncovered_experience_ids = [item.experience_id for item in identities if item.experience_id not in coverage]

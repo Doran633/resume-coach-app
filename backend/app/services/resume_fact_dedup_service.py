@@ -4,10 +4,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .experience_fact_ledger_service import HIGH_VALUE_TERMS, TECH_PATTERN, normalize_fact_text
+
+if TYPE_CHECKING:
+    from .canonical_semantic_state_service import CanonicalSemanticBuild
 
 
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "resume_fact_dedup.jsonl"
@@ -59,6 +63,8 @@ class DedupStats:
     decision_reason: list[str] = field(default_factory=list)
     similarity_score: list[float] = field(default_factory=list)
     source_fact_ids: list[str] = field(default_factory=list)
+    unproven_source_row_count: int = 0
+    nonidentical_source_overlap_count: int = 0
 
 
 def _core(text: str) -> str:
@@ -226,16 +232,13 @@ def _preserve_project_aggregates(
     """Keep project aggregates separate from field rows while dropping deleted rows' orphans."""
     surviving_facts = {fact_id for record in records for fact_id in record.source_fact_ids}
     surviving_claims = {claim_id for record in records for claim_id in record.source_claim_ids}
-    role_facts = {
-        str(item) for item in project.get("role_source_fact_ids", [])
-        if str(item or "").strip()
-    } if isinstance(project.get("role_source_fact_ids"), list) else set()
-    role_claims = {
-        str(item) for item in project.get("role_source_claim_ids", [])
-        if str(item or "").strip()
-    } if isinstance(project.get("role_source_claim_ids"), list) else set()
-    surviving_facts.update(role_facts)
-    surviving_claims.update(role_claims)
+    for name in ("intro", "role"):
+        if not str(project.get(name) or "").strip():
+            continue
+        for suffix, surviving in (("fact_ids", surviving_facts), ("claim_ids", surviving_claims)):
+            values = project.get(f"{name}_source_{suffix}")
+            if isinstance(values, list):
+                surviving.update(str(item) for item in values if str(item or "").strip())
     retained_indices = {record.original_index for record in records}
     removed_facts = {
         fact_id for record in original_records if record.original_index not in retained_indices
@@ -272,11 +275,87 @@ def _write_log(stats: DedupStats) -> None:
         pass
 
 
-def deduplicate_resume_facts(payload: schemas.GenerationPayload, *, stage: str = "unknown", generation_result_id: int | None = None, write_log: bool = True) -> schemas.GenerationPayload:
+def _canonical_duplicate_key(record: DetailRecord, facts: dict) -> tuple | None:
+    ids, claims = set(record.source_fact_ids), set(record.source_claim_ids)
+    if not ids or not claims or not ids <= facts.keys():
+        return None
+    if claims != {facts[fid].claim_id for fid in ids}:
+        return None
+    # Only layout whitespace is normalized; wording, case and punctuation stay significant.
+    return re.sub(r"\s+", " ", record.text.strip()), tuple(sorted(ids)), tuple(sorted(claims))
+
+
+def _deduplicate_canonical_project(project: dict, build: "CanonicalSemanticBuild", stats: DedupStats) -> None:
+    owner = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
+    declared_owner = str(project.get("source_experience_id") or "")
+    eligible = build.ownership_index.eligible_fact_ids_by_experience.get(owner, ())
+    facts = {
+        fact.fact_id: fact for fact in build.ledger.for_experience(owner)
+        if fact.fact_id in eligible
+    } if owner and declared_owner == owner else {}
+    original = _detail_records(project, include_empty=True)
+    removed_fields = []
+    seen: set[tuple] = set()
+
+    def redundant(row: DetailRecord) -> bool:
+        key = _canonical_duplicate_key(row, facts)
+        if key is None:
+            stats.unproven_source_row_count += 1
+            stats.decision_reason.append("unproven_field_source_preserved")
+            return False
+        if key in seen:
+            stats.exact_duplicate_count += 1
+            stats.removed_count += 1
+            stats.decision_reason.append("same_owner_exact_text_and_lineage")
+            return True
+        if any(set(key[1]) & set(previous[1]) for previous in seen):
+            stats.nonidentical_source_overlap_count += 1
+            stats.decision_reason.append("nonidentical_text_or_lineage_preserved")
+        seen.add(key)
+        return False
+
+    for index, field_name in enumerate(("intro", "role")):
+        text = str(project.get(field_name) or "")
+        row = DetailRecord(
+            text=text,
+            source_fact_ids=list(project.get(f"{field_name}_source_fact_ids") or []),
+            source_claim_ids=list(project.get(f"{field_name}_source_claim_ids") or []),
+            original_index=-index - 1,
+        )
+        if not text.strip() or redundant(row):
+            removed_fields.append(row)
+            project[field_name] = ""
+            project[f"{field_name}_source_fact_ids"] = []
+            project[f"{field_name}_source_claim_ids"] = []
+
+    kept = []
+    stats.details_before = sum(bool(row.text) for row in original)
+    for row in original:
+        if not row.text:
+            continue
+        if redundant(row):
+            stats.removed_detail_count += 1
+            continue
+        kept.append(row)
+    project["details"] = [row.text for row in kept]
+    project["detail_fact_ids"] = [row.source_fact_ids for row in kept]
+    project["detail_claim_ids"] = [row.source_claim_ids for row in kept]
+    _preserve_project_aggregates(project, kept, [*original, *removed_fields])
+    stats.details_after = len(kept)
+    stats.retained_unique_fact_count = len({fid for row in kept for fid in row.source_fact_ids})
+    stats.source_fact_ids = list(project.get("source_fact_ids") or [])
+
+
+def deduplicate_resume_facts(payload: schemas.GenerationPayload, *, stage: str = "unknown", generation_result_id: int | None = None, write_log: bool = True, semantic_build: "CanonicalSemanticBuild | None" = None) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     for project in updated.resume_sections.projects:
         source_id = str(project.get("source_experience_id") or "")
         stats = DedupStats(stage=stage, generation_result_id=generation_result_id, source_experience_id=source_id)
+        if semantic_build is not None:
+            _deduplicate_canonical_project(project, semantic_build, stats)
+            if write_log:
+                _write_log(stats)
+            continue
         original_records = _detail_records(project, include_empty=True)
         incoming = [record for record in original_records if record.text]
         stats.details_before = len(incoming)

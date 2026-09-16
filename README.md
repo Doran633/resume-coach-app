@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.17.4.2
+## 当前架构：v0.9.17.5
+
+v0.9.17.5 收束 Canonical 初始正文之后的整理权限：Reconciliation 不再执行八条详情、跨项目总量预算或仅凭“综合经历”字样删除项目；分层、增量、信息评分、质量去重及经批准的聚类去重写入调用退出 Canonical 主链。既有事实去重入口只运行一次，同 owner、精确 Fact/Claim 来源一致、排版空白归一化后正文完全相同时才删除冗余行。未知来源、不同限定、同文异源与部分重叠均保留并记录原因；空行与来源附件共同变换，保留其他存续字段的聚合来源。
+
+本版仅修改三个业务服务，独立 legacy 兼容保留，不新增模块或修改模型协议、冻结语义及质量标准。三次授权真实请求中固定样本经重试保存，但两次返回均触及输出上限；保留样本首轮正常返回并保存，DOCX 经同份返回离线重放验证。项目 Fact 在两份样本中分别保持 10/10、6/6；截断、名称/类型和 INCOMPLETE_SENTENCE 警告仍需单独处理，不代表交付出口已完全收束。详见 [阶段说明](docs/canonical-post-processing-evidence-preservation.md)。
 
 v0.9.17.4.2 将 Canonical 项目内部返回改为每个 Fact 一个位置：仅返回 owner 与 fact_placements，位置为 intro/role/detail，后端按冻结原文顺序组装完整正文及附件。旧三组引用不再作为 Canonical 成功入口；重复 JSON 键、遗漏、跨 owner 和非法位置明确拒绝，不通过覆盖或去重修复。经批准，共享 JSON 解析器仅增加可选 object_pairs_hook，legacy 默认解析行为不变。
 
