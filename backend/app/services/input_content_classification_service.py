@@ -30,10 +30,13 @@ def _matches(text: str, patterns: list[str]) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
 
-def strip_non_fact_fragments(text: str) -> tuple[str, list[str]]:
+def strip_non_fact_fragments(text: str, *, preserve_limits: bool = False) -> tuple[str, list[str]]:
     cleaned = str(text or "").strip()
     removed: list[str] = []
-    for patterns in (TEMPLATE_PATTERNS, PACKAGING_PATTERNS, TARGET_PATTERNS, UNCERTAINTY_PATTERNS):
+    groups = (TEMPLATE_PATTERNS, PACKAGING_PATTERNS, TARGET_PATTERNS)
+    if not preserve_limits:
+        groups += (UNCERTAINTY_PATTERNS,)
+    for patterns in groups:
         for pattern in patterns:
             matches = list(re.finditer(pattern, cleaned, re.IGNORECASE))
             removed.extend(match.group(0).strip() for match in matches if match.group(0).strip())

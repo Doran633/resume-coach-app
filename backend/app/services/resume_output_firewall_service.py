@@ -57,7 +57,7 @@ def _write_log(stats: FirewallStats) -> None:
         pass
 
 
-def _clean_text(value, stats: FirewallStats, field_name: str, experience_id: str = "") -> str:
+def _clean_text(value, stats: FirewallStats, field_name: str, experience_id: str = "", *, preserve_limits: bool = False) -> str:
     original = str(value or "").strip()
     if not original:
         return ""
@@ -78,7 +78,7 @@ def _clean_text(value, stats: FirewallStats, field_name: str, experience_id: str
     cleaned = TEMPLATE_FIELD.sub("", cleaned)
     if cleaned != original:
         stats.template_residue_removed_count += 1
-    cleaned, removed = strip_non_fact_fragments(cleaned)
+    cleaned, removed = strip_non_fact_fragments(cleaned, preserve_limits=preserve_limits)
     if has_contamination or removed:
         stats.contamination_detected_count += 1
         stats.coach_instruction_removed_count += len(removed)
@@ -99,10 +99,10 @@ def _clean_text(value, stats: FirewallStats, field_name: str, experience_id: str
     return cleaned
 
 
-def _clean_list(values, stats: FirewallStats, field_name: str, experience_id: str = "") -> list[str]:
+def _clean_list(values, stats: FirewallStats, field_name: str, experience_id: str = "", *, preserve_limits: bool = False) -> list[str]:
     result: list[str] = []
     for value in values if isinstance(values, list) else []:
-        cleaned = _clean_text(value, stats, field_name, experience_id)
+        cleaned = _clean_text(value, stats, field_name, experience_id, preserve_limits=preserve_limits)
         if cleaned and cleaned not in result:
             result.append(cleaned)
     return result
@@ -155,13 +155,16 @@ def guard_resume_output(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    canonical_mode: bool = False,
 ) -> schemas.GenerationPayload:
     data = deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
     stats = FirewallStats(stage=stage, generation_result_id=generation_result_id)
     for field_name in VISIBLE_VERSION_FIELDS:
         data[field_name] = _clean_text(data.get(field_name), stats, field_name)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
-    sections["summary"] = _clean_list(sections.get("summary"), stats, "summary")
+    sections["summary"] = _clean_list(
+        sections.get("summary"), stats, "summary", preserve_limits=canonical_mode,
+    )
     sections["skills"] = _clean_list(sections.get("skills"), stats, "skills")
     projects: list[dict] = []
     for raw_project in sections.get("projects", []):

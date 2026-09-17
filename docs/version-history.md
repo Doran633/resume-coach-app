@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.18.5：Canonical Summary Evidence Consumption Alignment
+
+- 基线 main / 4831164 / v0.9.18.4。历史 DOCX 仅作症状线索，当前实验使用完整普通输入及受控网络返回，不冒充历史完整请求重放。
+- 经两次批准，仅退出 Canonical summary 的全文事实替换及两处重复限制删除。共享清理函数增加可选参数，默认分类与 legacy 不变；generation 三处 Firewall 调用透传明确标志，不新增语义解释或补回策略。
+- 模型材料已完整消费冻结证据，因此未修改 prompt_service、模板、Views 或 summary 生成方式，也未启用旧 Summary 候选服务。Gate、项目正文与附件权限不变。
+- 普通输入的修复前后保存字段一致；失败对照保留“三等奖”“没有上线”“不太熟”。仍有模型原始夸大概括可通过现有 Gate，不能将本次清理修正宣传为任意个人优势证明。验证与残留见 [阶段说明](canonical-summary-evidence-consumption-alignment.md)。
+
 ## v0.9.18.4：Canonical Denied-Claim Validation Alignment
 
 - 基线 main / 2936abf / v0.9.18.3。历史请求缺少原始返回和匹配正文；当前准确输入的合法控制返回可保存/DOCX，不将新增控制实验描述为历史完整复现。

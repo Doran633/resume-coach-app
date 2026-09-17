@@ -47,25 +47,26 @@ def _as_payload_dict(payload: schemas.GenerationPayload | dict) -> dict:
     return deepcopy(payload.model_dump() if isinstance(payload, schemas.GenerationPayload) else payload)
 
 
-def _clean_text(value, *, semantic_safe: bool = False) -> str:
+def _clean_text(value, *, semantic_safe: bool = False, preserve_limits: bool = False) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
     if not semantic_safe:
         for source, target in NEGATIVE_REPLACEMENTS:
             text = text.replace(source, target)
-    for pattern in NEGATIVE_DROP_PATTERNS:
-        text = re.sub(pattern, "", text)
+    if not preserve_limits:
+        for pattern in NEGATIVE_DROP_PATTERNS:
+            text = re.sub(pattern, "", text)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"[，,、；;：:。 ]+$", "", text)
     text = re.sub(r"^[，,、；;：:。 ]+", "", text)
     return text.strip()
 
 
-def _clean_list(values, *, semantic_safe: bool = False) -> list[str]:
+def _clean_list(values, *, semantic_safe: bool = False, preserve_limits: bool = False) -> list[str]:
     cleaned: list[str] = []
     for value in values if isinstance(values, list) else []:
-        text = _clean_text(value, semantic_safe=semantic_safe)
+        text = _clean_text(value, semantic_safe=semantic_safe, preserve_limits=preserve_limits)
         if text and text not in cleaned:
             cleaned.append(text)
     return cleaned
@@ -213,7 +214,10 @@ def sanitize_resume_body(
     data = _as_payload_dict(payload)
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
 
-    sections["summary"] = _clean_list(sections.get("summary"), semantic_safe=semantic_safe)
+    # Summary limitations are content, not removable negative presentation.
+    sections["summary"] = _clean_list(
+        sections.get("summary"), semantic_safe=semantic_safe, preserve_limits=semantic_safe,
+    )
     sections["projects"] = [
         _clean_project(project, semantic_safe=semantic_safe)
         for project in sections.get("projects", [])

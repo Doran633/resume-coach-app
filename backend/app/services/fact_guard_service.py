@@ -342,7 +342,10 @@ def guard_hard_facts(
     data["claims"] = _clean_claims(data.get("claims"), facts)
 
     sections = data.get("resume_sections") if isinstance(data.get("resume_sections"), dict) else {}
-    sections["summary"] = _clean_list(sections.get("summary"), facts)
+    # Request-wide flags cannot establish a summary assertion's scope. Preserve
+    # Canonical model text for the existing read-only delivery checks.
+    if not canonical_mode:
+        sections["summary"] = _clean_list(sections.get("summary"), facts)
     sections["skills"] = _clean_list(sections.get("skills"), facts)
     # Canonical project evidence must not be reinterpreted using request-wide
     # keyword flags. This bypass grants no trust; the receiver validates sources.

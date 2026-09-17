@@ -880,8 +880,8 @@ def create_generation(
     evaluate_narrative_quality(payload, stage="generation", change_stats=narrative_changes)
     mutation_tracer.checkpoint(payload, "after_narrative_cleanup", parent_stage="narrative_quality")
     log_generation_stage(payload, "after_dedup")
-    payload = guard_resume_output(payload, stage="generation")
-    payload = guard_resume_output(payload, stage="before_save")
+    payload = guard_resume_output(payload, stage="generation", canonical_mode=True)
+    payload = guard_resume_output(payload, stage="before_save", canonical_mode=True)
     payload = professionalize_resume_language(
         payload,
         stage="generation",
@@ -928,7 +928,7 @@ def create_generation(
         "after_presentation",
         parent_stage="presentation_pipeline",
     )
-    payload = guard_resume_output(payload, stage="generation")
+    payload = guard_resume_output(payload, stage="generation", canonical_mode=True)
     payload = guard_resume_output_relevance(
         payload,
         term_resolutions=technical_term_resolutions,
