@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.18.5.1：Canonical Semantic Unit Boundary Correction
+
+- 基线 main / c6aa50d / v0.9.18.5。服务器请求 `req_ea63b7f022584dd8987c332f6b0cc4d6` 的模型 Fact 位置契约及10项来源均通过，最终唯一 critical 是项目字段的 `INCOMPLETE_SENTENCE`；固定输入重放确认完整 Fact“相关代码由正式员工审核后合并”因末字“并”被误记为 `trailing_dependency`。
+- 语义单元规则将无结构边界的句尾“并”标为 `ambiguous_trailing_conjunction` warning，不凭中文单字后缀证明正文残缺；“，并”、多字依赖词、尾部分隔符及未完成范围继续按确定残句处理。
+- 整理阶段保留歧义正文和原附件；Gate 复用既有逐字段附件记录精确 Fact/Claim 及脱敏原因，不新增来源结构、语义解释或修复权限。
+- 完整 Java 实习与项目样本保持两位 owner、10个 Fact、否定限制和 source span，控制返回通过最终 Gate、保存及 DOCX。未修改 Claim/Fact、Prompt、模型协议、Router 或交付标准；真实线上复测仍须单独执行。详见 [阶段说明](canonical-semantic-unit-boundary-correction.md)。
+
 ## v0.9.18.5：Canonical Summary Evidence Consumption Alignment
 
 - 基线 main / 4831164 / v0.9.18.4。历史 DOCX 仅作症状线索，当前实验使用完整普通输入及受控网络返回，不冒充历史完整请求重放。

@@ -4,7 +4,11 @@ from .. import schemas
 from .experience_fact_ledger_service import ExperienceFact, build_experience_fact_ledger
 
 
-TRAILING_DEPENDENCY = re.compile(r"(?:并|同时|以及|从而|因此|其中|包括|例如|通过|针对|基于|围绕)[，,:：;；\-—]?\s*$", re.I)
+TRAILING_DEPENDENCY = re.compile(
+    r"(?:(?:同时|以及|从而|因此|其中|包括|例如|通过|针对|基于|围绕)[，,:：;；\-—]?|[，,；;]\s*并)\s*$",
+    re.I,
+)
+AMBIGUOUS_TRAILING_CONJUNCTION = re.compile(r"并\s*$", re.I)
 LEADING_DEPENDENCY = re.compile(r"^(?:针对该问题|在此基础上|预处理阶段|进一步|同时|因此|随后)[，,:：]?", re.I)
 TRAILING_SEPARATOR = re.compile(r"[，,:：;；\-—]\s*$")
 ACTION = re.compile(r"设计|实现|构建|搭建|接入|优化|建立|拆分|定位|解决|修复|联调|部署|评测|迭代|参与|负责|完成|记录|分析|支持")
@@ -18,6 +22,11 @@ def fragment_reasons(text: str) -> set[str]:
         return {"empty"}
     if TRAILING_DEPENDENCY.search(value) or TRAILING_SEPARATOR.search(value):
         reasons.add("trailing_dependency")
+    elif AMBIGUOUS_TRAILING_CONJUNCTION.search(value):
+        # Chinese has no regex word boundary that can prove whether the final
+        # character is a conjunction ("完成审核并") or part of a complete verb
+        # ("审核后合并"). Keep it observable without declaring breakage.
+        reasons.add("ambiguous_trailing_conjunction")
     if LEADING_DEPENDENCY.search(value):
         reasons.add("leading_dependency")
     if re.search(r"从[^，。；]{1,40}(?:提升|降低|变化)到?$", value):
@@ -56,6 +65,9 @@ def ensure_semantic_units(
             ids = [str(item) for item in fact_rows[index]] if index < len(fact_rows) and isinstance(fact_rows[index], list) else []
             reasons = fragment_reasons(detail)
             if not reasons:
+                kept.append((detail, ids))
+                continue
+            if reasons == {"ambiguous_trailing_conjunction"}:
                 kept.append((detail, ids))
                 continue
             if stats is not None:

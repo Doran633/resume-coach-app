@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.18.5
+## 当前架构：v0.9.18.5.1
+
+v0.9.18.5.1 修正 Canonical 语义单元完整性边界：单字“并”不再仅凭字符串后缀被当作确定残句，避免“审核后合并”“数据归并”等完整动词触发 `INCOMPLETE_SENTENCE` critical。带明确标点边界的“，并”及其他确定依赖词、尾部分隔符和未完成范围仍按原标准阻断。
+
+歧义句尾“并”仅记录 warning，语义单元整理不删除或改写正文；Gate 使用已有 intro/role/detail 附件记录精确字段 Fact/Claim 与脱敏原因类别。完整 Java 样本保持 10 个 Fact、否定限制和原文范围，控制返回可保存并导出 DOCX。未修改 Claim、Fact、Prompt、模型协议、Router 或交付标准，详见 [阶段说明](docs/canonical-semantic-unit-boundary-correction.md)。
 
 v0.9.18.5 保留现有个人优势生成方式，仅修正实测的 summary 后处理失真。经批准，Canonical Hard Fact Guard 不再根据全文布尔标志替换个人优势；正文清理器与 Firewall 保留否定和熟练程度限定，继续执行原有格式、指令及模板污染清理。其他字段和独立 legacy 行为不变。
 

@@ -196,6 +196,27 @@ def _all_claim_ids(project: dict) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _body_evidence_ids(project: dict, body_index: int) -> tuple[list[str], list[str]]:
+    if body_index == 0:
+        fact_key, claim_key = "intro_source_fact_ids", "intro_source_claim_ids"
+        return (
+            [str(item) for item in project.get(fact_key, []) or [] if str(item)],
+            [str(item) for item in project.get(claim_key, []) or [] if str(item)],
+        )
+    if body_index == 1:
+        fact_key, claim_key = "role_source_fact_ids", "role_source_claim_ids"
+        return (
+            [str(item) for item in project.get(fact_key, []) or [] if str(item)],
+            [str(item) for item in project.get(claim_key, []) or [] if str(item)],
+        )
+    detail_index = body_index - 2
+    fact_rows = project.get("detail_fact_ids") if isinstance(project.get("detail_fact_ids"), list) else []
+    claim_rows = project.get("detail_claim_ids") if isinstance(project.get("detail_claim_ids"), list) else []
+    facts = fact_rows[detail_index] if detail_index < len(fact_rows) and isinstance(fact_rows[detail_index], list) else []
+    claims = claim_rows[detail_index] if detail_index < len(claim_rows) and isinstance(claim_rows[detail_index], list) else []
+    return [str(item) for item in facts if str(item)], [str(item) for item in claims if str(item)]
+
+
 def _fact_binding_count(payload: schemas.GenerationPayload) -> int:
     return sum(len(_all_fact_ids(project)) for project in payload.resume_sections.projects)
 
@@ -535,15 +556,21 @@ def _add_issue(
     confidence: float = 1.0,
     repair_action: str = "",
     fact_ids: list[str] | None = None,
+    claim_ids: list[str] | None = None,
+    reason_category: str = "",
 ) -> None:
+    resolved_fact_ids = _fact_ids(project or {}) if fact_ids is None else fact_ids
+    resolved_claim_ids = [] if claim_ids is None else claim_ids
     issues.append(ResumeQualityIssue(
         issue_code=code,
         severity=severity,
         field_path=path,
         source_experience_id=_text((project or {}).get("source_experience_id")),
-        source_fact_ids=list(dict.fromkeys(fact_ids or _fact_ids(project or {}))),
+        source_fact_ids=list(dict.fromkeys(resolved_fact_ids)),
         confidence=round(confidence, 3),
         repair_action=repair_action,
+        reason_category=reason_category,
+        source_claim_ids=list(dict.fromkeys(resolved_claim_ids)),
     ))
 
 
@@ -587,7 +614,7 @@ def _fragment_severity(reasons: set[str]) -> str:
     semantic-unit signals remain observable without triggering destructive repair.
     """
     critical_reasons = {"empty", "trailing_dependency", "incomplete_range", "trailing_separator"}
-    warning_reasons = {"leading_dependency", "metric_without_relation"}
+    warning_reasons = {"leading_dependency", "metric_without_relation", "ambiguous_trailing_conjunction"}
     if reasons & critical_reasons:
         return "critical"
     if reasons & warning_reasons:
@@ -849,10 +876,14 @@ def evaluate_delivery_quality_issues(payload: schemas.GenerationPayload, raw_inp
             reasons = set(fragment_reasons(left))
             if reasons:
                 severity = _fragment_severity(reasons)
+                fact_ids, claim_ids = _body_evidence_ids(project, left_index)
                 _add_issue(
                     issues, "INCOMPLETE_SENTENCE", severity,
                     f"resume_sections.projects.{project_index}.body.{left_index}", project,
                     confidence=0.9 if severity == "critical" else 0.65,
+                    fact_ids=fact_ids,
+                    claim_ids=claim_ids,
+                    reason_category=",".join(sorted(reasons)),
                 )
             for right in values[left_index + 1:]:
                 if not right:
@@ -1006,10 +1037,14 @@ def evaluate_canonical_delivery_quality_issues(
             reasons = set(fragment_reasons(left))
             if reasons:
                 severity = _fragment_severity(reasons)
+                fact_ids, claim_ids = _body_evidence_ids(project, left_index)
                 _add_issue(
                     issues, "INCOMPLETE_SENTENCE", severity,
                     f"{project_path}.body.{left_index}", project,
                     confidence=0.9 if severity == "critical" else 0.65,
+                    fact_ids=fact_ids,
+                    claim_ids=claim_ids,
+                    reason_category=",".join(sorted(reasons)),
                 )
             for right in values[left_index + 1:]:
                 if not right:
@@ -1206,11 +1241,15 @@ def ensure_resume_delivery_quality(
             reasons = set(fragment_reasons(row)) if row else set()
             if reasons:
                 severity = _fragment_severity(reasons)
+                fact_ids, claim_ids = _body_evidence_ids(project, body_index)
                 _add_issue(
                     issues, "INCOMPLETE_SENTENCE", severity,
                     f"resume_sections.projects.{project_index}.body.{body_index}", project,
                     confidence=0.9 if severity == "critical" else 0.65,
                     repair_action="recover_semantic_unit" if severity == "critical" else "",
+                    fact_ids=fact_ids,
+                    claim_ids=claim_ids,
+                    reason_category=",".join(sorted(reasons)),
                 )
 
     updated = _clean_visible_fields(updated, issues)
