@@ -1,6 +1,10 @@
 # Resume Coach App
 
-## 当前架构：v0.9.18.3
+## 当前架构：v0.9.18.4
+
+v0.9.18.4 对齐 Canonical 否定校验：共享语法访问只读保留原文范围、主语、当前时间前缀及完整限定，不改变 Claim 构建、资格或冻结事实。Gate 按项目 intro、role、每条 detail 及全局可见字段分别检查，退出 Canonical 中“否定原句出现即矛盾”和跨字段拼接匹配；独立 legacy 行为保留。
+
+同范围的完整字面肯定冲突仍为 DENIED_CLAIM_ASSERTED critical；具体断言已对应限制但适用范围缺失时，使用独立的 DENIED_CLAIM_SCOPE_UNRESOLVED critical，不把范围不足说成已证明矛盾。其他 owner 的完整原句证据和背景技能声明按现有来源核对，不以合法 ID 或共享技术词证明正文。未修改 Prompt、冻结语义、Router 或交付出口；有限字面比较不是任意改写的语义证明，真实模型未验收，详见 [阶段说明](docs/canonical-denied-claim-validation-alignment.md)。
 
 v0.9.18.3 对齐非经历证据消费：请求 target_role 在既有入口确定性应用；教育只消费同请求已确认的非经历原文范围，保留预计毕业含义，冲突不拼接学历。技能聚合同时消费冻结 Ledger 与明确背景声明，记录原文位置和使用限定，Guard、分类及经批准的 relevance 接线消费同份证据，不再多次词表重提取而丢失完整名称和限定。
 

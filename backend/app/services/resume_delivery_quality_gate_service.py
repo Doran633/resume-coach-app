@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from .. import schemas
 from .experience_fact_ledger_service import ExperienceFactLedger, build_experience_fact_ledger, fact_match_score
 from .experience_identity_service import build_experience_identities
-from .experience_slot_service import fact_owner_id
+from .experience_slot_service import fact_owner_id, provenance_text_unchanged
 from .canonical_semantic_state_service import CanonicalSemanticBuild
 from .canonical_consumer_view_service import (
     CanonicalConsumerViewAccessStats,
@@ -24,6 +24,8 @@ from .input_claim_resolution_service import (
     PLANNED,
     PROBABLE,
     UNCERTAIN,
+    assertion_surface_spans,
+    surface_assertion_corresponds,
 )
 from .fact_coverage_guard_service import guard_fact_coverage
 from .fact_guard_service import guard_hard_facts
@@ -33,7 +35,8 @@ from .resume_fact_dedup_service import same_fact_action, similarity
 from .resume_output_firewall_service import guard_resume_output
 from .resume_semantic_unit_service import ensure_semantic_units, fragment_reasons
 from .resume_skill_evidence_guard_service import _skill_terms, evaluate_skill_evidence, guard_resume_skill_evidence
-from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence
+from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence, skill_evidence_display
+from .resume_skill_taxonomy_service import CATEGORIES as SKILL_CATEGORIES
 from .structured_log_service import stable_hash
 from .resume_summary_quality_service import ensure_resume_summary_quality
 from .resume_typography_quality_service import (
@@ -46,6 +49,7 @@ from .resume_visible_output_service import (
     find_internal_field_leaks,
     sanitize_internal_field_text,
     visible_output_text,
+    iter_visible_output_fields,
 )
 from .resume_whitespace_quality_service import ensure_resume_whitespace_quality, normalize_resume_whitespace
 
@@ -75,6 +79,7 @@ ISSUE_CODES = (
     "INFERRED_ID_COLLISION",
     "UNCERTAIN_CLAIM_ASSERTED",
     "DENIED_CLAIM_ASSERTED",
+    "DENIED_CLAIM_SCOPE_UNRESOLVED",
     "PLANNED_WORK_PRESENTED_AS_COMPLETED",
     "CLAIM_OWNER_CHANGED",
     "CLAIM_CONFLICT_UNRESOLVED",
@@ -106,6 +111,8 @@ class ResumeQualityIssue:
     source_fact_ids: list[str] = field(default_factory=list)
     confidence: float = 1.0
     repair_action: str = ""
+    reason_category: str = ""
+    source_claim_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -207,6 +214,8 @@ def _project_text(project: dict) -> str:
 def _semantic_role_leaks_from_ledger(
     payload: schemas.GenerationPayload,
     ledger: ExperienceFactLedger,
+    *,
+    canonical_denied: bool = False,
 ) -> list[ResumeQualityIssue]:
     issues: list[ResumeQualityIssue] = []
     visible = _normalized(_visible_text(payload))
@@ -225,7 +234,7 @@ def _semantic_role_leaks_from_ledger(
         project = {"source_experience_id": claim.source_experience_id}
         if claim.semantic_role == USER_INSTRUCTION and leaked:
             _add_issue(issues, "USER_CONSTRAINT_RENDERED", "critical", "resume_sections", project)
-        if claim.certainty == DENIED:
+        if claim.certainty == DENIED and not canonical_denied:
             assertion = re.sub(r"^(?:没有|未|并未|不曾|并没有|不负责|未负责|不是我负责|不是)", "", claim.text).strip(" ，,。；;")
             assertion_key = _normalized(assertion)
             if leaked or (
@@ -275,6 +284,95 @@ def _semantic_role_leaks_from_ledger(
                 issues, "TARGET_ROLE_SKILL_LEAK", "critical", "resume_sections.skills",
                 {"source_experience_id": claim.source_experience_id},
             )
+    return issues
+
+
+def _canonical_denied_claim_issues(payload, views, skill_evidence):
+    """Validate literal contradictions without assigning new semantic owners."""
+    guard = views.guard_view
+    restrictions = [
+        (claim, part)
+        for claim in (*guard.ledger.excluded_claims, *guard.ledger.withheld_claims)
+        if claim.certainty == DENIED
+        for part in assertion_surface_spans(claim.text)
+        if part['negation']
+    ]
+    fields = []
+    for index, project in enumerate(payload.resume_sections.projects):
+        owner = views.presentation_view.owner_for_project(project)
+        for name in ('intro', 'role', 'details'):
+            rows = project.get('details', []) if name == 'details' else [project.get(name, '')]
+            for row_index, value in enumerate(rows):
+                if name == 'details':
+                    ids = _fact_ids(project, row_index)
+                    claim_rows = project.get('detail_claim_ids', [])
+                    cids = claim_rows[row_index] if isinstance(claim_rows, list) and row_index < len(claim_rows) else []
+                    suffix = f'details.{row_index}'
+                else:
+                    ids = project.get(f'{name}_source_fact_ids', [])
+                    cids = project.get(f'{name}_source_claim_ids', [])
+                    suffix = name
+                ids = ids if isinstance(ids, list) else []
+                cids = cids if isinstance(cids, list) else []
+                local = {f.fact_id: f for f in guard.eligible_facts(owner)} if owner else {}
+                proven_ids = [fid for fid in ids if fid in local and local[fid].claim_id in cids
+                              and guard.permits_claim(owner, local[fid].claim_id)]
+                fields.append((f'resume_sections.projects.{index}.{suffix}', _text(value), owner, proven_ids))
+    for visible in iter_visible_output_fields(payload):
+        if visible.field_path.startswith('resume_sections.projects.'):
+            continue
+        value = visible.value
+        if visible.field_path.startswith('resume_sections.skills.'):
+            label, separator, content = value.partition('：')
+            if separator and label in SKILL_CATEGORIES:
+                value = content.strip()
+        fields.append((visible.field_path, value, '', []))
+
+    def independently_supported(path, text, restricted_owner):
+        # Exact existing evidence can support a global statement without
+        # assigning the global field to a guessed owner or minting attachments.
+        for owner in views.experience_ids:
+            if owner == restricted_owner:
+                continue
+            for fact in guard.eligible_facts(owner):
+                if guard.permits_claim(owner, fact.claim_id) and provenance_text_unchanged(text, fact.resume_ready_text):
+                    return True
+        if path.startswith('resume_sections.skills.'):
+            for row in skill_evidence:
+                if not provenance_text_unchanged(text, skill_evidence_display(row)):
+                    continue
+                if any(d.get('qualified') and d.get('source_kind') == 'background_declaration'
+                       and provenance_text_unchanged(text, d.get('display_text', ''))
+                       for d in row.declarations):
+                    return True
+        return False
+
+    issues, seen = [], set()
+    for path, value, owner, ids in fields:
+        for assertion in assertion_surface_spans(value):
+            for claim, restriction in restrictions:
+                if owner and owner != claim.source_experience_id:
+                    continue
+                if not surface_assertion_corresponds(restriction, assertion):
+                    continue
+                subject_pair = (restriction['subject'], assertion['subject'])
+                time_pair = (restriction['time'], assertion['time'])
+                if any(left and right and left != right for left, right in (subject_pair, time_pair)):
+                    continue
+                scoped = bool(owner) and subject_pair[0] == subject_pair[1] and time_pair[0] == time_pair[1]
+                if not owner and independently_supported(path, value, claim.source_experience_id):
+                    continue
+                code = 'DENIED_CLAIM_ASSERTED' if scoped else 'DENIED_CLAIM_SCOPE_UNRESOLVED'
+                key = code, path, claim.claim_id
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(ResumeQualityIssue(
+                    issue_code=code, severity='critical', field_path=path,
+                    source_experience_id=owner,
+                    source_fact_ids=list(ids), source_claim_ids=[claim.claim_id],
+                    reason_category='same_scope_literal_assertion' if scoped else 'assertion_scope_unresolved',
+                ))
     return issues
 
 
@@ -938,7 +1036,8 @@ def evaluate_canonical_delivery_quality_issues(
     if has_unbalanced_symbols(visible):
         _add_issue(issues, "INVALID_CHARACTER", "critical", "resume_sections", confidence=0.95)
 
-    issues.extend(_semantic_role_leaks_from_ledger(payload, guard.ledger))
+    issues.extend(_semantic_role_leaks_from_ledger(payload, guard.ledger, canonical_denied=True))
+    issues.extend(_canonical_denied_claim_issues(payload, consumer_views, skill_evidence))
     issues.extend(_canonical_provenance_issues(payload, consumer_views, access_stats))
     issues.extend(_canonical_skill_issues(payload, consumer_views, skill_evidence))
     coverage, covered = _high_value_coverage_from_ledger(payload, guard.ledger)

@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.18.4：Canonical Denied-Claim Validation Alignment
+
+- 基线 main / 2936abf / v0.9.18.3。历史请求缺少原始返回和匹配正文；当前准确输入的合法控制返回可保存/DOCX，不将新增控制实验描述为历史完整复现。
+- 两个业务文件：Claim 服务增加只读表面语法访问，保留原文范围及必要限定，原有构建、_parts 与资格不变；Gate 逐字段消费，不跨字段拼接或将保留否定判成肯定。
+- 项目校验限定 owner；全局完整断言范围不足使用新内部 DENIED_CLAIM_SCOPE_UNRESOLVED critical，确定矛盾与既有 warning 分开。既有其他 owner 原句证据和背景技能声明独立核对，日志只增加原因类别及限制 Claim ID。
+- 不新增模块、公开 schema、模型调用或修复权限。未调用付费模型、未部署；测试、字面比较边界、成功率风险及回滚见 [阶段说明](canonical-denied-claim-validation-alignment.md)。
+
 ## v0.9.18.3：Non-Experience Evidence Consumption Alignment
 
 - 基线 main / 807425d / v0.9.18.2。复用三份完整普通用户输入，控制模型返回并执行真实保存与 DOCX；不将历史 DOCX 当作当次请求参数或模型响应快照。

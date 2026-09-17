@@ -288,6 +288,94 @@ def _parts(text: str) -> tuple[str, str, str]:
     )
 
 
+_SURFACE_PREFIX = re.compile(
+    r"\s*(?:(?:但是|但|不过|而|也)\s*)?"
+    r"(?P<time_before>截至目前|目前|现在)?\s*"
+    r"(?P<subject>" + CLAUSE_SUBJECT + r")?\s*"
+    r"(?P<time_after>截至目前|目前|现在)?\s*"
+)
+_SURFACE_NEGATION = re.compile(NEGATION_PREFIX)
+
+
+def assertion_surface_spans(text: str) -> list[dict]:
+    """Transient literal syntax for comparison, never Claim qualification.
+
+    Only sentence boundaries and independently negated comma clauses split.
+    Prefix and body spans always address the supplied text. In particular,
+    qualifiers in the body are not stripped by the legacy `_parts` helper.
+    """
+    result = []
+    for sentence in re.finditer(r"[^。；;！？!?]+", text):
+        cuts = [sentence.start()]
+        for comma in re.finditer(r"[，,]", sentence.group()):
+            start = sentence.start() + comma.end()
+            prefix = _SURFACE_PREFIX.match(text, start, sentence.end())
+            if prefix and _SURFACE_NEGATION.match(text, prefix.end(), sentence.end()):
+                cuts.append(start)
+        cuts.append(sentence.end() + 1)
+        inherited_subject, inherited_time = "", ""
+        for start, next_start in zip(cuts, cuts[1:]):
+            end = next_start - 1
+            while start < end and text[start].isspace():
+                start += 1
+            while end > start and text[end - 1].isspace():
+                end -= 1
+            if start == end:
+                continue
+            prefix = _SURFACE_PREFIX.match(text, start, end)
+            body_start = prefix.end()
+            negation = _SURFACE_NEGATION.match(text, body_start, end)
+            operator = negation.group() if negation else ""
+            if negation:
+                body_start = negation.end()
+                # The existing grammar includes the predicate in these tokens.
+                # Keep it in the compared body rather than deleting the action.
+                if operator in {"不负责", "不是"}:
+                    body_start = negation.start() + 1
+                    operator = "不"
+            subject = prefix.group('subject') or inherited_subject
+            time = prefix.group('time_before') or prefix.group('time_after') or inherited_time
+            inherited_subject, inherited_time = subject, time
+            result.append({
+                'source_span': (start, end), 'body_span': (body_start, end),
+                'subject': subject, 'time': time, 'negation': operator,
+                'body': text[body_start:end].strip(),
+            })
+    return result
+
+
+def surface_assertion_corresponds(restriction: dict, assertion: dict) -> bool:
+    """Compare a complete literal complement, not shared nouns or similarity.
+
+    A narrow serial-verb continuation uses the existing predicate grammar.
+    Nominal, conditional and qualified continuations are outside this proof.
+    No caller may interpret a False result as support for the output.
+    """
+    if not restriction['negation'] or assertion['negation']:
+        return False
+    if restriction['negation'] == '无法确认':
+        return False
+    left = normalize_layout_text(restriction['body']).strip()
+    right = normalize_layout_text(assertion['body']).strip()
+    if not left or NEGATION_PATTERN.match(left):
+        return False
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9+#./_ -]*", right):
+        return False
+    if left == right:
+        return True
+    if not right.startswith(left):
+        return False
+    tail = right[len(left):].strip()
+    _, predicate, obj = _parts(tail)
+    return bool(
+        predicate and obj and tail.startswith(predicate) and tail[len(predicate):].strip()
+        and not re.search(r"[，,的前后时若则：:（）()\"“”]", tail)
+        and not UNCERTAINTY_PATTERN.search(tail)
+        and not PLANNED_PATTERN.search(tail)
+        and not NEGATION_PATTERN.search(tail)
+    )
+
+
 def resolve_experience_claims(
     experience_id: str,
     text: str,
