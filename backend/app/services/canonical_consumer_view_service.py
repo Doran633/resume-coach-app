@@ -33,6 +33,23 @@ def _fingerprint(value: object) -> str:
     )
 
 
+def non_experience_context_for_build(
+    build: CanonicalSemanticBuild, raw_input: str,
+) -> tuple[tuple[tuple[int, int], str], ...]:
+    """Read only confirmed background slices from this request's partition."""
+    if stable_hash(raw_input, purpose="canonical_semantic_state") != build.raw_input_hash:
+        raise ValueError("Model input and Canonical compilation must belong to the same request.")
+    rows = []
+    for start, end in build.long_input_context.non_experience_source_spans:
+        if not 0 <= start < end <= len(raw_input) or any(
+            start < identity.source_span[1] and end > identity.source_span[0]
+            for identity in build.identities
+        ):
+            raise ValueError("Invalid non-experience source range in compiled context.")
+        rows.append(((start, end), raw_input[start:end]))
+    return tuple(rows)
+
+
 @dataclass(frozen=True)
 class CanonicalConsumerOwnerScope:
     """Identifier-only permissions for one frozen experience owner."""
@@ -169,17 +186,7 @@ class CanonicalConsumerViews:
         Unassigned/ambiguous gaps are not background. No complement-of-owner
         inference or segmentation is allowed here.
         """
-        if stable_hash(raw_input, purpose="canonical_semantic_state") != self._build.raw_input_hash:
-            raise ValueError("Model input and Canonical compilation must belong to the same request.")
-        rows = []
-        for start, end in self._build.long_input_context.non_experience_source_spans:
-            if not 0 <= start < end <= len(raw_input) or any(
-                start < identity.source_span[1] and end > identity.source_span[0]
-                for identity in self._build.identities
-            ):
-                raise ValueError("Invalid non-experience source range in compiled context.")
-            rows.append(((start, end), raw_input[start:end]))
-        return tuple(rows)
+        return non_experience_context_for_build(self._build, raw_input)
 
     def permits_fact(
         self,

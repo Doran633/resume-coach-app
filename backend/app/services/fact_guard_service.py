@@ -187,6 +187,51 @@ def _guard_education(education: dict, raw_input: str, facts: dict[str, bool]) ->
     return result
 
 
+def education_from_context(
+    context: tuple[tuple[tuple[int, int], str], ...],
+) -> tuple[dict[str, str], dict[str, list[tuple[str, tuple[int, int]]]], list[str]]:
+    """Resolve only local education statements; model values are not evidence."""
+    candidates: dict[str, list[tuple[str, tuple[int, int]]]] = {k: [] for k in EDUCATION_KEYS}
+    denied = re.compile(r"(?:计划|准备|希望|想要|申请|可能|不确定|没有|未就读|不是)")
+    date = r"20\d{2}(?:[年./-]\d{1,2}月?)?年?"
+    for (base, end), text in context:
+        if end - base != len(text):
+            raise ValueError('Education source range does not match its original slice')
+        for clause in re.finditer(r"[^，,。；;！？]+", text):
+            value = clause.group()
+            if denied.search(value):
+                continue
+            shell = re.match(r"\s*(?:(?:基本信息|个人信息|教育经历|教育背景)\s*[:：]?\s*)?", value)
+            offset = shell.end()
+            local = value[offset:]
+            origin = base + clause.start() + offset
+            patterns = {
+                '学校': r"^(?:(?:我|本人)?(?:目前)?(?:就读于|就读|在读于)|学校\s*[:：为])\s*(?P<value>[^，,。；;：:\s]+?(?:大学|学院|学校))",
+                '专业': r"^(?:(?:我|本人)?(?:目前)?(?:是|为)?\s*(?:[^，,。；;\s]*?(?:大学|学院))?)(?P<value>[^，,。；;：:\s]+?)专业",
+                '学历': r"(?:^学历\s*[:：为]\s*|(?<=专业))(?P<value>本科|硕士|博士|专科)",
+                '时间': rf"(?P<value>(?:预计|预期)?\s*20\d{{2}}年(?:\d{{1,2}}月)?毕业)",
+            }
+            for key, pattern in patterns.items():
+                matches = list(re.finditer(pattern, local))
+                if key == '专业':
+                    matches += list(re.finditer(r"^专业\s*(?:是|为|[:：])\s*(?P<value>[^，,。；;\s]+)", local))
+                if key == '学历':
+                    matches += list(re.finditer(r"^(?:我|本人)?(?:目前)?(?:是|为)?\s*(?P<value>本科|硕士|博士|专科)(?:生|在读|毕业)", local))
+                if key == '时间':
+                    matches += list(re.finditer(rf"^(?:就读时间|在校时间|教育时间)\s*[:：为]?\s*(?P<value>{date}\s*(?:至|到|—|-)\s*(?:{date}|今))", local))
+                for match in matches:
+                    field_value = re.sub(r"\s+", "", match.group('value'))
+                    proof = (field_value, (origin + match.start('value'), origin + match.end('value')))
+                    if proof not in candidates[key]:
+                        candidates[key].append(proof)
+    conflicts = [key for key, rows in candidates.items() if len({v for v, _ in rows}) > 1]
+    # The public schema holds one education record. Do not join different records.
+    if conflicts:
+        return ({k: PLACEHOLDER for k in candidates}, candidates,
+                ['请确认需要展示的教育经历及其对应学校、专业、学历和时间。'])
+    return ({key: rows[0][0] if rows else PLACEHOLDER for key, rows in candidates.items()}, candidates, [])
+
+
 def _clean_claims(claims, facts: dict[str, bool]) -> list[dict]:
     cleaned = []
     for claim in claims if isinstance(claims, list) else []:
@@ -283,6 +328,7 @@ def guard_hard_facts(
     raw_input: str,
     *,
     canonical_mode: bool = False,
+    non_experience_context: tuple[tuple[tuple[int, int], str], ...] | None = None,
 ) -> schemas.GenerationPayload:
     facts = _provided_facts(raw_input)
     data = _as_payload_dict(payload)
@@ -302,7 +348,13 @@ def guard_hard_facts(
     # keyword flags. This bypass grants no trust; the receiver validates sources.
     if not canonical_mode:
         sections["projects"] = _clean_projects(sections.get("projects"), facts)
-    sections["education"] = _guard_education(sections.get("education"), raw_input, facts)
+    if canonical_mode and non_experience_context is not None:
+        sections['education'], _, questions = education_from_context(non_experience_context)
+        for question in questions:
+            if question not in data['missing_questions']:
+                data['missing_questions'].append(question)
+    else:
+        sections["education"] = _guard_education(sections.get("education"), raw_input, facts)
     sections["interview_preparation"] = _clean_list(sections.get("interview_preparation"), facts)
     sections["personal_info"] = sections.get("personal_info") if isinstance(sections.get("personal_info"), dict) else {}
     data["resume_sections"] = sections

@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
+from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence, skill_evidence_display
 from .technical_term_disambiguation_service import (
     ResolvedTechnicalTerm,
     best_resolution,
@@ -82,11 +83,24 @@ def calibrate_resume_skill_taxonomy(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    aggregated_evidence: list[AggregatedSkillEvidence] | None = None,
 ) -> schemas.GenerationPayload:
     """Categorize only skills already admitted by the evidence guard."""
     updated = payload.model_copy(deep=True)
     stats = SkillTaxonomyStats(stage=stage, generation_result_id=generation_result_id)
     stats.skills_before_count = len(updated.resume_sections.skills)
+    if aggregated_evidence is not None:
+        grouped: dict[str, list[str]] = {name: [] for name in CATEGORIES}
+        for row in aggregated_evidence:
+            value = skill_evidence_display(row)
+            category = _category(row.term)
+            if value not in grouped[category]:
+                grouped[category].append(value)
+        updated.resume_sections.skills = [f"{name}：{'、'.join(values)}" for name, values in grouped.items() if values]
+        stats.skills_after_count = len(updated.resume_sections.skills)
+        if write_log:
+            _write_log(stats)
+        return updated
     resolutions = (
         term_resolutions
         if term_resolutions is not None

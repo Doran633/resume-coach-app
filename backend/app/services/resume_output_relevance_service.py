@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from .. import schemas
 from .resume_skill_evidence_guard_service import _canonical_term, _skill_terms
+from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence, skill_evidence_display
 from .technical_term_disambiguation_service import (
     ResolvedTechnicalTerm,
     best_resolution,
@@ -72,6 +73,7 @@ def guard_resume_output_relevance(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    aggregated_evidence: list[AggregatedSkillEvidence] | None = None,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     stats = OutputRelevanceStats(stage=stage, generation_result_id=generation_result_id)
@@ -86,6 +88,41 @@ def guard_resume_output_relevance(
         and (not item.category or item.confidence < CONFIDENCE_THRESHOLD)
         for item in resolutions
     )
+
+    if aggregated_evidence is not None:
+        # Canonical taxonomy already consumed these proofs. Only this service's
+        # existing ambiguous Token responsibility remains; never re-extract skills.
+        for row in aggregated_evidence:
+            if row.term.lower() != 'token':
+                continue
+            value = skill_evidence_display(row)
+            resolution = best_resolution(resolutions, 'Token')
+            certain = bool(resolution and resolution.category and resolution.confidence >= CONFIDENCE_THRESHOLD)
+            changed = []
+            represented = False
+            for line in updated.resume_sections.skills:
+                label, separator, body = line.partition('：')
+                parts = body.split('、') if separator else [line]
+                if value not in parts:
+                    changed.append(line)
+                    continue
+                represented = True
+                parts.remove(value)
+                if parts:
+                    changed.append(f"{label}：{'、'.join(parts)}" if separator else '、'.join(parts))
+            if represented:
+                if certain:
+                    shown = re.sub(r'(?<![A-Za-z])Token(?![A-Za-z])', _display_term('Token', resolution.meaning), value, flags=re.I)
+                    changed.append(f'{resolution.category}：{shown}')
+                else:
+                    unresolved_token = True
+                    stats.removed_ambiguous_skill_count += 1
+                updated.resume_sections.skills = changed
+        if unresolved_token and TOKEN_QUESTION not in updated.missing_questions:
+            updated.missing_questions.append(TOKEN_QUESTION)
+        if write_log:
+            _write_log(stats)
+        return updated
 
     for raw_line in updated.resume_sections.skills:
         line = str(raw_line or "").strip()

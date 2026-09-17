@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.18.3：Non-Experience Evidence Consumption Alignment
+
+- 基线 main / 807425d / v0.9.18.2。复用三份完整普通用户输入，控制模型返回并执行真实保存与 DOCX；不将历史 DOCX 当作当次请求参数或模型响应快照。
+- 请求目标确定性覆盖模型目标，原文明确意向不一致时保留中立核对问题。教育从确认的非经历范围逐字段取证，保留预计毕业，多个冲突对象不拼成学历记录，不从经历借用日期或学校。
+- 既有技能聚合记录背景声明的 source/term span、来源类别和限定；Guard、分类消费同份证据。经批准，relevance 两处调用透传证据并退出 Canonical 词表重提取，保留 Token 歧义职责和 legacy。
+- 未修改经历分区、Authority、Claim/Fact、模型协议、Prompt、Gate 或 Renderer；无新增业务模块、公开字段或数据库迁移。测试、证据缺口、残留与回滚见 [阶段说明](non-experience-evidence-consumption-alignment.md)。
+
 ## v0.9.18.2：Canonical Header Evidence Alignment
 
 - 基线 main / 61fae97 / v0.9.18.1.1。三份完整输入固化名称缺失、岗位含部门连接词及省略结束年份范围丢失；属于当前代码重放，不是历史模型响应快照。

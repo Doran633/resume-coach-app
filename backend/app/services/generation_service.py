@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import time
 from copy import deepcopy
@@ -87,6 +88,7 @@ from .canonical_semantic_state_service import (
     write_canonical_scoped_fact_access_log,
 )
 from .canonical_consumer_view_service import (
+    non_experience_context_for_build,
     CanonicalConsumerViews,
     CanonicalConsumerViewAccessStats,
     build_canonical_consumer_views,
@@ -557,7 +559,10 @@ def create_generation(
             "Canonical semantic state validation failed.",
             code="INVALID_CANONICAL_SEMANTIC_STATE",
         )
-    skill_evidence = aggregate_skill_evidence_from_ledger(semantic_build.ledger)
+    non_experience_context = non_experience_context_for_build(semantic_build, request.raw_input)
+    skill_evidence = aggregate_skill_evidence_from_ledger(
+        semantic_build.ledger, non_experience_context=non_experience_context,
+    )
     technical_term_resolutions = resolve_technical_terms_from_ledger(semantic_build.ledger)
     consumer_views = build_canonical_consumer_views(semantic_build, skill_evidence)
     consumer_view_access_stats = CanonicalConsumerViewAccessStats()
@@ -714,7 +719,22 @@ def create_generation(
     payload = normalize_resume_section_schema(payload)
     payload = cleanup_generation_payload(payload, source=mode, canonical_mode=True)
     log_generation_stage(payload, "after_normalize")
-    payload = guard_hard_facts(payload, request.raw_input, canonical_mode=True)
+    payload.resume_sections.personal_info['求职意向'] = request.target_role
+    declared_targets = [
+        re.sub(r'\s+', '', match.group(1)).strip('：: ')
+        for _, text in non_experience_context
+        for match in re.finditer(
+            r'(?:想申请|希望申请|想找|想投递?|希望投递|求职意向\s*[:：为是])\s*([^，,。；;！？\n]+)', text,
+        )
+    ]
+    if any(value != re.sub(r'\s+', '', request.target_role) for value in declared_targets):
+        question = '请核对表单目标岗位与原文求职意向是否一致，本次按表单目标岗位生成。'
+        if question not in payload.missing_questions:
+            payload.missing_questions.append(question)
+    payload = guard_hard_facts(
+        payload, request.raw_input, canonical_mode=True,
+        non_experience_context=non_experience_context,
+    )
     payload, resume_fallback_stats = fill_resume_sections(
         payload, stage="generation", raw_input=request.raw_input, return_stats=True,
         semantic_build=semantic_build,
@@ -873,12 +893,14 @@ def create_generation(
     payload = guard_resume_skill_evidence(
         payload,
         aggregated_evidence=skill_evidence,
+        canonical_evidence=True,
         term_resolutions=technical_term_resolutions,
         stage="generation",
     )
     payload = calibrate_resume_skill_taxonomy(
         payload,
         request.target_role,
+        aggregated_evidence=skill_evidence,
         term_resolutions=technical_term_resolutions,
         stage="generation",
     )
@@ -886,6 +908,7 @@ def create_generation(
     payload = guard_resume_output_relevance(
         payload,
         term_resolutions=technical_term_resolutions,
+        aggregated_evidence=skill_evidence,
         stage="generation",
     )
     payload = ensure_recruiter_facing_technical_language(
@@ -909,6 +932,7 @@ def create_generation(
     payload = guard_resume_output_relevance(
         payload,
         term_resolutions=technical_term_resolutions,
+        aggregated_evidence=skill_evidence,
         stage="before_save",
     )
     payload = resolve_project_types(

@@ -23,6 +23,7 @@ class AggregatedSkillEvidence:
     source_experience_ids: list[str] = field(default_factory=list)
     source_fact_ids: list[str] = field(default_factory=list)
     inferred_from: list[str] = field(default_factory=list)
+    declarations: list[dict] = field(default_factory=list)
 
 
 def contains_skill_term(text: str, term: str) -> bool:
@@ -76,7 +77,90 @@ def _add_evidence(
     _append_unique(row.inferred_from, inferred_from)
 
 
-def aggregate_skill_evidence_from_ledger(ledger: ExperienceFactLedger) -> list[AggregatedSkillEvidence]:
+_SKILL_DECLARATION = re.compile(
+    r"^\s*(?:(?:技能(?:与能力)?|基本信息|个人信息)[ \t]*(?:[:：]|\r?\n)\s*)?"
+    r"(?:(?P<prefix>(?:(?:我|本人|平时|目前|主要|也|还|但|仅|只|做项目时)\s*)*"
+    r"(?P<restriction>不太|不|尚未|没有|未曾)?\s*"
+    r"(?:能够使用|接触过|会使用|会用|熟悉|了解|掌握|使用过|用过|使用|用))"
+    r"|(?P<label>技能(?:与能力)?[ \t]*(?:[:：]|\r?\n)))"
+    r"(?P<items>.+)$", re.S,
+)
+_TECH_NAME = re.compile(r"\.?[A-Za-z][A-Za-z0-9+#.\-]*(?:[ \t]+[A-Z][A-Za-z0-9+#.\-]*)*")
+
+
+def _skill_declarations(text: str, base_offset: int = 0) -> list[tuple[str, dict]]:
+    """Local self-declarations, not a new experience or Claim classifier."""
+    result = []
+    previous = []
+    carry = None
+    for clause in re.finditer(r"[^，,。；;！？]+", text):
+        if clause.start() and text[clause.start() - 1] not in '，,':
+            previous, carry = [], None
+        value = clause.group().strip()
+        if previous and not _TECH_NAME.search(value) and re.match(r'^(?:但|不过)?(?:仅|只)(?:用于|用来|在|做过)|^(?:但|不过)(?:尚未|没有|不确定)', value):
+            for _, proof in previous:
+                proof['source_span'] = (proof['source_span'][0], base_offset + clause.end())
+                proof['display_text'] += '，' + value
+            carry = None
+            continue
+        match = _SKILL_DECLARATION.fullmatch(clause.group())
+        if not match:
+            if carry and re.fullmatch(r'\s*\.?[A-Za-z][A-Za-z0-9+#.\-]*(?:[ \t]+[A-Z][A-Za-z0-9+#.\-]*)*(?:\s*[、和及与/]\s*\.?[A-Za-z][A-Za-z0-9+#.\-]*)*\s*', clause.group()):
+                prefix, qualified, source_start = carry
+                items, items_start = clause.group(), 0
+            else:
+                previous, carry = [], None
+                continue
+        else:
+            previous = []
+            prefix = match.group('prefix') or ''
+            qualified = not bool(match.group('restriction'))
+            source_start = clause.start()
+            items, items_start = match.group('items'), match.start('items')
+        clause_rows = []
+        carry = (prefix, qualified, source_start)
+        # Conditions and alternatives do not prove an individual's current skill.
+        if re.search(r"(?:如果|若|可能|不确定|计划|打算|建议|岗位要求|者优先|的同学|还是|或者)", items):
+            carry = None
+            continue
+        for item in re.finditer(r"[^、和及与/]+", items):
+            item_text = item.group()
+            candidates = list(_TECH_NAME.finditer(item_text))
+            if not candidates:
+                candidates = [m for term in sorted(SKILL_TERMS, key=len, reverse=True)
+                              if re.search(r'[\u4e00-\u9fff]', term)
+                              for m in re.finditer(re.escape(term), item_text)]
+                if candidates:
+                    candidates = candidates[:1]
+            if len(candidates) != 1:
+                continue
+            term_match = candidates[0]
+            start = clause.start() + items_start + item.start() + term_match.start()
+            end = start + len(term_match.group())
+            # Preserve scope such as '基础', '命令', or '仅用于课程练习'.
+            display = re.sub(r"\s+", " ", prefix + item_text).strip()
+            clause_rows.append((canonical_skill_term(term_match.group()), {
+                'source_span': (base_offset + source_start, base_offset + clause.end()),
+                'term_span': (base_offset + start, base_offset + end),
+                'display_text': display,
+                'qualified': qualified,
+            }))
+        previous.extend(clause_rows)
+        result.extend(clause_rows)
+    return result
+
+
+def skill_evidence_display(row: AggregatedSkillEvidence) -> str:
+    """Keep distinct local qualifications; never pick the strongest wording."""
+    values = list(dict.fromkeys(d['display_text'] for d in row.declarations))
+    return '；'.join(values) if values else row.term
+
+
+def aggregate_skill_evidence_from_ledger(
+    ledger: ExperienceFactLedger,
+    *,
+    non_experience_context: tuple[tuple[tuple[int, int], str], ...] | None = None,
+) -> list[AggregatedSkillEvidence]:
     """Aggregate global skills from the already-compiled request ledger."""
     grouped: dict[str, AggregatedSkillEvidence] = {}
     for fact in ledger.facts:
@@ -84,6 +168,18 @@ def aggregate_skill_evidence_from_ledger(ledger: ExperienceFactLedger) -> list[A
         if not fact_text:
             continue
         explicit_terms = extract_skill_terms(fact_text)
+        if non_experience_context is not None:
+            # Already eligible usage facts can name a tool absent from legacy dictionaries.
+            usage = [
+                row
+                for match in re.finditer(r"(?:使用|用过|会用)", fact.fact_text)
+                for row in _skill_declarations(fact.fact_text[match.start():])
+            ]
+            local_terms = [term for term, proof in usage if proof['qualified']]
+            explicit_terms = [term for term in explicit_terms if not any(
+                term.lower() != other.lower() and contains_skill_term(other, term)
+                for other in local_terms
+            )] + local_terms
         for term in explicit_terms:
             _add_evidence(
                 grouped,
@@ -107,6 +203,23 @@ def aggregate_skill_evidence_from_ledger(ledger: ExperienceFactLedger) -> list[A
                 fact_id=fact.fact_id,
                 inferred_from=source_term,
             )
+    if non_experience_context is not None:
+        declarations = []
+        for (start, end), text in non_experience_context:
+            if end - start != len(text):
+                raise ValueError('Background skill source range does not match its original slice')
+            declarations.extend(_skill_declarations(text, start))
+        for term, proof in declarations:
+            proof['source_kind'] = 'background_declaration'
+            if not proof['qualified']:
+                continue
+            key = term.lower()
+            if key not in grouped:
+                grouped[key] = AggregatedSkillEvidence(term, 'explicit_background', 1.0)
+        for term, proof in declarations:
+            row = grouped.get(term.lower())
+            if row is not None and proof not in row.declarations:
+                row.declarations.append(proof)
     return list(grouped.values())
 
 

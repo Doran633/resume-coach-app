@@ -14,6 +14,7 @@ from .resume_skill_evidence_aggregation_service import (
     canonical_skill_term,
     contains_skill_term,
     extract_skill_terms,
+    skill_evidence_display,
 )
 from .technical_term_disambiguation_service import (
     ResolvedTechnicalTerm,
@@ -116,11 +117,26 @@ def guard_resume_skill_evidence(
     stage: str = "unknown",
     generation_result_id: int | None = None,
     write_log: bool = True,
+    canonical_evidence: bool = False,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     stats = SkillEvidenceStats(stage=stage, generation_result_id=generation_result_id)
     stats.skill_count_before = len(updated.resume_sections.skills)
+    if canonical_evidence and aggregated_evidence is None:
+        raise ValueError('Canonical skills require the request evidence collection')
     evidence_rows = aggregated_evidence if aggregated_evidence is not None else aggregate_skill_evidence(raw_input)
+    if canonical_evidence:
+        updated.resume_sections.skills = list(dict.fromkeys(skill_evidence_display(row) for row in evidence_rows))
+        for row in evidence_rows:
+            if any(not d['qualified'] for d in row.declarations):
+                question = f'请确认{row.term}的使用范围与掌握程度，当前陈述存在限制或差异。'
+                if question not in updated.missing_questions:
+                    updated.missing_questions.append(question)
+        stats.skill_count_after = len(updated.resume_sections.skills)
+        stats.verified_skill_count = len(evidence_rows)
+        if write_log:
+            _write_log(stats)
+        return updated
     if not raw_input.strip() and not evidence_rows:
         evidence_rows = aggregate_historical_project_skill_evidence(updated)
     resolutions = (
