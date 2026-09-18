@@ -225,11 +225,24 @@ def resolve_identity_type(
     if research_hits:
         scores["科研经历"] = 16
         positive.extend(f"科研经历:{hit[:40]}" for hit in research_hits[:3])
+    # Participation must end at the organization/activity object, not at a
+    # domain word embedded in a product name. Membership has its own relation.
+    campus_hits = _hits(
+        r"(?:参加|参与|组织|策划|协调|加入)[^。；\n，,]{0,24}"
+        r"(?:学生会|社团|协会|校庆|校园活动|志愿(?:活动|服务))"
+        r"(?:活动|工作)?(?=[，,。；\n]|$)|"
+        r"(?:在|作为|担任)[^。；\n，,]{0,24}(?:学生会|社团|协会)"
+        r"(?:中|的)?(?:担任|作为)?[^。；\n，,]{0,16}"
+        r"(?:成员|干事|负责人|部长)(?=[，,。；\n]|$)",
+        text,
+    )
+    if campus_hits:
+        scores["校园 / 社团经历"] = 16
+        positive.extend(f"校园 / 社团经历:{hit[:40]}" for hit in campus_hits[:3])
     semantic_rules = [
         ("竞赛获奖", r"(?:参加|参与|代表[^。；\n]{0,20}参加)[^。；\n]{0,40}(?:竞赛|比赛)[^。；\n]{0,40}(?:获奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖)|(?:竞赛|比赛)[^。；\n]{0,40}(?:获奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖)", 16),
         ("竞赛经历", r"(?:参加|参与|代表[^。；\n]{0,20}参加)[^。；\n]{0,40}(?:竞赛|比赛)|(?:竞赛|比赛)[^。；\n]{0,40}(?:赛题|路演|答辩|展示)", 14),
         ("开源经历", r"(?:向|为|在)[^。；\n]{0,40}(?:开源项目|开源社区|社区|仓库)[^。；\n]{0,40}(?:提交|贡献|修复|维护)|(?<![A-Za-z0-9_])(?:PR|Pull Request)(?![A-Za-z0-9_])[^。；\n]{0,32}(?:合并|merged|被合并)|(?<![A-Za-z0-9_])(?:maintainer|contributor)(?![A-Za-z0-9_])", 16),
-        ("校园 / 社团经历", r"(?:参加|参与|组织|策划|协调|担任|加入)[^。；\n]{0,40}(?:学生会|社团|协会|校庆|校园活动|志愿(?:活动|服务)?)|(?:学生会|社团|协会|校庆|校园活动|志愿(?:活动|服务)?)[^。；\n]{0,40}(?:参加|参与|组织|策划|协调|担任|加入|负责)", 16),
     ]
     for type_name, pattern, weight in semantic_rules:
         hits = _hits(pattern, text)
@@ -251,7 +264,7 @@ def resolve_identity_type(
     # accumulating project keywords cannot negate those contexts.
     ranked = sorted(
         ((kind, score) for kind, score in scores.items()
-         if not ((heading_internship or research_hits) and kind == "项目经历")),
+         if not ((heading_internship or research_hits or campus_hits) and kind == "项目经历")),
         key=lambda item: item[1], reverse=True,
     )
     resolved, top_score = ranked[0]
