@@ -128,7 +128,7 @@ def test_docx_consumes_persisted_fields_without_an_empty_technical_detail_bullet
     assert "项目：校园活动管理系统｜项目经历｜时间：【待填写】" in paragraphs
     assert "岗位：不应展示" not in "\n".join(paragraphs)
     assert "技术细节：" not in paragraphs
-    assert "技术细节：整理用户反馈并形成分析结论。" in paragraphs
+    assert "整理用户反馈并形成分析结论。" in paragraphs
     assert "技术细节：保留实际正文。" in paragraphs
     assert payload.model_dump(mode="json") == before
     assert db.get(models.GenerationResult, 9131).result_json == stored_before
@@ -158,4 +158,3 @@ def test_fixed_payload_uses_strings_for_intro_role_and_a_list_for_details():
     assert json.dumps(project["detail_fact_ids"]) == json.dumps(
         [[], ["EXP-001-F002"], ["EXP-001-F001"]]
     )
-

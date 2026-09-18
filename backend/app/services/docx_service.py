@@ -1,5 +1,4 @@
 import json
-import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -106,12 +105,6 @@ def _renderable_project_details(project: dict) -> list[str]:
             continue
         rendered.append(text)
     return rendered
-
-
-def _first_technical_detail_line(detail: str) -> str:
-    if re.match(r"^技术细节\s*[:：]", detail):
-        return detail
-    return "技术细节：" + detail
 
 
 def _p(doc: Document, text: str = "", size: float = 9.2, bold: bool = False, color: str | None = None):
@@ -279,16 +272,13 @@ def create_docx(db: Session, request: schemas.DocxCreate) -> schemas.DocxRespons
             else:
                 title_line = f"{project.get('name') or '[待填写]'}｜{project.get('meta') or '项目经历'}｜{project.get('time') or '[待填写]'}"
             _p(doc, title_line, 11, True, "1F3763")
-            intro_label = "经历简介：" if heading != "项目经历" else "项目简介："
             if str(project.get("intro") or "").strip():
-                _bullet(doc, intro_label + project.get("intro", ""), bold_label=True)
+                _bullet(doc, project.get("intro", ""))
             if str(project.get("role") or "").strip():
-                _bullet(doc, "我的职责：" + project.get("role", ""), bold_label=True)
+                _bullet(doc, project.get("role", ""))
             details = _renderable_project_details(project)
-            if details:
-                _bullet(doc, _first_technical_detail_line(details[0]), bold_label=True)
-                for detail in details[1:]:
-                    _bullet(doc, detail, level=1)
+            for detail in details:
+                _bullet(doc, detail)
 
     path = _next_path("resume-coach-v0")
     doc.save(path)

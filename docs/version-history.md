@@ -1,5 +1,13 @@
 # 版本历史
 
+## v0.9.19.1：Canonical Presentation Evidence Alignment
+
+- 基线 main / d29cc0e / 0.9.18.5.1。复用既有完整 Java、历史科研输入及新控制对照；v200—v204 的完整历史请求和模型返回未取得，不从 DOCX 反推。
+- 经批准，Claim Resolution 修正“研究”主语和主语后的“也”否定连接范围。独立否定成为原有 excluded 约束，肯定行动与状态事实保留；不在展示层重判资格。
+- Web 与 DOCX 退出 renderer 自动添加的项目正文结构标签，使用中性 bullet；保留含实际正文的历史标签内容，不改数据库结果及字段附件。
+- Fact placement 协议、证据准备和 Gate 无需修改；全部正常 Fact 继续完整唯一分配。混合 Fact 内名称/日期重复保留为残留，不扩大到拆 Fact 或自由改写。
+- 经批准迁移两条旧标签测试断言，其他来源、样式与不泄露断言保留。测试、权限与回滚见 [阶段说明](canonical-presentation-evidence-alignment.md)。
+
 ## v0.9.18.5.1：Canonical Semantic Unit Boundary Correction
 
 - 基线 main / c6aa50d / v0.9.18.5。服务器请求 `req_ea63b7f022584dd8987c332f6b0cc4d6` 的模型 Fact 位置契约及10项来源均通过，最终唯一 critical 是项目字段的 `INCOMPLETE_SENTENCE`；固定输入重放确认完整 Fact“相关代码由正式员工审核后合并”因末字“并”被误记为 `trailing_dependency`。

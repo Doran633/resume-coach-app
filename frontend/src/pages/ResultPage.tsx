@@ -188,6 +188,10 @@ function VersionCard({ title, tone, text }: { title: string; tone: string; text:
 
 function ProjectPreview({ project }: { project: Record<string, any> }) {
   const details = Array.isArray(project.details) ? project.details.slice(0, 3) : [];
+  const bodyRows = [project.intro, project.role, ...details].filter(
+    (item): item is string => typeof item === "string" && Boolean(item.trim())
+      && !/^(?:技术细节|项目简介|经历简介|我的职责)\s*[:：]?\s*$/.test(item.trim())
+  );
   const headerFields = project.meta === "实习经历"
     ? [
         { key: "organization", value: project.name, fallback: "企业：【待填写】", emphasis: true },
@@ -203,8 +207,7 @@ function ProjectPreview({ project }: { project: Record<string, any> }) {
     <div className="project-preview">
       <div className="section-title">
         <div>
-          <Typography.Title level={4}>项目经历预览</Typography.Title>
-          <p>先预览一段可放进正式简历的项目写法，方便你判断重点是否准确。</p>
+          <Typography.Title level={4}>经历预览</Typography.Title>
         </div>
       </div>
       <div className="project-title-line">
@@ -217,22 +220,9 @@ function ProjectPreview({ project }: { project: Record<string, any> }) {
         ))}
       </div>
       <div className="project-fields">
-        <div>
-          <span>项目简介</span>
-          <p>{cleanDisplayText(project.intro)}</p>
-        </div>
-        <div>
-          <span>我的职责</span>
-          <p>{cleanDisplayText(project.role)}</p>
-        </div>
-        {details.length > 0 && (
-          <div>
-            <span>技术细节</span>
-            <ul>
-              {details.map((item: string) => <li key={item}>{cleanDisplayText(item)}</li>)}
-            </ul>
-          </div>
-        )}
+        <ul>
+          {bodyRows.map((item, index) => <li key={index}>{item}</li>)}
+        </ul>
       </div>
     </div>
   );
