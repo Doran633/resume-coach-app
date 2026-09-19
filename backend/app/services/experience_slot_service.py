@@ -193,7 +193,11 @@ class ModelEvidenceContractError(RuntimeError):
 
     def __init__(self, reasons: dict[str, int]):
         self.reason_counts = dict(reasons)
-        if any(code.startswith("format_") for code in reasons):
+        if 'format_expression_review' in reasons:
+            self.code = 'MODEL_EXPRESSION_REVIEW_INVALID'
+        elif any(code.startswith('expression_review_') for code in reasons):
+            self.code = 'MODEL_EXPRESSION_REVIEW_UNCERTAIN' if 'expression_review_uncertain' in reasons else 'MODEL_EXPRESSION_REJECTED'
+        elif any(code.startswith("format_") for code in reasons):
             self.code = "MODEL_EVIDENCE_FORMAT"
         elif any(code.startswith("missing_") for code in reasons):
             self.code = "MODEL_EVIDENCE_MISSING"
@@ -216,21 +220,76 @@ class ModelJSONObject(dict):
             self[key] = value
 
 
+EXPRESSION_PROTOCOL = "canonical_fact_expressions_v1"
+
+
+@dataclass
+class CanonicalExpressionReview:
+    """Request-local validation receipts, never model fields or frozen facts."""
+
+    build: object = field(repr=False)
+    build_fingerprint: str = ""
+    candidates: dict = field(default_factory=dict, repr=False)
+    accepted: dict = field(default_factory=dict, repr=False)
+
+    def signature(self, fact) -> str:
+        return stable_hash(json.dumps([
+            EXPRESSION_PROTOCOL, self.build_fingerprint, self.build.raw_input_hash,
+            fact.experience_id, fact.fact_id, fact.claim_id, fact.source_span,
+            fact.resume_ready_text,
+            [(c.claim_id, c.text, c.eligibility, c.polarity, c.certainty, c.temporal_status)
+             for c in self.build.ledger.claims if c.source_experience_id == fact.experience_id],
+        ], ensure_ascii=False, default=str), purpose="expression_review")
+
+    @property
+    def pending(self) -> dict:
+        return {fid: row for fid, row in self.candidates.items() if not row['literal']}
+
+    def accept(self, decisions: object) -> None:
+        if (not isinstance(decisions, dict) or set(decisions) != {'decisions'}
+                or getattr(decisions, 'duplicate_keys', ())):
+            raise ModelEvidenceContractError({'format_expression_review': 1})
+        rows = decisions['decisions']
+        if (not isinstance(rows, dict) or getattr(rows, 'duplicate_keys', ())
+                or set(rows) != set(self.pending)
+                or any(not isinstance(value, str) or value not in {
+                    'supported', 'added_claim', 'omitted_fact', 'changed_qualification', 'uncertain',
+                } for value in rows.values())):
+            raise ModelEvidenceContractError({'format_expression_review': 1})
+        rejected = {f'expression_review_{value}': list(rows.values()).count(value)
+                    for value in set(rows.values()) if value != 'supported'}
+        if rejected:
+            raise ModelEvidenceContractError(rejected)
+        self.accepted = {fid: (row['signature'], row['candidate']) for fid, row in self.candidates.items()}
+
+    def text_for(self, fact, build) -> str | None:
+        receipt = self.accepted.get(fact.fact_id)
+        if build is not self.build or not receipt or receipt[0] != self.signature(fact):
+            return None
+        return receipt[1]
+
+
 def compose_model_fact_references(
     raw: object, consumer_views, *, request_id: str = "", attempt_id: str = "",
-    model_attempt: int = 0,
+    model_attempt: int = 0, expression_review: CanonicalExpressionReview | None = None,
 ) -> dict:
-    """Materialize one placement per frozen Fact, never repair model prose."""
+    """Validate references and prepare candidates; review precedes trusted delivery."""
     stats = SlotBindingStats(
         stage="generation_model_evidence_received", request_id=request_id,
         attempt_id=attempt_id, model_attempt=model_attempt,
-        reference_protocol="canonical_fact_placements_v1",
+        reference_protocol=EXPRESSION_PROTOCOL,
     )
 
     def reject(code: str) -> None:
         stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
 
     fields = {"source_experience_id", "fact_placements"}
+    if expression_review is not None:
+        if (expression_review.build is not consumer_views._build
+                or expression_review.build_fingerprint != consumer_views.build_fingerprint):
+            raise ModelEvidenceContractError({'invalid_expression_context': 1})
+        expression_review.candidates.clear()
+        expression_review.accepted.clear()
     facts_by_owner = {
         owner: consumer_views.facts_for_owner(owner)
         for owner in consumer_views.experience_ids
@@ -285,9 +344,31 @@ def compose_model_fact_references(
             reject("invalid_owner_or_fact_reference")
         if set(local) - set(placements):
             reject("missing_fact_assignment")
-        if any(not isinstance(value, str) or value not in ("intro", "role", "detail")
-               for value in placements.values()):
-            reject("format_fact_position")
+        valid_placements = {}
+        for fid, value in placements.items():
+            if (not isinstance(value, dict) or set(value) != {'position', 'text'}
+                    or getattr(value, 'duplicate_keys', ())):
+                reject("format_fact_expression")
+                continue
+            if not isinstance(value['position'], str) or value['position'] not in ('intro', 'role', 'detail'):
+                reject("format_fact_position")
+                continue
+            if not isinstance(value['text'], str) or not value['text'].strip():
+                reject("format_expression_text")
+                continue
+            if fid not in local:
+                continue
+            valid_placements[fid] = value
+            fact = local[fid]
+            literal = provenance_text_unchanged(value['text'], fact.resume_ready_text)
+            if expression_review is not None:
+                expression_review.candidates[fid] = {
+                    'owner': owner, 'source': fact.resume_ready_text, 'candidate': value['text'],
+                    'claim_id': fact.claim_id, 'literal': literal,
+                    'signature': expression_review.signature(fact),
+                }
+            elif not literal:
+                reject('unverified_rewrite')
         if assigned.intersection(placements):
             reject("duplicate_fact_reference")
         assigned.update(fid for fid in placements if fid in local)
@@ -298,14 +379,14 @@ def compose_model_fact_references(
                    or consumer_views.claim_owner(f.claim_id) != owner for f in selected):
                 reject("invalid_claim_lineage")
                 return "", [], []
-            texts = [f.resume_ready_text for f in selected]
+            texts = [valid_placements[f.fact_id]['text'] for f in selected]
             if any(not text.strip() for text in texts):
                 reject("invalid_empty_fact_text")
             text = texts[0] if len(texts) == 1 else "；".join(t.rstrip("。；;") for t in texts)
             return text, list(value), list(dict.fromkeys(f.claim_id for f in selected))
 
         grouped = {
-            position: [f.fact_id for f in ordered_facts if placements.get(f.fact_id) == position]
+            position: [f.fact_id for f in ordered_facts if valid_placements.get(f.fact_id, {}).get('position') == position]
             for position in ("intro", "role", "detail")
         }
         intro, intro_facts, intro_claims = row(grouped["intro"])
@@ -334,10 +415,12 @@ def compose_model_fact_references(
         stats.contract_passed = False
         _write_log(stats)
         raise ModelEvidenceContractError(stats.evidence_reason_counts)
+    if expression_review is not None and not expression_review.pending:
+        expression_review.accept({'decisions': {}})
     updated = deepcopy(raw)
     updated["resume_sections"]["projects"] = result
-    stats.stage = "generation_model_fact_references_composed"
-    stats.contract_passed = True
+    stats.stage = "generation_model_expression_candidates_prepared"
+    stats.contract_passed = not bool(expression_review and expression_review.pending)
     _write_log(stats)
     return updated
 
@@ -423,7 +506,8 @@ def validate_model_output_structure(
         raise ModelEvidenceContractError(stats.evidence_reason_counts)
 
 
-def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindingStats) -> bool:
+def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindingStats,
+                               *, expression_review=None, semantic_build=None) -> bool:
     local = {fact.fact_id: fact for fact in facts}
     allowed_claims = set(claim_ids)
     supported_facts: list[str] = []
@@ -454,10 +538,11 @@ def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindi
         elif set(claims) != {local[fid].claim_id for fid in ids} or not set(claims) <= allowed_claims:
             reason = "invalid_claim_lineage"
         else:
-            texts = [local[fid].resume_ready_text for fid in ids]
+            texts = [expression_review.text_for(local[fid], semantic_build)
+                     if expression_review is not None else local[fid].resume_ready_text for fid in ids]
             # A multi-Fact row is verifiable only as a literal composition of
             # its cited facts in the supplied order, not a semantic inference.
-            variants = [separator.join(t.rstrip("。；;") for t in texts) for separator in ("；", ";", "。")]
+            variants = [separator.join(t.rstrip("。；;") for t in texts) for separator in ("；", ";", "。")] if all(t is not None for t in texts) else []
             if not any(provenance_text_unchanged(text, value) for value in variants):
                 reason = "unverified_rewrite"
             else:
@@ -501,9 +586,17 @@ def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindi
 def validate_model_project_evidence(
     payload: schemas.GenerationPayload | dict, consumer_views, *, attempt_id: str = "",
     write_log: bool = True, require_complete: bool = False,
-    request_id: str = "", model_attempt: int = 0,
+    request_id: str = "", model_attempt: int = 0, expression_review=None,
 ) -> schemas.GenerationPayload | dict:
     """Validate candidate references without inventing bindings or rewriting body."""
+    if expression_review is not None:
+        if (expression_review.build is not consumer_views._build
+                or expression_review.build_fingerprint != consumer_views.build_fingerprint):
+            raise ModelEvidenceContractError({'invalid_expression_context': 1})
+        if require_complete and not isinstance(payload, dict):
+            validate_model_output_structure(payload.model_dump(), consumer_views,
+                                            request_id=request_id, attempt_id=attempt_id,
+                                            model_attempt=model_attempt)
     if isinstance(payload, dict):
         # Inspect source evidence before unrelated schema failures or defaults
         # can conceal it. Raw Canonical responses always require the contract.
@@ -522,6 +615,8 @@ def validate_model_project_evidence(
         request_id=request_id, model_attempt=model_attempt,
     )
     for project in projects:
+        original_aggregates = (set(_reference_ids(project.get('source_fact_ids', [])) or []),
+                               set(_reference_ids(project.get('source_claim_ids', [])) or []))
         owner = str(project.get("source_experience_id") or "")
         scope = consumer_views.scope_for_owner(owner)
         if require_complete and scope is None:
@@ -530,13 +625,24 @@ def validate_model_project_evidence(
         invalid = _validate_project_evidence(
             project, consumer_views.facts_for_owner(owner) if scope else (),
             scope.eligible_claim_ids if scope else (), stats,
+            expression_review=expression_review, semantic_build=consumer_views._build,
         )
+        if expression_review is not None and original_aggregates != (
+                set(project.get('source_fact_ids', [])), set(project.get('source_claim_ids', []))):
+            stats.evidence_reason_counts['invalid_expression_aggregate'] = 1
         if invalid and not project.get("source_fact_ids"):
             # Clearing bad IDs must not turn them into a vacuously valid
             # singleton-owner declaration. Independent valid fields still
             # retain their owner and provenance when another field is rejected.
             project.pop("source_experience_id", None)
     if require_complete:
+        if expression_review is not None:
+            assigned = [fid for project in projects for key in ('intro_source_fact_ids', 'role_source_fact_ids')
+                        for fid in project.get(key, [])]
+            assigned += [fid for project in projects for row in project.get('detail_fact_ids', []) for fid in row]
+            if (set(assigned) != set(consumer_views.eligible_fact_ids)
+                    or len(assigned) != len(set(assigned))):
+                stats.evidence_reason_counts['invalid_expression_coverage'] = 1
         stats.contract_passed = not bool(stats.evidence_reason_counts)
     if write_log:
         _write_log(stats)
@@ -748,7 +854,7 @@ def bind_projects_to_experience_slots(
     write_log: bool = True,
     semantic_build: "CanonicalSemanticBuild | None" = None,
     ownership_index: "CanonicalFactOwnershipIndex | None" = None,
-    return_stats: bool = False,
+    return_stats: bool = False, expression_review=None,
 ) -> schemas.GenerationPayload | tuple[schemas.GenerationPayload, SlotBindingStats]:
     """Freeze project owners once when canonical compilation is available.
 
@@ -780,6 +886,7 @@ def bind_projects_to_experience_slots(
                 project, [fact for fact in semantic_build.ledger.for_experience(owner)
                           if fact.fact_id in canonical_index.eligible_fact_ids_by_experience.get(owner, ())],
                 canonical_index.eligible_claim_ids_by_experience.get(owner, ()), stats,
+                expression_review=expression_review, semantic_build=semantic_build,
             )
             if invalid:
                 invalid_reference_positions.add(position)

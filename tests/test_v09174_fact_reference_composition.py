@@ -124,7 +124,7 @@ def test_combination_empty_rows_and_owner_order(monkeypatch, isolated):
     data = references(body)
     data['resume_sections']['projects'].reverse()
     for p in data['resume_sections']['projects']:
-        p['fact_placements'] = {fid:'detail' for fid in reversed(p['fact_placements'])}
+        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position='detail') for fid in reversed(p['fact_placements'])}
     (payload, _), _, build = receive(monkeypatch, CASES[0], [data])
     for p in payload.resume_sections.projects:
         facts = list(build.ledger.for_experience(p['source_experience_id']))
@@ -249,9 +249,9 @@ def test_reference_log_distinguishes_materialization_from_text_validation(monkey
     _, body = controlled_return(CASES[0])
     receive(monkeypatch, CASES[0], [references(body)])
     rows = [json.loads(line) for line in slots.LOG_PATH.read_text(encoding='utf-8').splitlines()]
-    composed = next(r for r in rows if r['stage'] == 'generation_model_fact_references_composed')
+    composed = next(r for r in rows if r['stage'] == 'generation_model_expression_candidates_prepared')
     assert composed['required_fact_count'] == composed['assigned_fact_count'] == 12
-    assert composed['reference_protocol'] == 'canonical_fact_placements_v1'
+    assert composed['reference_protocol'] == 'canonical_fact_expressions_v1'
     assert rows[-1]['stage'] == 'generation_model_evidence_received'
     assert rows[-1]['verified_field_count'] == 12 and rows[-1]['contract_passed'] is True
     text = slots.LOG_PATH.read_text(encoding='utf-8')

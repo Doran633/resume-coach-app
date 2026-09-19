@@ -80,7 +80,7 @@ def trace_delivery(raw, position, monkeypatch, tmp_path):
     reply = reference_return(body)
     for p in reply['resume_sections']['projects']:
         for index, fid in enumerate(p['fact_placements']):
-            p['fact_placements'][fid] = (
+            p['fact_placements'][fid]['position'] = (
                 ['intro', 'role', 'detail'][index % 3] if position == 'mixed' else position
             )
     snapshots, gates, frozen_objects, compiled_objects = [], [], [], []

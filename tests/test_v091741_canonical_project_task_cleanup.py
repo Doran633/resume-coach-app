@@ -24,11 +24,11 @@ LEGACY_HASHES = {
     False: '6dbf53d7ccd1f1868d3597c542ce0e22f8883474e15ad72c7824667b299b1319',
     True: '9972ac822e336a89982dc62af8f3d77f6372aad41607aa0ea53cb2dea8d0bc09',
 }
-CONTRACT_HASH = '0adedd039f42daa4f750160c980d026ffcc2bef54ba4c66672d29603d9a3c136'
+CONTRACT_HASH = 'bbb9202793fd1b2404096de7204371cb28720f9ced68b1755600dbb202028baf'
 # Filled after reviewing the entire captured static task, not generated at test runtime.
 REVIEWED_TASK_HASHES = {
-    False: '51a81253b2c20f281c6988523325f20af168fc72411e33269150c4d4a87dafee',
-    True: '7077b067c227449ffafe579eac4d6e7f924633f4815ea390c77ce3574ec131ee',
+    False: '9697e04826403b8378de56cd9ec80ccdfcdf9d810761dae04fb5a71ab93bb38d',
+    True: '0a861b761efdc89c3070b4d76f3669502fa23b5f212ea48b754524dcec59679d',
 }
 RETIRED = {
     False: (
@@ -70,7 +70,7 @@ def run_receiver(case, kind, long_mode, monkeypatch):
     good = references(body)
     for p in good['resume_sections']['projects']:
         ids = [f.fact_id for f in views.facts_for_owner(p['source_experience_id'])]
-        p['fact_placements'] = {fid:'detail' for fid in ids}
+        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position='detail') for fid in ids}
     wire = deepcopy(good)
     if kind in ('within_row','across_fields','overlap','retry_corrected'):
         # Old overlap fixtures remain negative controls after protocol retirement.
@@ -87,7 +87,7 @@ def run_receiver(case, kind, long_mode, monkeypatch):
     elif kind == 'overlap':
         p['detail_fact_ids'] = [ids[:2], ids[1:3]] + [[fid] for fid in ids[3:]]
     elif kind == 'combination':
-        p['fact_placements'] = {fid:('intro' if i < 2 else 'detail') for i,fid in enumerate(ids)}
+        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position=('intro' if i < 2 else 'detail')) for i,fid in enumerate(ids)}
     before = deepcopy(build), repr(views), deepcopy(wire)
     sent = []
     def network(prompt):

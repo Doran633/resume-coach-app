@@ -31,21 +31,26 @@ ATTACHMENTS = (
 )
 
 
-def reference_return(data):
+def reference_return(data, build=None):
     """Migrate disjoint fixture references only; never conceal duplicate evidence."""
     result = deepcopy(data)
     projects = []
     for project in data["resume_sections"]["projects"]:
         placements = {}
-        for position, rows in (
-            ("intro", [project["intro_source_fact_ids"]]),
-            ("role", [project["role_source_fact_ids"]]),
-            ("detail", project["detail_fact_ids"]),
+        for position, rows, texts in (
+            ("intro", [project["intro_source_fact_ids"]], [project['intro']]),
+            ("role", [project["role_source_fact_ids"]], [project['role']]),
+            ("detail", project["detail_fact_ids"], project['details']),
         ):
-            for row in rows:
+            for row, text in zip(rows, texts, strict=True):
                 for fid in row:
                     assert fid not in placements, "Duplicate fixture references need an explicit rejection test"
-                    placements[fid] = position
+                    if len(row) > 1:
+                        assert build is not None, 'Multi-Fact fixtures must supply frozen Fact texts, not split prose'
+                        source = next(f.resume_ready_text for f in build.ledger.facts if f.fact_id == fid)
+                    else:
+                        source = text
+                    placements[fid] = {'position': position, 'text': source}
         projects.append({"source_experience_id": project["source_experience_id"], "fact_placements": placements})
     result["resume_sections"]["projects"] = projects
     return result
@@ -326,10 +331,8 @@ def test_actual_generation_save_and_docx(case, monkeypatch, tmp_path):
             assert ids and all(fid in facts for fid in ids)
             assert set(claims) == {facts[fid].claim_id for fid in ids}
             original = "；".join(facts[fid].resume_ready_text for fid in ids)
-            # Existing professionalization removes this first-person prefix;
-            # the model reception validator itself does not allow this rewrite.
-            expected = original[1:] if original.startswith("我负责") else original
-            assert provenance_text_unchanged(text, expected)
+            # New expression delivery does not authorize a second prose writer.
+            assert provenance_text_unchanged(text, original)
             retained.update(ids)
         assert retained == set(facts)
     public = captured["response"].model_dump_json()

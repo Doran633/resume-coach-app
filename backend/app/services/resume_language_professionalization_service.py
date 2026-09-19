@@ -167,6 +167,7 @@ def professionalize_resume_language(
     presentation_view: CanonicalPresentationView | None = None,
     access_stats: CanonicalConsumerViewAccessStats | None = None,
     packaging_level: str = "大胆",
+    preserve_project_expressions: bool = False,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     level = packaging_level if packaging_level in PACKAGING_LEVELS else "大胆"
@@ -195,6 +196,9 @@ def professionalize_resume_language(
     projects: list[dict] = []
     for raw_project in updated.resume_sections.projects:
         project = dict(raw_project)
+        if preserve_project_expressions:
+            projects.append(project)
+            continue
         experience_id = str(project.get("immutable_source_experience_id") or project.get("source_experience_id") or "")
         for field_name in ("intro", "role"):
             original = str(project.get(field_name, ""))

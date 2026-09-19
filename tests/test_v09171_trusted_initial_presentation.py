@@ -171,9 +171,9 @@ def test_retry_uses_identical_evidence_protocol_and_one_preparation(case, long_m
     assert evidence(sent[0]) == evidence(sent[1])
     assert output_contract(sent[0]) == output_contract(sent[1])
     assert output_contract(sent[0])["field_references"] == {
-        "intro": "fact_placements 中值为 intro 的 Fact",
-        "role": "fact_placements 中值为 role 的 Fact",
-        "details": "fact_placements 中值为 detail 的 Fact，每 Fact 一行",
+        "intro": "position为intro的候选",
+        "role": "position为role的候选",
+        "details": "position为detail的候选，每Fact一行",
     }
     assert build == before
     assert payload.resume_sections.projects[0]["detail_fact_ids"] == data["resume_sections"]["projects"][0]["detail_fact_ids"]
@@ -234,7 +234,7 @@ def test_blank_rows_and_multifact_rows_preserve_exact_lineage(monkeypatch, isola
     normalized = generation.normalize_llm_payload(data)['resume_sections']['projects'][0]
     for key in ('details','detail_fact_ids','detail_claim_ids'):
         assert normalized[key] == expected[key]
-    network(monkeypatch, [reference_return(data)])
+    network(monkeypatch, [reference_return(data, build)])
     payload, _ = generation.build_llm_generation(request(CASES[0]), build.long_input_context, consumer_views=build_canonical_consumer_views(build))
     current = payload.resume_sections.projects[0]
     for key in ("details", "detail_fact_ids", "detail_claim_ids"):

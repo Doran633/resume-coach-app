@@ -39,8 +39,11 @@ def guard_template_language(
     *,
     presentation_view: CanonicalPresentationView | None = None,
     access_stats: CanonicalConsumerViewAccessStats | None = None,
+    preserve_project_expressions: bool = False,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
+    if preserve_project_expressions:
+        return updated
     for project in updated.resume_sections.projects:
         intro_permitted = presentation_view is None or presentation_view.permits_project_field(
             project, "intro", access_stats=access_stats,

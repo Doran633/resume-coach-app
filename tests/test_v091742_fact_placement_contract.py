@@ -11,7 +11,7 @@ from app.services import experience_slot_service as slots
 from app.services.canonical_consumer_view_service import build_canonical_consumer_views
 from app.services.json_repair_service import parse_llm_json
 from app.services.llm_service import LLMResult
-from test_v09162_model_output_evidence_contract import CASES, controlled_return, request, real_receiver
+from test_v09162_model_output_evidence_contract import CASES, controlled_return, request, real_receiver, reference_return
 from test_v09174_fact_reference_composition import isolated
 from test_v09172_initial_evidence_preservation import detail_return, detail_input, project_input
 
@@ -20,18 +20,7 @@ COURSE = dict(CASES[0], raw_input=(FIXTURES/'v091741_course_projects_input.txt')
 
 
 def placements(body):
-    result = deepcopy(body)
-    projects = []
-    for p in body['resume_sections']['projects']:
-        values = {}
-        for label, rows in [('intro', [p['intro_source_fact_ids']]), ('role', [p['role_source_fact_ids']]), ('detail', p['detail_fact_ids'])]:
-            for row in rows:
-                for fid in row:
-                    assert fid not in values, 'Fixture migration cannot silently deduplicate'
-                    values[fid] = label
-        projects.append(dict(source_experience_id=p['source_experience_id'], fact_placements=values))
-    result['resume_sections']['projects'] = projects
-    return result
+    return reference_return(body)
 
 
 def receive(case, replies, monkeypatch, long_mode=False):
@@ -86,7 +75,8 @@ def test_duplicate_keys_rejected_before_overwrite(kind, wrapper, monkeypatch, is
     if kind in ('fact','escaped_fact'):
         key = json.dumps(fid)
         duplicate = key if kind == 'fact' else '"\\u0045' + fid[1:] + '"'
-        text = text.replace(key + ': "intro"', duplicate + ': "detail", ' + key + ': "intro"',1)
+        value = json.dumps(p['fact_placements'][fid], ensure_ascii=False)
+        text = text.replace(key + ': ' + value, duplicate + ': ' + value + ', ' + key + ': ' + value, 1)
     elif kind == 'owner':
         text = text.replace('"source_experience_id":', '"source_experience_id": "EXP-999", "source_experience_id":',1)
     elif kind == 'placements':
@@ -162,7 +152,7 @@ def test_grouping_intro_uses_frozen_order_and_shared_claims(monkeypatch, isolate
     _,body = controlled_return(CASES[0])
     data = placements(body)
     for p in data['resume_sections']['projects']:
-        p['fact_placements'] = {fid:'intro' for fid in reversed(p['fact_placements'])}
+        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position='intro') for fid in reversed(p['fact_placements'])}
     (payload,_),_,build = receive(CASES[0],[data],monkeypatch)
     for p in payload.resume_sections.projects:
         facts = sorted(build.ledger.for_experience(p['source_experience_id']),key=lambda f:f.source_span)

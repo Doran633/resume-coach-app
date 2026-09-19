@@ -79,7 +79,7 @@ def declared_network_return(request, prompt):
     for owner in evidence(prompt)["owners"]:
         facts = owner["eligible_facts"]
         project = dict(source_experience_id=owner["source_experience_id"], fact_placements={
-            fact["fact_id"]: ("intro" if index == 0 else "role" if index == 1 else "detail")
+            fact["fact_id"]: {'position': ("intro" if index == 0 else "role" if index == 1 else "detail"), 'text': fact['resume_ready_text']}
             for index, fact in enumerate(facts)
         })
         projects.append(project)

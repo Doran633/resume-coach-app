@@ -179,7 +179,10 @@ def test_saved_truncated_real_response_not_complete(finish, monkeypatch, tmp_pat
         assert len(outcome['sent']) == 2
     else:
         # Counterfactual metadata control, NOT the provider's original result.
-        assert outcome['results'] == 1 and outcome['gates'][-1]['passed']
+        # Saved old placement strings are no longer the Canonical wire protocol.
+        assert outcome['error'] == 'MODEL_EVIDENCE_FORMAT'
+        assert outcome['results'] == 0 and not outcome['gates']
+        assert 'docx' not in outcome
 
 
 @pytest.mark.parametrize('first', ['length', 'evidence'])
