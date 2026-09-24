@@ -43,6 +43,23 @@ def decision(verdict='supported', source_fact_id=None, source=None, candidate=No
     return {'verdict': verdict, 'source_fact_id': source_fact_id, 'source_excerpt': source, 'candidate_excerpt': candidate}
 
 
+def coverage_reply(review, decisions):
+    return {
+        'decisions': decisions,
+        'coverage': {
+            fact_id: {'verdict': 'complete', 'unit_ids': unit_ids, 'source_excerpt': None}
+            for fact_id, unit_ids in review.coverage_units().items()
+        },
+    }
+
+
+def review_reply(build, body, decisions):
+    views = build_canonical_consumer_views(build)
+    review = slots.CanonicalExpressionReview(build, views.build_fingerprint)
+    slots.compose_model_fact_references(body, views, expression_review=review)
+    return coverage_reply(review, decisions)
+
+
 def receive(monkeypatch, case, build, replies, long=False, review=None):
     views = build_canonical_consumer_views(build)
     before = deepcopy(build), repr(views), deepcopy(replies)
@@ -76,7 +93,7 @@ def test_composed_expression_review_save_docx(position, monkeypatch, tmp_path, i
     case, build, body = composition_sample(position=position)
     unit = body['resume_sections']['projects'][0]['expression_units'][0]
     unit['text'] = '2026年4月至6月，使用Python与FastAPI开发课程资料检索助手，实现文件上传、关键词检索及查询结果展示。'
-    review = {'decisions': {unit['fact_ids'][0]: decision()}}
+    review = review_reply(build, body, {unit['fact_ids'][0]: decision()})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body, ensure_ascii=False), 'stop'), (json.dumps(review), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome, outcome
     project = outcome['saved']['resume_sections']['projects'][0]
@@ -127,7 +144,7 @@ def test_review_rejection_never_saves(verdict, monkeypatch, tmp_path, isolated):
     first = next(f for f in build.ledger.facts if f.fact_id == unit['fact_ids'][0])
     source = first.resume_ready_text if verdict in ('omitted_fact', 'changed_qualification') else None
     candidate = '独立负责整体系统' if verdict != 'omitted_fact' else None
-    reply = {'decisions': {unit['fact_ids'][0]: decision(verdict, first.fact_id if source else None, source, candidate)}}
+    reply = review_reply(build, body, {unit['fact_ids'][0]: decision(verdict, first.fact_id if source else None, source, candidate)})
     result = deliver(monkeypatch, tmp_path, case, [(json.dumps(body, ensure_ascii=False), 'stop'), (json.dumps(reply, ensure_ascii=False), 'stop')])
     assert result['error'] == ('MODEL_EXPRESSION_REVIEW_UNCERTAIN' if verdict == 'uncertain' else 'MODEL_EXPRESSION_REJECTED')
     assert result['results'] == 0 and not list(tmp_path.glob('*.docx'))
@@ -140,7 +157,7 @@ def test_invalid_review_mapping(kind, monkeypatch, isolated):
     unit = body['resume_sections']['projects'][0]['expression_units'][0]
     unit['text'] += '候选改写'
     key = unit['fact_ids'][0]
-    reply = {'decisions': {key: decision()}}
+    reply = review_reply(build, body, {key: decision()})
     row = reply['decisions'][key]
     if kind == 'missing': reply['decisions'].clear()
     elif kind == 'extra': reply['decisions']['unknown'] = decision()
@@ -178,12 +195,12 @@ def test_review_receives_exact_cited_sources_and_budget_is_shared(monkeypatch, i
     case, build, body = composition_sample()
     unit = body['resume_sections']['projects'][0]['expression_units'][0]
     unit['text'] = '2026年4月至6月，使用Python与FastAPI开发课程资料检索助手，实现文件上传、关键词检索及查询结果展示。'
-    reply = {'decisions': {unit['fact_ids'][0]: decision()}}
+    reply = review_reply(build, body, {unit['fact_ids'][0]: decision()})
     _, _, sent = receive(monkeypatch, case, build, [body, reply])
     text = sent[1]['messages'][1]['content']
     rows = json.JSONDecoder().raw_decode(text.split('<expression_review>\n')[1])[0]
     assert [f['fact_id'] for f in rows[unit['fact_ids'][0]]['sources']] == unit['fact_ids']
-    assert 'canonical_expression_review_v4' in text
+    assert 'canonical_expression_review_v5' in text
     bad = deepcopy(body)
     bad['resume_sections']['projects'][0]['expression_units'].pop()
     with pytest.raises(generation.GenerationServiceError) as caught:

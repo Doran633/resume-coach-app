@@ -241,8 +241,8 @@ def test_actual_prompt_has_no_competing_project_prose_task(long_mode, monkeypatc
                       '按段允许的自然承接知识也必须结合本段经历'):
         assert forbidden not in sent[0]
     assert 'normal_version' in sent[0] and 'knowledge_checklist' in sent[0]
-    assert '全部 owner 提供的每个 eligible Fact 必须至少声明并在正文中有意义地表达一次' in sent[0]
-    assert '辅助过程可概括，关键行动、对象、数量、成果、归属和限定不得省略' in sent[0]
+    assert '全部 owner 提供的每个 eligible Fact 必须声明；同owner关联单元整体须有意义地表达' in sent[0]
+    assert '整体须保留关键行动、对象、数量、工具、成果、团队归属、职责范围、完成状态及必要限定' in sent[0]
 
 
 def test_reference_log_distinguishes_materialization_from_text_validation(monkeypatch, isolated):

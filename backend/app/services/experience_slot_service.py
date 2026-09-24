@@ -221,7 +221,7 @@ class ModelJSONObject(dict):
 
 
 EXPRESSION_PROTOCOL = "canonical_fact_compositions_v2"
-EXPRESSION_REVIEW_PROTOCOL = "canonical_expression_review_v4"
+EXPRESSION_REVIEW_PROTOCOL = "canonical_expression_review_v5"
 
 
 @dataclass
@@ -232,6 +232,8 @@ class CanonicalExpressionReview:
     build_fingerprint: str = ""
     candidates: dict = field(default_factory=dict, repr=False)
     accepted: dict = field(default_factory=dict, repr=False)
+    coverage_accepted: dict = field(default_factory=dict, repr=False)
+    project_snapshots: dict = field(default_factory=dict, repr=False)
     review_issues: list[dict] = field(default_factory=list, repr=False)
     editorial_accepted_count: int = 0
 
@@ -248,17 +250,84 @@ class CanonicalExpressionReview:
     def pending(self) -> dict:
         return {fid: row for fid, row in self.candidates.items() if not row['literal']}
 
+    def coverage_units(self) -> dict[str, list[str]]:
+        review_owners = {row['owner'] for row in self.pending.values()}
+        return {
+            fact_id: [key for key, row in self.candidates.items()
+                      if row['owner'] == owner and fact_id in row['sources']]
+            for owner in sorted(review_owners)
+            for fact_id in dict.fromkeys(
+                fact_id for row in self.candidates.values() if row['owner'] == owner
+                for fact_id in row['sources']
+            )
+        }
+
+    def owner_signature(self, owner: str) -> str:
+        units = [(key, row['signature']) for key, row in self.candidates.items()
+                 if row['owner'] == owner]
+        coverage = [(fid, keys) for fid, keys in self.coverage_units().items()
+                    if self.candidates[keys[0]]['owner'] == owner]
+        return stable_hash(json.dumps([
+            EXPRESSION_REVIEW_PROTOCOL, self.build_fingerprint, self.build.raw_input_hash,
+            owner, units, coverage,
+        ], ensure_ascii=False), purpose='expression_coverage')
+
+    @staticmethod
+    def project_snapshot(project: dict) -> dict:
+        fields = ('intro', 'role', 'details', 'intro_source_fact_ids',
+                  'intro_source_claim_ids', 'role_source_fact_ids',
+                  'role_source_claim_ids', 'detail_fact_ids', 'detail_claim_ids',
+                  'source_fact_ids', 'source_claim_ids')
+        return {key: (deepcopy(project.get(key)) if project.get(key) is not None else
+                      ([] if key not in ('intro', 'role') else '')) for key in fields}
+
+    def project_matches(self, owner: str, project: dict) -> bool:
+        expected = self.project_snapshots.get(owner)
+        if expected is None or self.coverage_accepted.get(owner) != self.owner_signature(owner):
+            return False
+        actual = self.project_snapshot(project)
+        for field in ('intro', 'role'):
+            if not provenance_text_unchanged(actual[field], expected[field]):
+                return False
+        if (not isinstance(actual['details'], list)
+                or len(actual['details']) != len(expected['details'])
+                or len(actual['detail_fact_ids']) != len(actual['details'])
+                or len(actual['detail_claim_ids']) != len(actual['details'])):
+            return False
+        remaining = list(zip(expected['details'], expected['detail_fact_ids'],
+                             expected['detail_claim_ids'], strict=True))
+        for text, facts, claims in zip(actual['details'], actual['detail_fact_ids'],
+                                       actual['detail_claim_ids'], strict=True):
+            match = next((i for i, row in enumerate(remaining)
+                          if row[1] == facts and row[2] == claims
+                          and provenance_text_unchanged(text, row[0])), None)
+            if match is None:
+                return False
+            remaining.pop(match)
+        for key in ('source_fact_ids', 'source_claim_ids'):
+            if (len(actual[key]) != len(set(actual[key]))
+                    or set(actual[key]) != set(expected[key])):
+                return False
+        return all(actual[key] == expected[key] for key in expected
+                   if key not in ('intro', 'role', 'details', 'detail_fact_ids',
+                                  'detail_claim_ids', 'source_fact_ids', 'source_claim_ids'))
+
     def accept(self, decisions: object) -> None:
         # A failed or malformed new assessment must not retain an earlier receipt.
         self.accepted.clear()
+        self.coverage_accepted.clear()
         self.review_issues.clear()
         self.editorial_accepted_count = 0
-        if (not isinstance(decisions, dict) or set(decisions) != {'decisions'}
+        if (not isinstance(decisions, dict) or set(decisions) != {'decisions', 'coverage'}
                 or getattr(decisions, 'duplicate_keys', ())):
             raise ModelEvidenceContractError({'format_expression_review': 1})
         rows = decisions['decisions']
+        coverage_rows = decisions['coverage']
         if (not isinstance(rows, dict) or getattr(rows, 'duplicate_keys', ())
-                or set(rows) != set(self.pending)):
+                or set(rows) != set(self.pending)
+                or not isinstance(coverage_rows, dict)
+                or getattr(coverage_rows, 'duplicate_keys', ())
+                or set(coverage_rows) != set(self.coverage_units())):
             raise ModelEvidenceContractError({'format_expression_review': 1})
         issues = []
         rejected = {}
@@ -328,10 +397,43 @@ class CanonicalExpressionReview:
                     issue['unit_id'] = fid
                 issues.append(issue)
         self.review_issues = issues
+        for fact_id, unit_ids in self.coverage_units().items():
+            value = coverage_rows[fact_id]
+            if (not isinstance(value, dict) or getattr(value, 'duplicate_keys', ())
+                    or set(value) != {'verdict', 'unit_ids', 'source_excerpt'}
+                    or not isinstance(value['unit_ids'], list)
+                    or value['unit_ids'] != unit_ids):
+                raise ModelEvidenceContractError({'format_expression_review': 1})
+            verdict = value['verdict']
+            excerpt = value['source_excerpt']
+            if verdict not in ('complete', 'omitted', 'uncertain'):
+                raise ModelEvidenceContractError({'format_expression_review': 1})
+            if verdict == 'complete':
+                if excerpt is not None:
+                    raise ModelEvidenceContractError({'format_expression_review': 1})
+                continue
+            source = self.candidates[unit_ids[0]]['sources'][fact_id]
+            if not isinstance(excerpt, str) or not excerpt.strip():
+                raise ModelEvidenceContractError({'format_expression_review': 1})
+            start = source.find(excerpt)
+            if start < 0 or source.find(excerpt, start + 1) >= 0:
+                raise ModelEvidenceContractError({'format_expression_review': 1})
+            code = ('expression_review_coverage_omitted' if verdict == 'omitted'
+                    else 'expression_review_uncertain')
+            rejected[code] = rejected.get(code, 0) + 1
+            issues.append({
+                'fact_id': fact_id, 'source_experience_id': self.candidates[unit_ids[0]]['owner'],
+                'verdict': verdict, 'source_span': [start, start + len(excerpt)],
+                'unit_ids': unit_ids,
+            })
         if rejected:
             raise ModelEvidenceContractError(rejected)
         self.editorial_accepted_count = editorial_count
         self.accepted = {fid: (row['signature'], row['candidate']) for fid, row in self.candidates.items()}
+        self.coverage_accepted = {
+            owner: self.owner_signature(owner)
+            for owner in {row['owner'] for row in self.pending.values()}
+        }
 
     def texts_for(self, facts, build, position, field_text) -> list[str] | None:
         """Resolve complete units only; a subset cannot inherit a unit receipt."""
@@ -388,6 +490,8 @@ def compose_model_fact_references(
             raise ModelEvidenceContractError({'invalid_expression_context': 1})
         expression_review.candidates.clear()
         expression_review.accepted.clear()
+        expression_review.coverage_accepted.clear()
+        expression_review.project_snapshots.clear()
         expression_review.review_issues.clear()
         expression_review.editorial_accepted_count = 0
     facts_by_owner = {
@@ -538,6 +642,8 @@ def compose_model_fact_references(
             "source_fact_ids": list(dict.fromkeys(intro_facts + role_facts + [fid for r in detail_rows for fid in r[1]])),
             "source_claim_ids": list(dict.fromkeys(intro_claims + role_claims + [cid for r in detail_rows for cid in r[2]])),
         })
+        if expression_review is not None:
+            expression_review.project_snapshots[owner] = expression_review.project_snapshot(result[-1])
     if required - assigned:
         reject("missing_fact_assignment")
     stats.required_fact_count = len(required)
@@ -547,7 +653,7 @@ def compose_model_fact_references(
         _write_log(stats)
         raise ModelEvidenceContractError(stats.evidence_reason_counts)
     if expression_review is not None and not expression_review.pending:
-        expression_review.accept({'decisions': {}})
+        expression_review.accept({'decisions': {}, 'coverage': {}})
     updated = deepcopy(raw)
     updated["resume_sections"]["projects"] = result
     stats.stage = "generation_model_expression_candidates_prepared"
@@ -766,6 +872,9 @@ def validate_model_project_evidence(
         if expression_review is not None and original_aggregates != (
                 set(project.get('source_fact_ids', [])), set(project.get('source_claim_ids', []))):
             stats.evidence_reason_counts['invalid_expression_aggregate'] = 1
+        if (expression_review is not None and owner in expression_review.coverage_accepted
+                and not expression_review.project_matches(owner, project)):
+            stats.evidence_reason_counts['invalid_expression_coverage_receipt'] = 1
         if invalid and not project.get("source_fact_ids"):
             # Clearing bad IDs must not turn them into a vacuously valid
             # singleton-owner declaration. Independent valid fields still

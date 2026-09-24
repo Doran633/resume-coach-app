@@ -13,7 +13,7 @@ from app.services.canonical_consumer_view_service import build_canonical_consume
 from test_v09174_fact_reference_composition import isolated
 from test_v09176_delivery_closure import deliver
 from test_v09192_evidence_bounded_expression import THIN, expression_sample
-from test_v09193_evidence_bounded_composition import composition_sample, decision
+from test_v09193_evidence_bounded_composition import composition_sample, decision, coverage_reply, review_reply
 from test_v091741_canonical_project_task_cleanup import COURSE, run_receiver
 
 
@@ -65,7 +65,7 @@ def test_editorial_expansion_receipt_preserves_full_source_and_expires_on_change
     unit['text'] = source.rstrip('。') + '，形成清晰的资料查询流程。'
     views, review, composed = _review(build, body)
     assert fact_id in review.pending
-    review.accept({'decisions': {fact_id: _editorial(fact_id, source, '形成清晰的资料查询流程')}})
+    review.accept(coverage_reply(review, {fact_id: _editorial(fact_id, source, '形成清晰的资料查询流程')}))
     checked = slots.validate_model_project_evidence(composed, views, expression_review=review,
                                                     require_complete=True, write_log=False)
     project = checked['resume_sections']['projects'][0]
@@ -86,7 +86,7 @@ def test_editorial_receipt_and_lineage_are_field_specific(position, isolated):
     source = unit['text']
     unit['text'] = source.rstrip('。') + '，形成清晰的资料查询流程。'
     views, review, composed = _review(build, body)
-    review.accept({'decisions': {fact_id: _editorial(fact_id, source, '形成清晰的资料查询流程')}})
+    review.accept(coverage_reply(review, {fact_id: _editorial(fact_id, source, '形成清晰的资料查询流程')}))
     checked = slots.validate_model_project_evidence(composed, views, expression_review=review,
                                                     require_complete=True, write_log=False)
     project = checked['resume_sections']['projects'][0]
@@ -103,7 +103,7 @@ def test_editorial_expansion_reaches_save_and_docx(monkeypatch, tmp_path, isolat
     unit = next(u for u in body['resume_sections']['projects'][0]['expression_units']
                 if u['fact_ids'] == [fact.fact_id])
     unit['text'] = '在项目中协助开展测试工作。'
-    review = {'decisions': {fact.fact_id: _editorial(fact.fact_id, '我帮忙测试', '在项目中协助开展测试工作')}}
+    review = review_reply(build, body, {fact.fact_id: _editorial(fact.fact_id, '我帮忙测试', '在项目中协助开展测试工作')})
     log_dir = tmp_path / 'logs'
     log_dir.mkdir()
     monkeypatch.setattr(generation, 'LOG_DIR', log_dir)
@@ -138,7 +138,7 @@ def test_hard_claims_and_qualification_changes_still_rejected(
     replies = {fid: decision() for fid in review.pending}
     replies[key] = decision(verdict, key if source else None, source, candidate_excerpt)
     with pytest.raises(slots.ModelEvidenceContractError) as caught:
-        review.accept({'decisions': replies})
+        review.accept(coverage_reply(review, replies))
     assert caught.value.code == 'MODEL_EXPRESSION_REJECTED'
 
 
@@ -150,7 +150,7 @@ def test_unclaimed_owner_evidence_still_rejected(isolated):
     replies = {fid: decision() for fid in review.pending}
     replies[unit['fact_ids'][0]] = decision('added_claim', candidate='第二个项目的页面联调')
     with pytest.raises(slots.ModelEvidenceContractError):
-        review.accept({'decisions': replies})
+        review.accept(coverage_reply(review, replies))
 
 
 @pytest.mark.parametrize('change', ['missing_checks', 'unconfirmed', 'foreign_source', 'wrong_excerpt'])
@@ -171,7 +171,7 @@ def test_editorial_verdict_requires_structured_current_owner_evidence(change, is
     else:
         verdict['candidate_excerpt'] = '不存在的候选片段'
     with pytest.raises(slots.ModelEvidenceContractError) as caught:
-        review.accept({'decisions': {fact_id: verdict}})
+        review.accept(coverage_reply(review, {fact_id: verdict}))
     assert caught.value.code == 'MODEL_EXPRESSION_REVIEW_INVALID'
     assert not review.accepted
 
@@ -188,8 +188,8 @@ def test_actual_writer_task_uses_bounded_packaging_on_first_call_and_retry(
         contract = json.loads(actual.split('<canonical_model_output_contract>')[1].split('</canonical_model_output_contract>')[0])
         scope = contract['expression_scope']
         assert any('编辑性展开' in rule for rule in scope)
-        assert any('辅助过程' in rule for rule in scope)
-        assert '全部 owner 提供的每个 eligible Fact 必须至少声明并在正文中有意义地表达一次' in actual
+        assert any('辅助性质' in rule for rule in scope)
+        assert '全部 owner 提供的每个 eligible Fact 必须声明；同owner关联单元整体须有意义地表达' in actual
         assert '不得新增精确数字、技术、客户、上线、奖项、证书、职位' in actual
         evidence = json.loads(actual.split('<canonical_model_evidence>')[1].split('</canonical_model_evidence>')[0])
         assert {f['fact_id'] for owner in evidence['owners'] for f in owner['eligible_facts']} == {
@@ -208,7 +208,7 @@ def test_heldout_research_input_preserves_owner_and_source_with_editorial_review
     fact_id = unit['fact_ids'][0]
     source = unit['text']
     unit['text'] = source.rstrip('。') + '，使实验资料的组织更加清晰。'
-    reply = {'decisions': {fact_id: _editorial(fact_id, source, '使实验资料的组织更加清晰')}}
+    reply = review_reply(build, body, {fact_id: _editorial(fact_id, source, '使实验资料的组织更加清晰')})
     outcome = deliver(monkeypatch, tmp_path, case, [
         (json.dumps(body, ensure_ascii=False), 'stop'),
         (json.dumps(reply, ensure_ascii=False), 'stop'),

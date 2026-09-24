@@ -1,5 +1,11 @@
 # 版本历史
 
+## v0.9.19.4.1：Expression Unit Support and Owner Coverage Alignment
+
+- 项目写作协议及冻结 Fact/Claim 不变。复核协议升为 `canonical_expression_review_v5`：逐单元检查实际正文是否受声明来源支持，另按 Fact 核对同 owner 关联单元整体保留关键事实与限定；完整覆盖不再要求每个复用单元逐字表达整条复合 Fact。
+- 后端严格核对 coverage 的 Fact/单元集合、顺序、owner、来源片段和返回结构；遗漏、单条越界、无法判断及映射错误保持失败。请求内凭据绑定冻结证据和有序单元；已验证详情可连附件重排，删除、实质改写或附件错位不能沿用凭据。
+- 两次调用预算、四版本字段、legacy、Gate及保存出口不变。经批准迁移旧控制复核返回与正常/长输入任务快照，保留原输入、逐单元拒绝及交付断言。离线验收及残留风险见 [阶段说明](expression-unit-support-and-owner-coverage-alignment.md)；未调用真实模型，不宣称线上成功率改善。
+
 ## v0.9.19.4：Packaging-First Expression Contract
 
 - 冻结 Fact/Claim、owner、资格、表头和限制不变，项目接收协议仍为 `canonical_fact_compositions_v2`。全部 eligible Fact 仍须显式引用并有意义地表达；辅助过程可概括，关键行动、对象、数量、成果、归属和限定不得丢失。

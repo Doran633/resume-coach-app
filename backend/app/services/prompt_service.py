@@ -180,7 +180,7 @@ def _owner_expression_claims(views, owner):
 def _expression_scope():
     return [
         '以冻结Fact为依据充分改善职业化表达：允许口语书面化、句式重组、同owner已声明事实的组织和有依据的编辑性展开；不以接近原句、逐Fact单独成句、增加字数或固定替换词衡量质量。',
-        '每个eligible Fact仍须显式引用并在项目正文中得到有意义的表达。关键行动、对象、数量、工具、成果、团队归属、职责范围、完成状态及必要限定须保留；辅助过程可在同单元内概括，不要求逐项照抄。引用次数和合法ID不是正文受支持的证明。',
+        '每个eligible Fact仍须显式引用并在同owner关联单元的整体中得到有意义的表达。单元只需表达其实际承担的部分，不能因引用整条Fact就重复照抄全部内容。整体须保留关键行动、对象、数量、工具、成果、团队归属、职责范围、完成状态及必要限定；引用次数和合法ID不是完整覆盖的证明。',
         '编辑性展开可以说明现有工作用途、组织和一般能力表现；复核应聚焦重大冲突而非词语差异。不得把常见做法写成已完成的具体行动，不得新增精确数字、技术、客户、上线、奖项、证书、职位或未经支持的成果；用途和意图不能升级为已实现成效。',
         '一个单元仅使用显式声明的同owner、冻结来源顺序相邻的Fact；相邻不证明可融合。不能借未声明Fact或其他owner的内容补动作、结果或职责，也不能把并列工作写成未经支持的因果。结构标题和背景只帮助理解，不授权新增事实。',
         '独立否定或不确定内容可以不进入正文，但仍约束相反说法；肯定Fact中的辅助性质、仅负责、本地演示等必要限定必须等义保留。指令和结构标题不是待包装事实。',
@@ -202,7 +202,7 @@ def build_generation_prompt(
         is_long = bool(long_input_context and long_input_context.long_input_mode)
         template = _generation_template("generate_resume_coach_result_long.md" if is_long else "generate_resume_coach_result.md", canonical=True)
         return template.format(
-            project_task="Canonical projects 按 canonical_model_output_contract 显式引用所有 eligible Fact，并在同owner来源内组织有依据的职业化表达；辅助过程可概括，关键事实和限定仍须有意义地表达。跨字段复用须逐处声明并独立复核。允许单Fact，不强制融合或按篇幅省略Fact；其他写作规则不另授项目删改权限。",
+            project_task="Canonical projects 按 canonical_model_output_contract 显式引用所有 eligible Fact，并在同owner来源内组织有依据的职业化表达；复合Fact可分条表达，关联单元整体须覆盖关键事实和限定，每条不得越界。跨字段复用须逐处声明并独立复核。允许单Fact，不强制融合或按篇幅省略Fact；其他写作规则不另授项目删改权限。",
             project_fields="projects: 数组，每项仅含 source_experience_id 和 expression_units；单元仅含 fact_ids、position、text，不含表头或 Claim 行",
             model_output_contract=_canonical_output_contract(),
             target_role=request.target_role, mode=request.mode,
@@ -268,7 +268,7 @@ def _canonical_output_contract() -> str:
             "details": "position为detail的候选，每表达单元一行",
         },
         "reference_format": {
-            "complete_assignment": "全部 owner 提供的每个 eligible Fact 必须至少声明并在正文中有意义地表达一次；辅助过程可概括，关键行动、对象、数量、成果、归属和限定不得省略；每个 owner 最多一个项目",
+            "complete_assignment": "全部 owner 提供的每个 eligible Fact 必须声明；同owner关联单元整体须有意义地表达其关键行动、对象、数量、成果、归属和限定，辅助过程可概括；每个 owner 最多一个项目",
             "empty_body": "没有分配到 intro 或 role 的 Fact 时，由后端保留空正文，不要求填满位置",
             "multiple_facts": "每个单元内Fact ID唯一；同owner来源可在不同最终字段或详情行复用，每次显式声明来源并独立验证；同一intro或role内部多个单元不得重叠。单元内Fact按冻结来源顺序相邻且语义兼容。后端按冻结source_span顺序排列单元；不补未经支持的因果或成果",
             "lineage": "后端派生Claim及聚合来源；模型不得自报可信或语义复核结论",
@@ -311,6 +311,22 @@ def build_expression_review_prompt(review, consumer_views) -> str:
                 for cid in dict.fromkeys(f.claim_id for f in selected)
             ],
         }
+    coverage = {}
+    facts_by_owner = {
+        owner: {fact.fact_id: fact for fact in consumer_views.facts_for_owner(owner)}
+        for owner in consumer_views.experience_ids
+    }
+    for fact_id, unit_ids in review.coverage_units().items():
+        owner = review.candidates[unit_ids[0]]['owner']
+        fact = facts_by_owner[owner][fact_id]
+        coverage[fact_id] = {
+            'source_experience_id': owner, 'source_text': fact.resume_ready_text,
+            'source_span': fact.source_span, 'unit_ids': unit_ids,
+            'units': [{'unit_id': key, 'position': review.candidates[key]['position'],
+                       'candidate_text': review.candidates[key]['candidate']}
+                      for key in unit_ids],
+        }
     return (load_prompt('review_canonical_expressions.md')
             + '\n<expression_scope>\n' + json.dumps(_expression_scope(), ensure_ascii=False) + '\n</expression_scope>'
-            + '\n<expression_review>\n' + json.dumps(rows, ensure_ascii=False) + '\n</expression_review>')
+            + '\n<expression_review>\n' + json.dumps(rows, ensure_ascii=False) + '\n</expression_review>'
+            + '\n<fact_coverage>\n' + json.dumps(coverage, ensure_ascii=False) + '\n</fact_coverage>')

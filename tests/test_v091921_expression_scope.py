@@ -13,6 +13,7 @@ from test_v09174_fact_reference_composition import isolated
 from test_v09192_evidence_bounded_expression import expression_sample, THIN, unit_for
 from test_v09162_model_output_evidence_contract import request
 from test_v09176_delivery_closure import provider, deliver
+from test_v09193_evidence_bounded_composition import coverage_reply, review_reply
 
 FIXTURE = json.loads((Path(__file__).parent / 'fixtures/v091921_real_expression_returns.json').read_text(encoding='utf-8'))
 RAW = FIXTURE['parameters']['raw_input']
@@ -57,7 +58,7 @@ def test_role_qualified_context_is_shared_without_recompilation(isolated, monkey
 
 def test_rejection_has_exact_redacted_ranges_and_no_receipt(isolated):
     _, _, _, _, receipt = context()
-    reply = {'decisions': {'EXP-001-F006': decision('changed_qualification', '只用于', '用于')}}
+    reply = coverage_reply(receipt, {'EXP-001-F006': decision('changed_qualification', '只用于', '用于')})
     with pytest.raises(slots.ModelEvidenceContractError) as caught:
         receipt.accept(reply)
     assert caught.value.code == 'MODEL_EXPRESSION_REJECTED'
@@ -85,7 +86,7 @@ def test_invalid_or_unlocalized_review_fails_closed(reply, isolated):
     if isinstance(reply, dict):
         reply = dict(reply, source_fact_id='EXP-001-F006' if reply.get('source_excerpt') is not None else None)
     with pytest.raises(slots.ModelEvidenceContractError) as caught:
-        receipt.accept({'decisions': {'EXP-001-F006': reply}})
+        receipt.accept(coverage_reply(receipt, {'EXP-001-F006': reply}))
     assert caught.value.code == 'MODEL_EXPRESSION_REVIEW_INVALID'
     assert not receipt.accepted
 
@@ -112,7 +113,7 @@ def test_preserving_rewrite_saves_with_real_pipeline_controlled_review(isolated,
     unit_for(p, 'EXP-001-F006')['text'] = '该项目的使用范围限于小组课堂展示。'
     unit_for(p, 'EXP-001-F005')['text'] = '围绕12个常见问题，逐项记录回答与资料内容是否一致，将发现的不一致情况反馈给负责检索部分的同学。'
     slots.compose_model_fact_references(body, views, expression_review=receipt)
-    reply = {'decisions': {fid: decision() for fid in receipt.pending}}
+    reply = coverage_reply(receipt, {fid: decision() for fid in receipt.pending})
     before = deepcopy(build), repr(views)
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body, ensure_ascii=False), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome
@@ -137,16 +138,16 @@ def test_recorded_legacy_review_is_not_guessed_as_new_protocol(run, isolated, mo
     ('uncertain', '只用于', None, 'MODEL_EXPRESSION_REVIEW_UNCERTAIN'),
 ])
 def test_real_receiving_failure_logs_locations_not_text(verdict, source, candidate, code, isolated, monkeypatch, tmp_path):
-    case, _, _, body, _ = context()
+    case, build, _, body, _ = context()
     log_dir = tmp_path / 'logs'
     log_dir.mkdir()
     monkeypatch.setattr(generation, 'LOG_DIR', log_dir)
-    reply = {'decisions': {'EXP-001-F006': decision(verdict, source, candidate)}}
+    reply = review_reply(build, body, {'EXP-001-F006': decision(verdict, source, candidate)})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['error'] == code and outcome['results'] == 0
     rows = [json.loads(line) for line in (log_dir / 'llm_calls.jsonl').read_text(encoding='utf-8').splitlines()]
     row = next(r for r in rows if r.get('stage') == 'generation_expression_review_validated')
-    assert row['review_protocol'] == 'canonical_expression_review_v4'
+    assert row['review_protocol'] == 'canonical_expression_review_v5'
     assert row['review_issues'][0]['fact_id'] == 'EXP-001-F006'
     assert row['review_issues'][0]['verdict'] == verdict
     assert row['request_id'] and row['attempt_id']
@@ -157,7 +158,7 @@ def test_real_receiving_failure_logs_locations_not_text(verdict, source, candida
 @pytest.mark.parametrize('field', ['verdict', 'source_excerpt', 'candidate_excerpt'])
 def test_duplicate_review_object_keys_rejected(field, isolated):
     _, _, _, _, receipt = context()
-    wire = json.dumps({'decisions': {'EXP-001-F006': decision()}})
+    wire = json.dumps(coverage_reply(receipt, {'EXP-001-F006': decision()}))
     wire = wire.replace('"' + field + '":', '"' + field + '":null,"' + field + '":', 1)
     with pytest.raises(slots.ModelEvidenceContractError) as caught:
         receipt.accept(json.loads(wire, object_pairs_hook=slots.ModelJSONObject))
@@ -169,16 +170,16 @@ def test_ambiguous_anchor_not_resolved_by_first_occurrence(isolated):
     _, _, _, _, receipt = context()
     receipt.candidates['EXP-001-F006']['candidate'] = '课堂展示，课堂展示'
     with pytest.raises(slots.ModelEvidenceContractError) as caught:
-        receipt.accept({'decisions': {'EXP-001-F006': decision('added_claim', None, '课堂展示')}})
+        receipt.accept(coverage_reply(receipt, {'EXP-001-F006': decision('added_claim', None, '课堂展示')}))
     assert caught.value.code == 'MODEL_EXPRESSION_REVIEW_INVALID'
 
 
 def test_new_failed_assessment_invalidates_old_receipt(isolated):
     _, _, _, _, receipt = context()
-    receipt.accept({'decisions': {'EXP-001-F006': decision()}})
+    receipt.accept(coverage_reply(receipt, {'EXP-001-F006': decision()}))
     assert receipt.accepted
     with pytest.raises(slots.ModelEvidenceContractError):
-        receipt.accept({'decisions': {'EXP-001-F006': 'supported'}})
+        receipt.accept(coverage_reply(receipt, {'EXP-001-F006': 'supported'}))
     assert not receipt.accepted and not receipt.review_issues
 
 
@@ -190,7 +191,7 @@ def test_broad_rewrite_keeps_field_lineage(position, isolated, monkeypatch):
     project = body['resume_sections']['projects'][0]
     fact = next(f for f in build.ledger.facts if f.resume_ready_text == '我帮忙测试')
     unit_for(project, fact.fact_id)['text'] = '参与项目的测试工作。'
-    reply = {'decisions': {fact.fact_id: decision()}}
+    reply = review_reply(build, body, {fact.fact_id: decision()})
     sent = provider(monkeypatch, [(json.dumps(body), 'stop'), (json.dumps(reply), 'stop')])
     before = deepcopy(build), repr(views)
     payload, _ = generation.build_llm_generation(request(case), build.long_input_context, consumer_views=views, expression_review=receipt)

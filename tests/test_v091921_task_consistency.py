@@ -9,6 +9,7 @@ from test_v091741_canonical_project_task_cleanup import COURSE, INPUTS, run_rece
 from test_v09174_fact_reference_composition import isolated
 from test_v09192_evidence_bounded_expression import expression_sample, THIN, LIMITED
 from test_v091921_expression_scope import decision
+from test_v09193_evidence_bounded_composition import review_reply
 from test_v09176_delivery_closure import deliver
 
 
@@ -71,7 +72,7 @@ def test_assisting_role_control_saves_without_expanding_evidence(monkeypatch, tm
     fact = next(f for f in build.ledger.facts if f.resume_ready_text == '我帮忙测试')
     candidate = '协助开展测试工作。'
     next(u for u in body['resume_sections']['projects'][0]['expression_units'] if u['fact_ids'] == [fact.fact_id])['text'] = candidate
-    reply = {'decisions': {fact.fact_id: decision()}}
+    reply = review_reply(build, body, {fact.fact_id: decision()})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body, ensure_ascii=False), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome
     project = outcome['saved']['resume_sections']['projects'][0]
@@ -91,7 +92,7 @@ def test_controlled_review_rejection_remains_closed(candidate, verdict, excerpt,
     fact = next(f for f in build.ledger.facts if f.resume_ready_text == '我帮忙测试')
     next(u for u in body['resume_sections']['projects'][0]['expression_units'] if u['fact_ids'] == [fact.fact_id])['text'] = candidate
     # Controlled verdicts validate wiring, not real reviewer discrimination.
-    reply = {'decisions': {fact.fact_id: decision(verdict, None, excerpt)}}
+    reply = review_reply(build, body, {fact.fact_id: decision(verdict, None, excerpt)})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body, ensure_ascii=False), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['error'] == 'MODEL_EXPRESSION_REJECTED'
     assert outcome['results'] == 0 and len(outcome['sent']) == 2

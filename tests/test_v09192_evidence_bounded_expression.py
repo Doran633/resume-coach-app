@@ -15,6 +15,7 @@ from test_v09162_model_output_evidence_contract import request
 from test_v09176_delivery_closure import provider, deliver
 from test_v0916_canonical_model_evidence import evidence
 from test_v091851_semantic_unit_boundary import RAW_INPUT
+from test_v09193_evidence_bounded_composition import review_reply
 
 THIN = '个人项目：课程展示网站\n2026年5月，使用Vue制作课程展示网站。我做了页面。我帮忙测试。'
 LIMITED = '课程项目：设备登记系统\n2026年4月，在三人小组中只负责前端页面。使用Vue实现设备列表和登记表单。系统仅在本地演示，没有真实用户。'
@@ -50,7 +51,7 @@ def expression_sample(raw=THIN, *, rewrite=True, position='detail'):
     data['resume_sections']['summary'] = ['具备项目实践经历。']
     for key in ('normal_version', 'bold_version', 'boundary_version', 'recommended_version'):
         data[key] = '\n'.join(f.resume_ready_text for f in build.ledger.facts)
-    return case, build, data, {'decisions': changed}
+    return case, build, data, review_reply(build, data, changed)
 
 
 def unit_for(project, fid):
@@ -196,7 +197,7 @@ def test_controlled_review_rejection_prevents_save(candidate, verdict, monkeypat
     fid = next(f.fact_id for f in build.ledger.facts if '只负责' in f.resume_ready_text)
     unit_for(project, fid)['text'] = candidate
     fact = next(f for f in build.ledger.facts if f.fact_id == fid)
-    reply = {'decisions': {fid: review_decision(verdict, fact.resume_ready_text, candidate, fid)}}
+    reply = review_reply(build, data, {fid: review_decision(verdict, fact.resume_ready_text, candidate, fid)})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(data), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['results'] == 0 and 'docx' not in outcome
     assert outcome['error'] == 'MODEL_EXPRESSION_REJECTED'
@@ -244,7 +245,7 @@ def test_holdout_full_pipeline_preserves_team_scope(monkeypatch, tmp_path, isola
     fid = next(f.fact_id for f in build.ledger.facts if '我协助整理' in f.resume_ready_text)
     value = unit_for(data['resume_sections']['projects'][0], fid)
     value['text'] = value['text'].replace('我协助整理', '协助整理')
-    reply = {'decisions': {fid: review_decision()}}
+    reply = review_reply(build, data, {fid: review_decision()})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(data), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome, outcome.get('error')
     text = json.dumps(outcome['saved']['resume_sections']['projects'], ensure_ascii=False)

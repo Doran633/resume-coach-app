@@ -11,6 +11,7 @@ from test_v09162_model_output_evidence_contract import request
 from test_v09174_fact_reference_composition import isolated
 from test_v09176_delivery_closure import provider, deliver
 from test_v09192_evidence_bounded_expression import expression_sample, THIN
+from test_v09193_evidence_bounded_composition import review_reply
 
 
 VERSIONS = {
@@ -121,9 +122,9 @@ def test_short_versions_survive_reviewed_project_expression(monkeypatch, tmp_pat
     case, build, body = sample()
     fact = next(f for f in build.ledger.facts if f.resume_ready_text == '我帮忙测试')
     next(u for u in body['resume_sections']['projects'][0]['expression_units'] if u['fact_ids'] == [fact.fact_id])['text'] = '协助开展测试工作。'
-    review = {'decisions': {fact.fact_id: {
+    review = review_reply(build, body, {fact.fact_id: {
         'verdict': 'supported', 'source_fact_id': None, 'source_excerpt': None, 'candidate_excerpt': None,
-    }}}
+    }})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body), 'stop'), (json.dumps(review), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome and len(outcome['sent']) == 2
     assert {key: outcome['saved'][key].rstrip('。') for key in VERSIONS} == {

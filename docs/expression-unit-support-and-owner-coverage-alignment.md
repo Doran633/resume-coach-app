@@ -1,0 +1,21 @@
+# v0.9.19.4.1 Expression Unit Support and Owner Coverage Alignment
+
+## Evidence and boundary
+
+Baseline: main / `ebd85af6` / v0.9.19.4. The production full-smoke log for request `req_9cac8be1cd674dbb9249ff9b821af2f5` recorded one frozen Fact and four candidate units; the v4 reviewer reported four `omitted_fact` decisions. The original candidate texts were not retained. The controlled case built from the exact smoke input demonstrates the reachable mismatch, not a replay of those original four sentences. Existing unrelated `.pytest-*` deletions in the worktree were left untouched.
+
+The writer still returns `canonical_fact_compositions_v2` with explicit owner, source IDs, position and text. Every eligible Fact must be assigned; a legal ID alone does not validate prose. The independent v5 reviewer returns `decisions` for nonliteral units and `coverage` for each Fact in an owner requiring review. A unit may express only its supported part of a compound Fact. The coverage decision considers all units declaring that Fact, including literal units, and must locate a missing source excerpt when incomplete. An overclaim or lost qualification in one unit rejects even if another unit covers the Fact. The reviewer does not write replacement text or modify frozen evidence.
+
+The backend checks exact Fact keys, all ordered unit IDs, owner-local declarations, allowed verdicts, unique source excerpts and duplicate JSON keys. It records only IDs, reason categories and spans in logs. A successful review remains a probabilistic risk assessment, not a deterministic proof that the model judged all meanings correctly. The request-local receipt binds Build fingerprint, source/Claim context, ordered units, positions and candidate text. A synchronized reorder of intact detail text and Fact/Claim rows is accepted; missing, rewritten, duplicated or misaligned rows invalidate coverage before delivery.
+
+## Verification and residual risk
+
+New controlled tests cover a four-unit compound Fact, omitted technical work and feedback, one-unit responsibility upgrade, wrong coverage mapping, duplicate keys, v4 rejection, shared Claim/multi-Fact lineage, synchronized reordering, deletion, normal/long mode and generation through Gate, save and DOCX. The approved migration derives old controlled coverage from the actual Build and declared units while retaining their original per-unit verdicts, inputs, budget, source, failure and delivery assertions. The complete normal/long sent task and contract hashes were reviewed and updated; legacy behavior was not migrated.
+
+Offline control can establish wiring and failure exits but not real reviewer accuracy or improved production success. In particular, a reviewer may incorrectly call an incomplete group `complete`, miss a new assertion or over-reject a reasonable paraphrase. Two model calls remain the limit; formatting retries can still exhaust the review budget. A real-model acceptance run should repeat the fixed smoke input plus normal, thin and limited holdouts, log first-call completion and v5 refusal categories, and review both coverage and packaging quality. No paid model call, production database connection, deployment or commit was made in this iteration.
+
+Final offline verification: the related protocol suite passed 233 tests; the isolated full suite passed 1819 tests (1903 existing deprecation warnings); the focused golden/DOCX suite passed 28 tests. Python compilation and scoped `git diff --check` passed. These counts include controlled review decisions and do not measure the real reviewer's semantic accuracy. The test log directory and pytest temporary files were isolated outside the repository.
+
+The whole-worktree `git diff --check` could not inspect the pre-existing deleted `.pytest-*` files because the sandbox denies reading their old paths. The scoped check covered every changed tracked file in this iteration; the historical deletions must stay outside the commit.
+
+Rollback must restore the v4 review template, parser and request-local receipt together with the prompt task and version documentation; mixing v5 output with v4 parsing fails closed. The project writer protocol, public API, stored revision, downstream writers and Gate are not part of this rollback.

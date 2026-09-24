@@ -7,7 +7,7 @@ from docx import Document
 
 from app.services import experience_slot_service as slots
 from app.services.canonical_consumer_view_service import build_canonical_consumer_views
-from test_v09193_evidence_bounded_composition import composition_sample, decision
+from test_v09193_evidence_bounded_composition import composition_sample, decision, coverage_reply
 from test_v09176_delivery_closure import deliver
 from test_v09174_fact_reference_composition import isolated
 
@@ -29,7 +29,7 @@ def prepare(build, body):
     views = build_canonical_consumer_views(build)
     review = slots.CanonicalExpressionReview(build, views.build_fingerprint)
     composed = slots.compose_model_fact_references(body, views, expression_review=review)
-    review.accept({'decisions': {key: decision() for key in review.pending}})
+    review.accept(coverage_reply(review, {key: decision() for key in review.pending}))
     return views, review, composed
 
 
@@ -56,7 +56,7 @@ def test_reused_fact_requires_distinct_review_receipts():
     composed = slots.compose_model_fact_references(body, views, expression_review=review)
     assert len(review.pending) == 2
     assert len(set(review.pending)) == 2
-    review.accept({'decisions': {key: decision() for key in review.pending}})
+    review.accept(coverage_reply(review, {key: decision() for key in review.pending}))
     slots.validate_model_project_evidence(composed, views, expression_review=review,
                                           require_complete=True, write_log=False)
     changed = deepcopy(composed)
@@ -101,7 +101,7 @@ def test_reused_source_reviewed_independently_through_delivery(monkeypatch, tmp_
     review = slots.CanonicalExpressionReview(build, views.build_fingerprint)
     slots.compose_model_fact_references(body, views, expression_review=review)
     assert len(review.pending) == 2
-    reply = {'decisions': {key: decision() for key in review.pending}}
+    reply = coverage_reply(review, {key: decision() for key in review.pending})
     outcome = deliver(monkeypatch, tmp_path, case, [
         (json.dumps(body, ensure_ascii=False), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome, outcome
@@ -119,7 +119,7 @@ def test_review_mapping_cannot_reuse_one_decision_for_two_units():
     review = slots.CanonicalExpressionReview(build, views.build_fingerprint)
     slots.compose_model_fact_references(body, views, expression_review=review)
     with pytest.raises(slots.ModelEvidenceContractError) as caught:
-        review.accept({'decisions': {next(iter(review.pending)): decision()}})
+        review.accept(coverage_reply(review, {next(iter(review.pending)): decision()}))
     assert caught.value.code == 'MODEL_EXPRESSION_REVIEW_INVALID'
 
 
@@ -144,8 +144,8 @@ def test_reuse_does_not_hide_invalid_evidence(kind):
         assert review.pending
         key = next(key for key, row in review.pending.items() if row['candidate'].endswith('独立设计检索架构'))
         with pytest.raises(slots.ModelEvidenceContractError) as caught:
-            review.accept({'decisions': {k: decision('added_claim', candidate='独立设计检索架构')
-                                         if k == key else decision() for k in review.pending}})
+            review.accept(coverage_reply(review, {k: decision('added_claim', candidate='独立设计检索架构')
+                                         if k == key else decision() for k in review.pending}))
         assert caught.value.code == 'MODEL_EXPRESSION_REJECTED'
     else:
         with pytest.raises(slots.ModelEvidenceContractError):
