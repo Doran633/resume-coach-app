@@ -183,7 +183,7 @@ def test_review_receives_exact_cited_sources_and_budget_is_shared(monkeypatch, i
     text = sent[1]['messages'][1]['content']
     rows = json.JSONDecoder().raw_decode(text.split('<expression_review>\n')[1])[0]
     assert [f['fact_id'] for f in rows[unit['fact_ids'][0]]['sources']] == unit['fact_ids']
-    assert 'canonical_expression_review_v3' in text
+    assert 'canonical_expression_review_v4' in text
     bad = deepcopy(body)
     bad['resume_sections']['projects'][0]['expression_units'].pop()
     with pytest.raises(generation.GenerationServiceError) as caught:

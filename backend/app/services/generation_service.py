@@ -467,6 +467,7 @@ def build_llm_generation(
             expression_review.candidates.clear()
             expression_review.accepted.clear()
             expression_review.review_issues.clear()
+            expression_review.editorial_accepted_count = 0
         budget = resource_protection.check_daily_budget()
         if not budget.allowed:
             raise GenerationServiceError("Daily model budget reached.", code="DAILY_BUDGET_REACHED")
@@ -558,7 +559,8 @@ def build_llm_generation(
                                        'review_protocol': EXPRESSION_REVIEW_PROTOCOL,
                                        'created_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
                                        'attempt_id': request.attempt_id or '', 'review_passed': True,
-                                       'candidate_count': len(expression_review.pending)})
+                                       'candidate_count': len(expression_review.pending),
+                                       'editorial_accepted_count': expression_review.editorial_accepted_count})
                     except (ModelEvidenceContractError, JSONRepairError, ValueError) as exc:
                         reason_counts = exc.reason_counts if isinstance(exc, ModelEvidenceContractError) else {'format_expression_review': 1}
                         _write_llm_log({'stage': 'generation_expression_review_validated', 'request_id': request_id,

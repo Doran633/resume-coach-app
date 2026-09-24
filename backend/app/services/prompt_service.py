@@ -179,13 +179,12 @@ def _owner_expression_claims(views, owner):
 
 def _expression_scope():
     return [
-        '在事实边界内充分改善职业化表达：允许口语书面化、句式重组、明确行动对象和有依据的说明性展开，不以接近原句、增加字数或固定替换词作为标准。原文清楚或没有展开依据时允许保留。',
-        '当前表达单元显式引用的全部Fact的resume_ready_text是唯一可重述的事实；保留全部实质信息、数量、工具、团队归属、职责程度、状态和必要限定。原文字词可变，限定的含义不能变；限定换一种自然表达不等于限定消失。',
-        '说明性展开可以讲清已有行动及其对象，不能新增具体工作、技术步骤、规模、成效、责任等级、熟练程度或经历广度。用途和意图不能升级为已实现效果；行业常见做法不能作为事实。',
-        '仅允许同owner冻结来源顺序相邻的完整Fact组成一个表达单元；相邻不证明语义可融合，行动主体、对象、职责和时间状态须兼容。并列工作不能编成未经支持的因果或成果。owner背景、结构标题和同Claim上下文仅用于理解，不得搬入未引用Fact的行动或结果，不跨owner借用。',
-        '独立否定或不确定内容可以不作为正文展示，但仍约束表达；含限定的肯定Fact和项目状态必须完整保留，不按限制词隐藏。指令、结构标题和排除内容不是待包装事实。',
-        '单薄履历不强制扩写；包装级别、软事实和面试提醒均不能授权编造。无法核实的扩展不能靠合法ID或词语相似获得支持。',
-        '职责按行动、对象范围、自主程度、责任归属、团队关系及完成状态分别核对。一般职责措辞不自动等于主导，但不得抹去协助或仅负责的范围；稀疏描述无法证明更强责任时保留原范围，复核不能确定时返回uncertain。',
+        '以冻结Fact为依据充分改善职业化表达：允许口语书面化、句式重组、同owner已声明事实的组织和有依据的编辑性展开；不以接近原句、逐Fact单独成句、增加字数或固定替换词衡量质量。',
+        '每个eligible Fact仍须显式引用并在项目正文中得到有意义的表达。关键行动、对象、数量、工具、成果、团队归属、职责范围、完成状态及必要限定须保留；辅助过程可在同单元内概括，不要求逐项照抄。引用次数和合法ID不是正文受支持的证明。',
+        '编辑性展开可以说明现有工作用途、组织和一般能力表现；复核应聚焦重大冲突而非词语差异。不得把常见做法写成已完成的具体行动，不得新增精确数字、技术、客户、上线、奖项、证书、职位或未经支持的成果；用途和意图不能升级为已实现成效。',
+        '一个单元仅使用显式声明的同owner、冻结来源顺序相邻的Fact；相邻不证明可融合。不能借未声明Fact或其他owner的内容补动作、结果或职责，也不能把并列工作写成未经支持的因果。结构标题和背景只帮助理解，不授权新增事实。',
+        '独立否定或不确定内容可以不进入正文，但仍约束相反说法；肯定Fact中的辅助性质、仅负责、本地演示等必要限定必须等义保留。指令和结构标题不是待包装事实。',
+        '稀疏经历允许自然说明，但不强制扩写。行动可以专业化，不能自动变成独立主导、扩大责任或熟练程度；复核无法判断是否改变职责时返回uncertain。面试提醒不能替代正文的事实依据。',
     ]
 
 
@@ -203,7 +202,7 @@ def build_generation_prompt(
         is_long = bool(long_input_context and long_input_context.long_input_mode)
         template = _generation_template("generate_resume_coach_result_long.md" if is_long else "generate_resume_coach_result.md", canonical=True)
         return template.format(
-            project_task="Canonical projects 仅按 canonical_model_output_contract 使用显式完整来源的表达单元覆盖全部 Fact；同owner来源可在不同最终字段或详情行有界复用，每次均完整表达并独立验证。允许单Fact，不强制融合。其他写作、包装、删改规则仅适用于非 projects 字段；项目不得借包装级别扩大事实，不按篇幅省略 Fact。",
+            project_task="Canonical projects 按 canonical_model_output_contract 显式引用所有 eligible Fact，并在同owner来源内组织有依据的职业化表达；辅助过程可概括，关键事实和限定仍须有意义地表达。跨字段复用须逐处声明并独立复核。允许单Fact，不强制融合或按篇幅省略Fact；其他写作规则不另授项目删改权限。",
             project_fields="projects: 数组，每项仅含 source_experience_id 和 expression_units；单元仅含 fact_ids、position、text，不含表头或 Claim 行",
             model_output_contract=_canonical_output_contract(),
             target_role=request.target_role, mode=request.mode,
@@ -255,13 +254,13 @@ def build_generation_prompt(
 
 
 def _canonical_output_contract() -> str:
-    """Explicit complete source units; frozen evidence is not rewritten."""
+    """Explicit source units with bounded editorial expression."""
     contract = {
         "applies_to": "resume_sections.projects",
         "protocol": "canonical_fact_compositions_v2",
         "required_fields": {
             "source_experience_id": "当前 canonical_model_evidence 中的 owner ID",
-            "expression_units": "数组；每项仅含fact_ids（本owner相邻且按冻结来源顺序排列的非空完整Fact ID数组）、position（intro、role、detail之一）、text（全部引用Fact共同支持的非空候选正文）",
+            "expression_units": "数组；每项仅含fact_ids（本owner相邻且按冻结来源顺序排列的非空Fact ID数组）、position（intro、role、detail之一）、text（这些来源支持的非空候选正文）",
         },
         "field_references": {
             "intro": "position为intro的候选",
@@ -269,9 +268,9 @@ def _canonical_output_contract() -> str:
             "details": "position为detail的候选，每表达单元一行",
         },
         "reference_format": {
-            "complete_assignment": "全部 owner 提供的每个 eligible Fact 必须至少完整表达一次，不按篇幅或重要性省略；每个 owner 最多一个项目",
+            "complete_assignment": "全部 owner 提供的每个 eligible Fact 必须至少声明并在正文中有意义地表达一次；辅助过程可概括，关键行动、对象、数量、成果、归属和限定不得省略；每个 owner 最多一个项目",
             "empty_body": "没有分配到 intro 或 role 的 Fact 时，由后端保留空正文，不要求填满位置",
-            "multiple_facts": "每个单元内Fact ID唯一且每项完整；同owner来源可在不同最终字段或详情行复用，每次显式声明完整来源并独立验证；同一intro或role内部多个单元不得重叠。单元内Fact按冻结来源顺序相邻且语义兼容。后端按冻结source_span顺序排列单元；不补连接性结论",
+            "multiple_facts": "每个单元内Fact ID唯一；同owner来源可在不同最终字段或详情行复用，每次显式声明来源并独立验证；同一intro或role内部多个单元不得重叠。单元内Fact按冻结来源顺序相邻且语义兼容。后端按冻结source_span顺序排列单元；不补未经支持的因果或成果",
             "lineage": "后端派生Claim及聚合来源；模型不得自报可信或语义复核结论",
             "headers": "后端使用冻结 project_header；模型不返回 name/meta/time/position",
         },

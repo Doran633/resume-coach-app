@@ -1,5 +1,12 @@
 # 版本历史
 
+## v0.9.19.4：Packaging-First Expression Contract
+
+- 冻结 Fact/Claim、owner、资格、表头和限制不变，项目接收协议仍为 `canonical_fact_compositions_v2`。全部 eligible Fact 仍须显式引用并有意义地表达；辅助过程可概括，关键行动、对象、数量、成果、归属和限定不得丢失。
+- 同请求写作与独立复核共用新的包装边界。内部复核升为 `canonical_expression_review_v4`：`editorial_expansion` 仅在来源与候选片段可唯一定位、五项结构化核查均肯定时取得请求内凭据；硬事实新增、职责或限定变化、无法判断依旧拒绝。复核是概率性风险评估，不提升冻结事实权威。
+- 接收器、Binder 和交付前检查继续复用同一签名凭据；脱敏日志仅新增可接受展开数量。没有改四版本字段、前端、Gate、DOCX、数据库或两次模型调用上限。经批准仅迁移旧复核协议标识和完整发送任务快照，原输入、legacy、来源拒绝及保存断言保留。
+- 控制返回专项、全量及黄金/DOCX结果见[阶段说明](packaging-first-expression-contract.md)。未调用真实模型，不能以离线通过宣称实际包装收益或成功率改善。
+
 ## v0.9.19.3.1：Canonical Expression Source Reuse
 
 - 在未提交的 v0.9.19.3 工作区上实施，不覆盖既有改动。内部项目协议升为 `canonical_fact_compositions_v2`，覆盖按 Fact 集合核对，允许同 owner 来源在不同最终字段或详情行显式复用；同一单元与同一 intro/role 内重叠、完全重复单元仍拒绝。

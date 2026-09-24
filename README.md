@@ -1,6 +1,8 @@
 # Resume Coach App
 
-## 当前架构：v0.9.19.3.1
+## 当前架构：v0.9.19.4
+
+v0.9.19.4 保留 `canonical_fact_compositions_v2` 的冻结来源、owner 隔离和完整引用集合，调整项目正文的表达权限：辅助过程可有依据地概括，关键行动、对象、数量、成果、职责及限制仍须表达。独立复核协议 `canonical_expression_review_v4` 新增带五项结构化核查和精确原文/候选片段的 `editorial_expansion` 结论；它是请求内概率性风险评估，不会写回 Fact，也不能由写作者自报。硬事实越界、限定反转、未知来源及无法判断仍拒绝。四版本字段、前端、结构化简历/DOCX及两次模型调用上限不变。详见 [阶段说明](docs/packaging-first-expression-contract.md)。离线控制通过不等于真实模型包装质量已达标。
 
 v0.9.19.3.1 使用 `canonical_fact_compositions_v2`：全部 eligible Fact 仍须完整覆盖，同 owner 的完整来源可在不同最终字段或详情行显式复用。每个表达单元独立验证正文和附件；单元内、同一 intro/role 内及完全相同单元的重复仍拒绝。Canonical 可读性检查不再按相似度删除有来源的项目详情，legacy 行为不变。详情见 [阶段说明](docs/canonical-expression-source-reuse.md)。本版未调用真实模型；离线通过不能证明包装质量或线上成功率。
 
