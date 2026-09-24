@@ -220,7 +220,8 @@ class ModelJSONObject(dict):
             self[key] = value
 
 
-EXPRESSION_PROTOCOL = "canonical_fact_expressions_v1"
+EXPRESSION_PROTOCOL = "canonical_fact_compositions_v2"
+EXPRESSION_REVIEW_PROTOCOL = "canonical_expression_review_v3"
 
 
 @dataclass
@@ -231,14 +232,15 @@ class CanonicalExpressionReview:
     build_fingerprint: str = ""
     candidates: dict = field(default_factory=dict, repr=False)
     accepted: dict = field(default_factory=dict, repr=False)
+    review_issues: list[dict] = field(default_factory=list, repr=False)
 
-    def signature(self, fact) -> str:
+    def signature(self, facts, position, text) -> str:
         return stable_hash(json.dumps([
-            EXPRESSION_PROTOCOL, self.build_fingerprint, self.build.raw_input_hash,
-            fact.experience_id, fact.fact_id, fact.claim_id, fact.source_span,
-            fact.resume_ready_text,
+            EXPRESSION_PROTOCOL, EXPRESSION_REVIEW_PROTOCOL, self.build_fingerprint, self.build.raw_input_hash,
+            [(f.experience_id, f.fact_id, f.claim_id, f.source_span, f.resume_ready_text) for f in facts],
+            position, text,
             [(c.claim_id, c.text, c.eligibility, c.polarity, c.certainty, c.temporal_status)
-             for c in self.build.ledger.claims if c.source_experience_id == fact.experience_id],
+             for c in self.build.ledger.claims if c.source_experience_id == facts[0].experience_id],
         ], ensure_ascii=False, default=str), purpose="expression_review")
 
     @property
@@ -246,27 +248,103 @@ class CanonicalExpressionReview:
         return {fid: row for fid, row in self.candidates.items() if not row['literal']}
 
     def accept(self, decisions: object) -> None:
+        # A failed or malformed new assessment must not retain an earlier receipt.
+        self.accepted.clear()
+        self.review_issues.clear()
         if (not isinstance(decisions, dict) or set(decisions) != {'decisions'}
                 or getattr(decisions, 'duplicate_keys', ())):
             raise ModelEvidenceContractError({'format_expression_review': 1})
         rows = decisions['decisions']
         if (not isinstance(rows, dict) or getattr(rows, 'duplicate_keys', ())
-                or set(rows) != set(self.pending)
-                or any(not isinstance(value, str) or value not in {
-                    'supported', 'added_claim', 'omitted_fact', 'changed_qualification', 'uncertain',
-                } for value in rows.values())):
+                or set(rows) != set(self.pending)):
             raise ModelEvidenceContractError({'format_expression_review': 1})
-        rejected = {f'expression_review_{value}': list(rows.values()).count(value)
-                    for value in set(rows.values()) if value != 'supported'}
+        issues = []
+        rejected = {}
+        for fid, value in rows.items():
+            if (not isinstance(value, dict) or getattr(value, 'duplicate_keys', ())
+                    or set(value) != {'verdict', 'source_fact_id', 'source_excerpt', 'candidate_excerpt'}
+                    or not isinstance(value['verdict'], str)
+                    or value['verdict'] not in {
+                        'supported', 'added_claim', 'omitted_fact', 'changed_qualification', 'uncertain',
+                    }):
+                raise ModelEvidenceContractError({'format_expression_review': 1})
+            verdict = value['verdict']
+            source_id = value['source_fact_id']
+            sources = self.pending[fid]['sources']
+            if ((value['source_excerpt'] is None and source_id is not None)
+                    or (value['source_excerpt'] is not None and
+                        (not isinstance(source_id, str) or source_id not in sources))):
+                raise ModelEvidenceContractError({'format_expression_review': 1})
+            spans = []
+            for key, text in (('source_excerpt', sources.get(source_id, '')),
+                              ('candidate_excerpt', self.pending[fid]['candidate'])):
+                excerpt = value[key]
+                if excerpt is None:
+                    spans.append(None)
+                    continue
+                if not isinstance(excerpt, str) or not excerpt.strip():
+                    raise ModelEvidenceContractError({'format_expression_review': 1})
+                start = text.find(excerpt)
+                # Exact unique anchoring only; no fuzzy recovery or first-occurrence guess.
+                if start < 0 or text.find(excerpt, start + 1) >= 0:
+                    raise ModelEvidenceContractError({'format_expression_review': 1})
+                spans.append([start, start + len(excerpt)])
+            source, candidate = spans
+            valid = {
+                'supported': source is None and candidate is None,
+                'added_claim': source is None and candidate is not None,
+                'omitted_fact': source is not None and candidate is None,
+                'changed_qualification': source is not None and candidate is not None,
+                'uncertain': source is not None or candidate is not None,
+            }[verdict]
+            if not valid:
+                raise ModelEvidenceContractError({'format_expression_review': 1})
+            if verdict != 'supported':
+                code = f'expression_review_{verdict}'
+                rejected[code] = rejected.get(code, 0) + 1
+                issue = {'fact_id': next(iter(sources)), 'source_fact_id': source_id,
+                         'source_fact_ids': list(sources), 'source_experience_id': self.pending[fid]['owner'],
+                         'verdict': verdict, 'source_span': source, 'candidate_span': candidate}
+                if fid != issue['fact_id']:
+                    issue['unit_id'] = fid
+                issues.append(issue)
+        self.review_issues = issues
         if rejected:
             raise ModelEvidenceContractError(rejected)
         self.accepted = {fid: (row['signature'], row['candidate']) for fid, row in self.candidates.items()}
 
-    def text_for(self, fact, build) -> str | None:
-        receipt = self.accepted.get(fact.fact_id)
-        if build is not self.build or not receipt or receipt[0] != self.signature(fact):
+    def texts_for(self, facts, build, position, field_text) -> list[str] | None:
+        """Resolve complete units only; a subset cannot inherit a unit receipt."""
+        if build is not self.build or not facts:
             return None
-        return receipt[1]
+        if facts != sorted(facts, key=lambda f: f.source_span):
+            return None
+        ids = [f.fact_id for f in facts]
+        texts = []
+        units = sorted(
+            ((key, row) for key, row in self.candidates.items()
+             if row['owner'] == facts[0].experience_id and row['position'] == position
+             and row['field_ids'] == ids
+             and provenance_text_unchanged(field_text, row['field_text'])),
+            key=lambda item: item[1]['unit_index'],
+        )
+        if not units:
+            return None
+        index = 0
+        for key, row in units:
+            receipt = self.accepted.get(key)
+            if not receipt:
+                return None
+            unit_ids = list(row['sources'])
+            selected = facts[index:index + len(unit_ids)]
+            if ([f.fact_id for f in selected] != unit_ids
+                    or row['owner'] != selected[0].experience_id
+                    or any(f.experience_id != row['owner'] for f in selected)
+                    or receipt != (self.signature(selected, position, row['candidate']), row['candidate'])):
+                return None
+            texts.append(receipt[1])
+            index += len(unit_ids)
+        return texts if index == len(ids) else None
 
 
 def compose_model_fact_references(
@@ -283,13 +361,14 @@ def compose_model_fact_references(
     def reject(code: str) -> None:
         stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
 
-    fields = {"source_experience_id", "fact_placements"}
+    fields = {"source_experience_id", "expression_units"}
     if expression_review is not None:
         if (expression_review.build is not consumer_views._build
                 or expression_review.build_fingerprint != consumer_views.build_fingerprint):
             raise ModelEvidenceContractError({'invalid_expression_context': 1})
         expression_review.candidates.clear()
         expression_review.accepted.clear()
+        expression_review.review_issues.clear()
     facts_by_owner = {
         owner: consumer_views.facts_for_owner(owner)
         for owner in consumer_views.experience_ids
@@ -334,19 +413,15 @@ def compose_model_fact_references(
             reject("invalid_frozen_header")
             continue
 
-        placements = project.get("fact_placements")
-        if not isinstance(placements, dict):
-            reject("format_fact_placements")
+        units = project.get("expression_units")
+        if not isinstance(units, list):
+            reject("format_expression_units")
             continue
-        if getattr(placements, "duplicate_keys", ()):
-            reject("duplicate_project_key")
-        if set(placements) - set(local):
-            reject("invalid_owner_or_fact_reference")
-        if set(local) - set(placements):
-            reject("missing_fact_assignment")
-        valid_placements = {}
-        for fid, value in placements.items():
-            if (not isinstance(value, dict) or set(value) != {'position', 'text'}
+        rank = {f.fact_id: index for index, f in enumerate(ordered_facts)}
+        valid_units = []
+        seen_units = set()
+        for value in units:
+            if (not isinstance(value, dict) or set(value) != {'fact_ids', 'position', 'text'}
                     or getattr(value, 'duplicate_keys', ())):
                 reject("format_fact_expression")
                 continue
@@ -356,42 +431,77 @@ def compose_model_fact_references(
             if not isinstance(value['text'], str) or not value['text'].strip():
                 reject("format_expression_text")
                 continue
-            if fid not in local:
+            ids = value['fact_ids']
+            if not isinstance(ids, list) or not ids or any(not isinstance(fid, str) for fid in ids):
+                reject('format_unit_fact_ids')
                 continue
-            valid_placements[fid] = value
-            fact = local[fid]
-            literal = provenance_text_unchanged(value['text'], fact.resume_ready_text)
-            if expression_review is not None:
-                expression_review.candidates[fid] = {
-                    'owner': owner, 'source': fact.resume_ready_text, 'candidate': value['text'],
-                    'claim_id': fact.claim_id, 'literal': literal,
-                    'signature': expression_review.signature(fact),
-                }
-            elif not literal:
-                reject('unverified_rewrite')
-        if assigned.intersection(placements):
-            reject("duplicate_fact_reference")
-        assigned.update(fid for fid in placements if fid in local)
+            if len(ids) != len(set(ids)):
+                reject('duplicate_fact_reference')
+                continue
+            unit_identity = (value['position'], tuple(ids), value['text'])
+            if unit_identity in seen_units:
+                reject('duplicate_fact_reference')
+                continue
+            seen_units.add(unit_identity)
+            if any(fid not in local for fid in ids):
+                reject('invalid_owner_or_fact_reference')
+                continue
+            indices = [rank[fid] for fid in ids]
+            if indices != list(range(indices[0], indices[0] + len(indices))):
+                reject('invalid_unit_source_order')
+                continue
+            assigned.update(ids)
+            valid_units.append(value)
 
         def row(value):
-            selected = [local[fid] for fid in value]
+            ids = [fid for unit in value for fid in unit['fact_ids']]
+            selected = [local[fid] for fid in ids]
             if any(consumer_views.fact_owner(f.fact_id) != owner or f.claim_id not in claims
                    or consumer_views.claim_owner(f.claim_id) != owner for f in selected):
                 reject("invalid_claim_lineage")
                 return "", [], []
-            texts = [valid_placements[f.fact_id]['text'] for f in selected]
+            texts = [unit['text'] for unit in value]
             if any(not text.strip() for text in texts):
                 reject("invalid_empty_fact_text")
             text = texts[0] if len(texts) == 1 else "；".join(t.rstrip("。；;") for t in texts)
-            return text, list(value), list(dict.fromkeys(f.claim_id for f in selected))
+            return text, ids, list(dict.fromkeys(f.claim_id for f in selected))
 
+        valid_units.sort(key=lambda u: rank[u['fact_ids'][0]])
         grouped = {
-            position: [f.fact_id for f in ordered_facts if valid_placements.get(f.fact_id, {}).get('position') == position]
+            position: [unit for unit in valid_units if unit['position'] == position]
             for position in ("intro", "role", "detail")
         }
+        for position in ('intro', 'role'):
+            field_ids = [fid for unit in grouped[position] for fid in unit['fact_ids']]
+            if len(field_ids) != len(set(field_ids)):
+                reject('duplicate_field_fact_reference')
+        for position, group in grouped.items():
+            for value in (grouped[position] if position == 'detail' else [group]):
+                field_units = [value] if position == 'detail' else value
+                field_ids = [fid for unit in field_units for fid in unit['fact_ids']]
+                field_text = (field_units[0]['text'] if len(field_units) == 1 else
+                              '；'.join(unit['text'].rstrip('。；;') for unit in field_units))
+                for unit_index, unit in enumerate(field_units):
+                    ids = unit['fact_ids']
+                    selected = [local[fid] for fid in ids]
+                    source = '；'.join(f.resume_ready_text.rstrip('。；;') for f in selected)
+                    literal = provenance_text_unchanged(unit['text'], source)
+                    if expression_review is not None:
+                        key = ids[0]
+                        if key in expression_review.candidates:
+                            key = f'{ids[0]}@{stable_hash(json.dumps([owner, position, ids, unit["text"]], ensure_ascii=False), purpose="expression_unit")}'
+                        expression_review.candidates[key] = {
+                            'owner': owner, 'sources': {f.fact_id: f.resume_ready_text for f in selected},
+                            'candidate': unit['text'], 'position': position,
+                            'field_ids': field_ids, 'field_text': field_text,
+                            'unit_index': unit_index, 'literal': literal,
+                            'signature': expression_review.signature(selected, position, unit['text']),
+                        }
+                    elif not literal:
+                        reject('unverified_rewrite')
         intro, intro_facts, intro_claims = row(grouped["intro"])
         role, role_facts, role_claims = row(grouped["role"])
-        detail_rows = [row([fid]) for fid in grouped["detail"]]
+        detail_rows = [row([unit]) for unit in grouped["detail"]]
         public_header = {
             ("name" if field.field_key == "organization" else field.field_key): field.display_text
             for field in header.fields
@@ -523,7 +633,7 @@ def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindi
         code = "invalid_aggregate_reference"
         stats.evidence_reason_counts[code] = stats.evidence_reason_counts.get(code, 0) + 1
 
-    def validate(text, raw_facts, raw_claims):
+    def validate(text, raw_facts, raw_claims, position):
         nonlocal invalid_reference
         ids, claims = _reference_ids(raw_facts), _reference_ids(raw_claims)
         reason = ""
@@ -533,16 +643,20 @@ def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindi
             reason = "malformed_field_reference"
         elif not ids:
             reason = "missing_field_reference"
-        elif any(fid not in local for fid in ids):
+        elif len(ids) != len(set(ids)) or any(fid not in local for fid in ids):
             reason = "invalid_owner_or_fact_reference"
         elif set(claims) != {local[fid].claim_id for fid in ids} or not set(claims) <= allowed_claims:
             reason = "invalid_claim_lineage"
         else:
-            texts = [expression_review.text_for(local[fid], semantic_build)
-                     if expression_review is not None else local[fid].resume_ready_text for fid in ids]
-            # A multi-Fact row is verifiable only as a literal composition of
-            # its cited facts in the supplied order, not a semantic inference.
-            variants = [separator.join(t.rstrip("。；;") for t in texts) for separator in ("；", ";", "。")] if all(t is not None for t in texts) else []
+            if expression_review is not None:
+                texts = expression_review.texts_for([local[fid] for fid in ids], semantic_build, position, text)
+                if len(ids) != len(raw_facts) or (position == 'detail' and texts and len(texts) != 1):
+                    texts = None
+            else:
+                texts = [local[fid].resume_ready_text for fid in ids]
+            # Only complete accepted units can compose a field. IDs alone
+            # never authorize another paraphrase or part of a reviewed unit.
+            variants = [separator.join(t.rstrip("。；;") for t in texts) for separator in ("；", ";", "。")] if texts else []
             if not any(provenance_text_unchanged(text, value) for value in variants):
                 reason = "unverified_rewrite"
             else:
@@ -560,7 +674,7 @@ def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindi
 
     for field_name in ("intro", "role"):
         fact_key, claim_key = f"{field_name}_source_fact_ids", f"{field_name}_source_claim_ids"
-        ids, claims = validate(project.get(field_name), project.get(fact_key, []), project.get(claim_key, []))
+        ids, claims = validate(project.get(field_name), project.get(fact_key, []), project.get(claim_key, []), field_name)
         if fact_key in project or ids:
             project[fact_key] = ids
         if claim_key in project or claims:
@@ -572,6 +686,7 @@ def _validate_project_evidence(project: dict, facts, claim_ids, stats: SlotBindi
         ids, claims = validate(
             text, rows[index] if isinstance(rows, list) and index < len(rows) else [],
             claim_rows[index] if isinstance(claim_rows, list) and index < len(claim_rows) else [],
+            'detail',
         )
         result_facts.append(ids)
         result_claims.append(claims)
@@ -640,8 +755,7 @@ def validate_model_project_evidence(
             assigned = [fid for project in projects for key in ('intro_source_fact_ids', 'role_source_fact_ids')
                         for fid in project.get(key, [])]
             assigned += [fid for project in projects for row in project.get('detail_fact_ids', []) for fid in row]
-            if (set(assigned) != set(consumer_views.eligible_fact_ids)
-                    or len(assigned) != len(set(assigned))):
+            if set(assigned) != set(consumer_views.eligible_fact_ids):
                 stats.evidence_reason_counts['invalid_expression_coverage'] = 1
         stats.contract_passed = not bool(stats.evidence_reason_counts)
     if write_log:

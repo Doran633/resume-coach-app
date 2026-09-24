@@ -65,6 +65,7 @@ from .experience_slot_service import (
     validate_model_project_evidence,
     compose_model_fact_references,
     CanonicalExpressionReview,
+    EXPRESSION_REVIEW_PROTOCOL,
     ModelJSONObject,
     contain_ownerless_projects,
     freeze_canonical_projection_candidates,
@@ -441,6 +442,7 @@ def build_llm_generation(
     last_error = ""
     evidence_error: ModelEvidenceContractError | None = None
     completion_error: GenerationServiceError | None = None
+    output_error: GenerationServiceError | None = None
     if consumer_views is not None and expression_review is None:
         expression_review = CanonicalExpressionReview(consumer_views._build, consumer_views.build_fingerprint)
 
@@ -464,6 +466,7 @@ def build_llm_generation(
         if expression_review is not None:
             expression_review.candidates.clear()
             expression_review.accepted.clear()
+            expression_review.review_issues.clear()
         budget = resource_protection.check_daily_budget()
         if not budget.allowed:
             raise GenerationServiceError("Daily model budget reached.", code="DAILY_BUDGET_REACHED")
@@ -494,6 +497,34 @@ def build_llm_generation(
                 llm_result.text, object_pairs_hook=ModelJSONObject if consumer_views is not None else None,
             )
             if consumer_views is not None:
+                # Check original fields before normalization can invent empty defaults.
+                version_issues = {}
+                for field in ('normal_version', 'bold_version', 'boundary_version', 'recommended_version'):
+                    if isinstance(parsed, dict) and field in getattr(parsed, 'duplicate_keys', ()):
+                        version_issues[field] = 'duplicate'
+                    elif not isinstance(parsed, dict) or field not in parsed:
+                        version_issues[field] = 'missing'
+                    elif not isinstance(parsed[field], str):
+                        version_issues[field] = 'invalid_type'
+                    elif not parsed[field].strip():
+                        version_issues[field] = 'empty'
+                if version_issues:
+                    output_error = GenerationServiceError(
+                        'Required version fields do not satisfy the output contract.',
+                        code='MODEL_OUTPUT_CONTRACT_INVALID',
+                    )
+                    _write_llm_log({
+                        'stage': 'generation_output_contract_rejected', 'request_id': request_id,
+                        'created_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
+                        'attempt_id': request.attempt_id or '', 'model_attempt': calls_used,
+                        'error_code': output_error.code, 'field_reasons': version_issues,
+                    })
+                    prompt += (
+                        '\n\n上次返回的必需版本字段不符合结构契约：'
+                        + ', '.join(f'{field}={reason}' for field, reason in version_issues.items())
+                        + '。请重新输出字段齐全的完整对象，每个版本必须是非空字符串，字段不得重复。'
+                    )
+                    continue
                 parsed = compose_model_fact_references(
                     parsed, consumer_views, attempt_id=request.attempt_id or "",
                     request_id=request_id, model_attempt=attempt + 1,
@@ -512,6 +543,7 @@ def build_llm_generation(
                         finish = review_result.finish_reason
                         _write_llm_log({
                             'stage': 'generation_expression_review_received', 'request_id': request_id,
+                            'review_protocol': EXPRESSION_REVIEW_PROTOCOL,
                             'created_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
                             'attempt_id': request.attempt_id or '', 'model_attempt': attempt + 2,
                             'finish_reason': finish if finish in ('stop', 'length', 'content_filter', None) else 'unknown',
@@ -523,15 +555,18 @@ def build_llm_generation(
                             raise GenerationServiceError('Expression review did not finish normally.', code='MODEL_OUTPUT_TRUNCATED' if finish == 'length' else 'MODEL_FINISH_INVALID')
                         expression_review.accept(json.loads(review_result.text, object_pairs_hook=ModelJSONObject))
                         _write_llm_log({'stage': 'generation_expression_review_validated', 'request_id': request_id,
+                                       'review_protocol': EXPRESSION_REVIEW_PROTOCOL,
                                        'created_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
                                        'attempt_id': request.attempt_id or '', 'review_passed': True,
                                        'candidate_count': len(expression_review.pending)})
                     except (ModelEvidenceContractError, JSONRepairError, ValueError) as exc:
                         reason_counts = exc.reason_counts if isinstance(exc, ModelEvidenceContractError) else {'format_expression_review': 1}
                         _write_llm_log({'stage': 'generation_expression_review_validated', 'request_id': request_id,
+                                       'review_protocol': EXPRESSION_REVIEW_PROTOCOL,
                                        'created_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
                                        'attempt_id': request.attempt_id or '', 'review_passed': False,
-                                       'evidence_reason_counts': reason_counts})
+                                       'evidence_reason_counts': reason_counts,
+                                       'review_issues': expression_review.review_issues})
                         code = exc.code if isinstance(exc, ModelEvidenceContractError) else 'MODEL_EXPRESSION_REVIEW_INVALID'
                         raise GenerationServiceError('Expression review rejected or could not validate the candidate.', code=code) from exc
                     except LLMServiceError as exc:
@@ -583,6 +618,8 @@ def build_llm_generation(
 
     if completion_error is not None:
         raise completion_error
+    if output_error is not None:
+        raise output_error
     if evidence_error is not None:
         # A subsequent parse failure must not turn a provenance failure into
         # the legacy JSON-error fallback success path.
@@ -899,12 +936,15 @@ def create_generation(
     )
     scoped_fact_access_stats = CanonicalScopedFactAccessStats()
     log_generation_stage(payload, "after_fallback")
-    payload = ensure_packaging_gain(
-        payload,
-        target_role=request.target_role,
-        packaging_level=request.packaging_level,
-        presentation_view=consumer_views.presentation_view,
-    )
+    # Accepted model versions are not incomplete merely because they are short.
+    # Preserve existing mock / pure-JSON fallback behavior separately.
+    if not (mode == "openai" and stability_log["llm_success"]):
+        payload = ensure_packaging_gain(
+            payload,
+            target_role=request.target_role,
+            packaging_level=request.packaging_level,
+            presentation_view=consumer_views.presentation_view,
+        )
     mutation_tracer.checkpoint(payload, "after_packaging_gain", parent_stage="ensure_packaging_gain")
     payload = guard_experience_boundaries(
         payload, "", stage="generation", semantic_build=semantic_build,
@@ -991,7 +1031,10 @@ def create_generation(
         access_stats=consumer_view_access_stats,
     )
     mutation_tracer.checkpoint(payload, "after_recruiter_language", parent_stage="ensure_recruiter_facing_technical_language")
-    payload = ensure_recruiter_readability(payload, stage="generation")
+    if mode == "openai" and not stability_log["fallback_used"]:
+        payload = ensure_recruiter_readability(payload, stage="generation", canonical_mode=True)
+    else:
+        payload = ensure_recruiter_readability(payload, stage="generation")
     payload = ensure_paired_symbol_integrity(payload, stage="generation")
     payload = ensure_resume_section_integrity(payload)
     payload = ensure_resume_whitespace_quality(payload, stage="generation")

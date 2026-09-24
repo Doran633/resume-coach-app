@@ -92,7 +92,7 @@ def test_full_control_saves_correct_headers_and_all_sources(monkeypatch, tmp_pat
     case, build, data = detail_return(RAW)
     data['resume_sections']['summary'] = ['具备前端页面开发实践。']
     for key in ('normal_version', 'bold_version', 'boundary_version', 'recommended_version'):
-        data[key] = ''
+        data[key] = '\n'.join(f.resume_ready_text for f in build.ledger.facts)
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(reference_return(data), ensure_ascii=False), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome, outcome
     projects = outcome['saved']['resume_sections']['projects']

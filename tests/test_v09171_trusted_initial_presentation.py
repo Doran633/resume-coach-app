@@ -173,7 +173,7 @@ def test_retry_uses_identical_evidence_protocol_and_one_preparation(case, long_m
     assert output_contract(sent[0])["field_references"] == {
         "intro": "position为intro的候选",
         "role": "position为role的候选",
-        "details": "position为detail的候选，每Fact一行",
+        "details": "position为detail的候选，每表达单元一行",
     }
     assert build == before
     assert payload.resume_sections.projects[0]["detail_fact_ids"] == data["resume_sections"]["projects"][0]["detail_fact_ids"]

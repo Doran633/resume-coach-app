@@ -63,6 +63,7 @@ def _write_log(stats: RecruiterReadabilityStats) -> None:
 def ensure_recruiter_readability(
     payload: schemas.GenerationPayload,
     *, stage: str = "unknown", generation_result_id: int | None = None, write_log: bool = True,
+    canonical_mode: bool = False,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     stats = RecruiterReadabilityStats(stage=stage, generation_result_id=generation_result_id)
@@ -76,6 +77,10 @@ def ensure_recruiter_readability(
             low_value = _is_low_value(detail, intro)
             if low_value:
                 stats.developer_log_expression_count += 1
+            if canonical_mode:
+                kept.append(raw_detail)
+                continue
+            if low_value:
                 if intro and similarity(detail, intro) >= 0.88:
                     stats.intro_duplicate_removed_count += 1
                 if internal_field_count(detail) >= 3:

@@ -24,11 +24,11 @@ LEGACY_HASHES = {
     False: '6dbf53d7ccd1f1868d3597c542ce0e22f8883474e15ad72c7824667b299b1319',
     True: '9972ac822e336a89982dc62af8f3d77f6372aad41607aa0ea53cb2dea8d0bc09',
 }
-CONTRACT_HASH = 'bbb9202793fd1b2404096de7204371cb28720f9ced68b1755600dbb202028baf'
+CONTRACT_HASH = 'b3740c45565be403f0d31296d24f78949bd72d472faf136bdeb462e49f297816'
 # Filled after reviewing the entire captured static task, not generated at test runtime.
 REVIEWED_TASK_HASHES = {
-    False: '9697e04826403b8378de56cd9ec80ccdfcdf9d810761dae04fb5a71ab93bb38d',
-    True: '0a861b761efdc89c3070b4d76f3669502fa23b5f212ea48b754524dcec59679d',
+    False: 'afba3322b7ea9b16db1924d0c9ef1a7a17fc6cb2408df0140f103a331d2fcf0f',
+    True: '62869a25a6fe285d391e06a5d01eaffda00007b9bd5540cd099f1d0da881b731',
 }
 RETIRED = {
     False: (
@@ -70,16 +70,17 @@ def run_receiver(case, kind, long_mode, monkeypatch):
     good = references(body)
     for p in good['resume_sections']['projects']:
         ids = [f.fact_id for f in views.facts_for_owner(p['source_experience_id'])]
-        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position='detail') for fid in ids}
+        by_id = {u['fact_ids'][0]: u for u in p['expression_units']}
+        p['expression_units'] = [dict(by_id[fid], position='detail') for fid in ids]
     wire = deepcopy(good)
     if kind in ('within_row','across_fields','overlap','retry_corrected'):
         # Old overlap fixtures remain negative controls after protocol retirement.
         wire['resume_sections']['projects'] = [dict(
             source_experience_id=p['source_experience_id'], intro_source_fact_ids=[],
-            role_source_fact_ids=[], detail_fact_ids=[[fid] for fid in p['fact_placements']],
+            role_source_fact_ids=[], detail_fact_ids=[u['fact_ids'] for u in p['expression_units']],
         ) for p in good['resume_sections']['projects']]
     p = wire['resume_sections']['projects'][0]
-    ids = list(good['resume_sections']['projects'][0]['fact_placements'])
+    ids = [u['fact_ids'][0] for u in good['resume_sections']['projects'][0]['expression_units']]
     if kind == 'within_row':
         p['detail_fact_ids'][0].append(ids[0])
     elif kind in ('across_fields', 'retry_corrected'):
@@ -87,7 +88,7 @@ def run_receiver(case, kind, long_mode, monkeypatch):
     elif kind == 'overlap':
         p['detail_fact_ids'] = [ids[:2], ids[1:3]] + [[fid] for fid in ids[3:]]
     elif kind == 'combination':
-        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position=('intro' if i < 2 else 'detail')) for i,fid in enumerate(ids)}
+        p['expression_units'] = [dict(u, position=('intro' if i < 2 else 'detail')) for i, u in enumerate(p['expression_units'])]
     before = deepcopy(build), repr(views), deepcopy(wire)
     sent = []
     def network(prompt):
@@ -129,7 +130,7 @@ def test_entire_actual_task_and_retry(case, long_mode, kind, monkeypatch, tmp_pa
     assert digest(reviewed_task(sent[0])) == REVIEWED_TASK_HASHES[long_mode]
     assert sha256(prompts._canonical_output_contract().encode()).hexdigest() == CONTRACT_HASH
     if len(sent) == 2:
-        suffix = '\n\n上次返回未满足内部来源契约：MODEL_EVIDENCE_FORMAT: format_fact_placements, format_forbidden_project_fields, missing_fact_assignment, missing_reference_fields。请按已有内部 JSON 字段协议重新输出完整对象；不得自报可信或冻结状态。'
+        suffix = '\n\n上次返回未满足内部来源契约：MODEL_EVIDENCE_FORMAT: format_expression_units, format_forbidden_project_fields, missing_fact_assignment, missing_reference_fields。请按已有内部 JSON 字段协议重新输出完整对象；不得自报可信或冻结状态。'
         assert sent[1] == sent[0] + suffix
     expected = {f.fact_id for owner in build.identities for f in build.ledger.for_experience(owner.experience_id)}
     actual = [fid for p in output.resume_sections.projects for fid in p['source_fact_ids']]
@@ -150,7 +151,7 @@ def test_unchanged_duplicate_rejection_and_composition(kind, long_mode, monkeypa
         for row in rows:
             assert row['required_fact_count'] == 10 and row['assigned_fact_count'] == 0
             assert row['evidence_reason_counts'] == {
-                'format_fact_placements':2, 'format_forbidden_project_fields':2,
+                'format_expression_units':2, 'format_forbidden_project_fields':2,
                 'missing_reference_fields':2, 'missing_fact_assignment':1,
             }
 

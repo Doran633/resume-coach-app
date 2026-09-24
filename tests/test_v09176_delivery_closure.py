@@ -190,7 +190,7 @@ def test_parse_error_cannot_hide_prior_contract_failure(first, monkeypatch, tmp_
     case, _, text = sample()
     if first == 'evidence':
         bad = json.loads(text)
-        bad['resume_sections']['projects'][0]['fact_placements'].popitem()
+        bad['resume_sections']['projects'][0]['expression_units'].pop()
         text = json.dumps(bad)
     outcome = deliver(monkeypatch, tmp_path, case, [(text, 'length' if first == 'length' else 'stop'), ('not json', 'stop')])
     assert outcome['error'] == ('MODEL_OUTPUT_TRUNCATED' if first == 'length' else 'MODEL_EVIDENCE_MISSING')

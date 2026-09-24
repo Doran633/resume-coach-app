@@ -79,8 +79,8 @@ def trace_delivery(raw, position, monkeypatch, tmp_path):
     before = deepcopy(build)
     reply = reference_return(body)
     for p in reply['resume_sections']['projects']:
-        for index, fid in enumerate(p['fact_placements']):
-            p['fact_placements'][fid]['position'] = (
+        for index, unit in enumerate(p['expression_units']):
+            unit['position'] = (
                 ['intro', 'role', 'detail'][index % 3] if position == 'mixed' else position
             )
     snapshots, gates, frozen_objects, compiled_objects = [], [], [], []

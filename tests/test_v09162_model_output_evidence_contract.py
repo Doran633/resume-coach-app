@@ -51,7 +51,9 @@ def reference_return(data, build=None):
                     else:
                         source = text
                     placements[fid] = {'position': position, 'text': source}
-        projects.append({"source_experience_id": project["source_experience_id"], "fact_placements": placements})
+        projects.append({"source_experience_id": project["source_experience_id"], "expression_units": [
+            dict(fact_ids=[fid], **value) for fid, value in placements.items()
+        ]})
     result["resume_sections"]["projects"] = projects
     return result
 

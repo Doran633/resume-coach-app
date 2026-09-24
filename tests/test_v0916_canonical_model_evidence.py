@@ -78,10 +78,10 @@ def declared_network_return(request, prompt):
     projects = []
     for owner in evidence(prompt)["owners"]:
         facts = owner["eligible_facts"]
-        project = dict(source_experience_id=owner["source_experience_id"], fact_placements={
-            fact["fact_id"]: {'position': ("intro" if index == 0 else "role" if index == 1 else "detail"), 'text': fact['resume_ready_text']}
+        project = dict(source_experience_id=owner["source_experience_id"], expression_units=[
+            {'fact_ids': [fact["fact_id"]], 'position': ("intro" if index == 0 else "role" if index == 1 else "detail"), 'text': fact['resume_ready_text']}
             for index, fact in enumerate(facts)
-        })
+        ])
         projects.append(project)
     data["resume_sections"]["projects"] = projects
     return json.dumps(data, ensure_ascii=False)
@@ -222,9 +222,17 @@ def test_sent_facts_headers_and_constraints_are_complete_and_owner_local(raw, mo
             sent_ids.append(fact.fact_id)
     assert sorted(sent_ids) == sorted(facts)
     excluded = {c.claim_id for c in (*build.ledger.excluded_claims, *build.ledger.withheld_claims)}
-    assert {c["claim_id"] for c in data["internal_constraints_not_resume_facts"]} == excluded
-    for row in data["internal_constraints_not_resume_facts"]:
+    constraints = data["internal_constraints_not_resume_facts"]
+    structures = data["structural_context_not_resume_facts"]
+    assert all(c['semantic_role'] != 'STRUCTURE_MARKER' for c in constraints)
+    assert all(c['semantic_role'] == 'STRUCTURE_MARKER' for c in structures)
+    assert len(constraints + structures) == len(excluded)
+    assert {c["claim_id"] for c in constraints + structures} == excluded
+    for row in constraints + structures:
         assert row["text"] == claims[row["claim_id"]].text
+        assert row['source_span'] == list(claims[row['claim_id']].source_span)
+        assert row['source_experience_id'] == claims[row['claim_id']].source_experience_id
+        assert row['eligibility'] == claims[row['claim_id']].eligibility
         assert row["claim_id"] not in {f["source_claim_ids"][0] for o in data["owners"] for f in o["eligible_facts"]}
     for row in data["non_experience_context_not_project_facts"]:
         start, end = row["source_span"]

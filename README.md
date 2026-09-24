@@ -1,6 +1,18 @@
 # Resume Coach App
 
-## 当前架构：v0.9.19.2
+## 当前架构：v0.9.19.3.1
+
+v0.9.19.3.1 使用 `canonical_fact_compositions_v2`：全部 eligible Fact 仍须完整覆盖，同 owner 的完整来源可在不同最终字段或详情行显式复用。每个表达单元独立验证正文和附件；单元内、同一 intro/role 内及完全相同单元的重复仍拒绝。Canonical 可读性检查不再按相似度删除有来源的项目详情，legacy 行为不变。详情见 [阶段说明](docs/canonical-expression-source-reuse.md)。本版未调用真实模型；离线通过不能证明包装质量或线上成功率。
+
+v0.9.19.3 采用 `canonical_fact_compositions_v1`：同 owner、冻结来源顺序相邻的完整 Fact 可显式组成一个表达单元，仍须完整且唯一覆盖。写作者不获得新增事实权限，复核器仅判断；`canonical_expression_review_v3` 将问题片段关联至具体来源 Fact。请求内凭据同时绑定有序来源、位置和正文，接收器、Binder 与交付前检查复用，不改变冻结语义或下游权限。详情见 [阶段说明](docs/canonical-evidence-bounded-composition.md)。本版尚未进行真实模型验收，不据离线通过建议部署。
+
+### v0.9.19.2.1 历史收尾
+
+v0.9.19.2.1 对齐项目写作与复核的同请求证据和表达边界，结构标题不再混作限制。项目写作协议不变，复核使用 `canonical_expression_review_v2`：逐 Fact 返回判定与可唯一定位的问题片段，后端仅校验映射和范围，并记录脱敏位置；定位合法不等于语义判断正确。两次调用上限、冻结事实和下游权限保持不变。
+
+本版继续收敛为 **Expression Task Consistency**：Canonical实际发送退出职责拉高、补写技术动作、强制扩写及以面试准备授权事实的竞争任务；四份版本字段和产品用途保留，独立legacy任务保留。项目写作仍只按单Fact表达契约执行，复核标准、协议和调用额度不变。
+
+**发布验收仍阻塞，离线收尾已完成。** 四版本接收契约与正常Canonical补写调用退出后，后续十次真实调用中四份写作返回均有完整版本，但四次生成仅一次保存，暴露单Fact表达借用其他Fact、必要限定丢失及复核波动。经批准迁移三类旧测试契约，本轮仓库1726项及隔离只读探针8项全部通过，专项/黄金/DOCX联合227项通过；业务、Prompt和VERSION未改，API调用为0。离线通过不证明真实表达质量达标，不建议部署。详见 [验收记录](docs/expression-scope-and-review-evidence-alignment.md) 与待批准的 [v0.9.19.3只读Brief](docs/v09193-implementation-brief.md)。
 
 v0.9.19.2 恢复单 Fact 内有依据的职业化表达。Canonical 项目使用 `canonical_fact_expressions_v1`，每个 Fact 只提供位置与候选正文；全部 Fact 必须完整唯一分配，表头与附件由后端派生。原句沿用确定性检查，非字面表达接受独立批量语义复核；复核是风险评估，不改变冻结事实。
 

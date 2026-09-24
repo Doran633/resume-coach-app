@@ -50,7 +50,7 @@ def control(raw, summary):
     case, build, data = detail_return(raw)
     data['resume_sections']['summary'] = list(summary)
     for key in ('normal_version', 'bold_version', 'boundary_version', 'recommended_version'):
-        data[key] = ''
+        data[key] = '\n'.join(f.resume_ready_text for f in build.ledger.facts)
     return case, build, data
 
 
@@ -160,8 +160,17 @@ def test_sent_complete_evidence_and_retry_without_rebuild(index, long_mode, monk
     for f in sent_facts:
         assert f['source_claim_text'] == claims[f['source_claim_ids'][0]].text
     allowed = {cid for owner in views.experience_ids for cid in views.scope_for_owner(owner).eligible_claim_ids}
-    assert {c['claim_id']: c['text'] for c in actual['internal_constraints_not_resume_facts']} == {
+    constraints = actual['internal_constraints_not_resume_facts']
+    structures = actual['structural_context_not_resume_facts']
+    assert all(c['semantic_role'] != 'STRUCTURE_MARKER' for c in constraints)
+    assert all(c['semantic_role'] == 'STRUCTURE_MARKER' for c in structures)
+    assert len(constraints + structures) == len(set(claims) - allowed)
+    assert {c['claim_id']: c['text'] for c in constraints + structures} == {
         cid: c.text for cid, c in claims.items() if cid not in allowed}
+    for c in constraints + structures:
+        assert tuple(c['source_span']) == claims[c['claim_id']].source_span
+        assert c['eligibility'] == claims[c['claim_id']].eligibility
+        assert c['source_experience_id'] == claims[c['claim_id']].source_experience_id
     assert [(tuple(c['source_span']), c['text']) for c in actual['non_experience_context_not_project_facts']] == list(views.non_experience_context(case['raw_input']))
     assert payload.resume_sections.summary == data['resume_sections']['summary']
     assert (build, repr(views), case) == before

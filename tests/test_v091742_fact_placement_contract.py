@@ -57,7 +57,7 @@ def test_actual_task_receiver_preserves_every_field(case, long_mode, monkeypatch
     (output, _), sent, build = receive(case, [placements(body)], monkeypatch, long_mode)
     assert len(sent) == 1
     contract = json.JSONDecoder().raw_decode(sent[0].split('<canonical_model_output_contract>\n')[1])[0]
-    assert set(contract['required_fields']) == {'source_experience_id', 'fact_placements'}
+    assert set(contract['required_fields']) == {'source_experience_id', 'expression_units'}
     for actual, expected in zip(output.resume_sections.projects, body['resume_sections']['projects']):
         for key in ('intro','role','details','intro_source_fact_ids','role_source_fact_ids','detail_fact_ids','intro_source_claim_ids','role_source_claim_ids','detail_claim_ids'):
             assert actual[key] == expected[key]
@@ -70,24 +70,24 @@ def test_duplicate_keys_rejected_before_overwrite(kind, wrapper, monkeypatch, is
     _, body = controlled_return(COURSE)
     data = placements(body)
     p = data['resume_sections']['projects'][0]
-    fid = next(iter(p['fact_placements']))
+    fid = p['expression_units'][0]['fact_ids'][0]
     text = json.dumps(data,ensure_ascii=False)
     if kind in ('fact','escaped_fact'):
         key = json.dumps(fid)
         duplicate = key if kind == 'fact' else '"\\u0045' + fid[1:] + '"'
-        value = json.dumps(p['fact_placements'][fid], ensure_ascii=False)
-        text = text.replace(key + ': ' + value, duplicate + ': ' + value + ', ' + key + ': ' + value, 1)
+        # IDs are array values now; equal escaped spellings must still be rejected.
+        text = text.replace('"fact_ids": [' + key + ']', '"fact_ids": [' + duplicate + ', ' + key + ']', 1)
     elif kind == 'owner':
         text = text.replace('"source_experience_id":', '"source_experience_id": "EXP-999", "source_experience_id":',1)
     elif kind == 'placements':
-        text = text.replace('"fact_placements":', '"fact_placements": {}, "fact_placements":',1)
+        text = text.replace('"expression_units":', '"expression_units": [], "expression_units":',1)
     elif kind == 'projects':
         text = text.replace('"projects":', '"projects": [], "projects":',1)
     else:
         text = text.replace('"resume_sections":', '"resume_sections": {}, "resume_sections":',1)
     if wrapper == 'fenced': text = '```json\n' + text + '\n```'
     if wrapper == 'repair': text = text[:-1]
-    with pytest.raises(generation.GenerationServiceError, match='duplicate_project_key'):
+    with pytest.raises(generation.GenerationServiceError, match='duplicate_fact_reference' if kind in ('fact', 'escaped_fact') else 'duplicate_project_key'):
         receive(COURSE, [text], monkeypatch)
 
 
@@ -96,13 +96,12 @@ def test_illegal_placements_rejected(kind, monkeypatch, isolated):
     _, body = controlled_return(COURSE)
     data = placements(body)
     p = data['resume_sections']['projects'][0]
-    fid = next(iter(p['fact_placements']))
-    if kind == 'missing': p['fact_placements'].pop(fid)
-    elif kind == 'unknown': p['fact_placements']['EXP-999-F001'] = 'detail'
-    elif kind == 'foreign': p['fact_placements'][next(iter(data['resume_sections']['projects'][1]['fact_placements']))] = 'detail'
-    elif kind == 'position': p['fact_placements'][fid] = 'summary'
-    elif kind == 'position_list': p['fact_placements'][fid] = ['intro','detail']
-    elif kind == 'map_list': p['fact_placements'] = []
+    if kind == 'missing': p['expression_units'].pop(0)
+    elif kind == 'unknown': p['expression_units'][0]['fact_ids'] = ['EXP-999-F001']
+    elif kind == 'foreign': p['expression_units'][0]['fact_ids'] = data['resume_sections']['projects'][1]['expression_units'][0]['fact_ids']
+    elif kind == 'position': p['expression_units'][0]['position'] = 'summary'
+    elif kind == 'position_list': p['expression_units'][0]['position'] = ['intro','detail']
+    elif kind == 'map_list': p['expression_units'] = {}
     elif kind == 'extra': p['intro'] = 'untrusted'
     elif kind == 'duplicate_owner': data['resume_sections']['projects'].append(deepcopy(p))
     elif kind == 'missing_owner': data['resume_sections']['projects'].pop()
@@ -115,7 +114,7 @@ def test_retry_and_parse_failure_cannot_escape_contract(monkeypatch, isolated):
     _, body = controlled_return(COURSE)
     good = placements(body)
     bad = deepcopy(good)
-    bad['resume_sections']['projects'][0]['fact_placements'].popitem()
+    bad['resume_sections']['projects'][0]['expression_units'].pop()
     (payload, info), sent, _ = receive(COURSE,[bad,good],monkeypatch)
     assert info['attempt'] == len(sent) == 2
     assert sent[1].startswith(sent[0]) and payload.resume_sections.projects
@@ -128,8 +127,10 @@ def test_non_project_duplicate_and_legacy_parser_unchanged(monkeypatch, isolated
     _, body = controlled_return(COURSE)
     text = json.dumps(placements(body),ensure_ascii=False)
     text = '{"normal_version":"ignored",' + text[1:]
-    (payload, _), _, _ = receive(COURSE,[text],monkeypatch)
-    assert payload.normal_version == body['normal_version']
+    assert parse_llm_json(text)['normal_version'] == body['normal_version']
+    with pytest.raises(generation.GenerationServiceError) as caught:
+        receive(COURSE,[text],monkeypatch)
+    assert caught.value.code == 'MODEL_OUTPUT_CONTRACT_INVALID'
 
 
 @pytest.mark.parametrize('raw', [project_input(6),detail_input(9)])
@@ -138,7 +139,7 @@ def test_boundaries_empty_fields_and_source_order(raw, monkeypatch, isolated):
     data = placements(body)
     data['resume_sections']['projects'].reverse()
     for p in data['resume_sections']['projects']:
-        p['fact_placements'] = dict(reversed(list(p['fact_placements'].items())))
+        p['expression_units'].reverse()
     (payload,_),_,build = receive(case,[data],monkeypatch)
     for p in payload.resume_sections.projects:
         facts = sorted(build.ledger.for_experience(p['source_experience_id']),key=lambda f:f.source_span)
@@ -152,7 +153,7 @@ def test_grouping_intro_uses_frozen_order_and_shared_claims(monkeypatch, isolate
     _,body = controlled_return(CASES[0])
     data = placements(body)
     for p in data['resume_sections']['projects']:
-        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position='intro') for fid in reversed(p['fact_placements'])}
+        p['expression_units'] = [dict(u, position='intro') for u in reversed(p['expression_units'])]
     (payload,_),_,build = receive(CASES[0],[data],monkeypatch)
     for p in payload.resume_sections.projects:
         facts = sorted(build.ledger.for_experience(p['source_experience_id']),key=lambda f:f.source_span)
@@ -179,7 +180,7 @@ def test_duplicate_keys_cannot_reach_fallback_or_persistence(monkeypatch, isolat
     from app.database import Base
     _, body = controlled_return(COURSE)
     text = json.dumps(placements(body),ensure_ascii=False)
-    text = text.replace('"fact_placements":', '"fact_placements": {}, "fact_placements":',1)
+    text = text.replace('"expression_units":', '"expression_units": [], "expression_units":',1)
     replies = iter([text,'not json'])
     monkeypatch.setattr(generation,'call_openai',lambda prompt: LLMResult(finish_reason="stop", text=next(replies),model='control',latency_ms=0))
     touched = []

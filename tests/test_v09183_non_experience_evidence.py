@@ -253,7 +253,7 @@ def test_actual_prompt_and_retry_reuse_build_views_and_background(monkeypatch, t
     assert build.long_input_context.long_input_mode == long
     good = reference_return(body)
     bad = deepcopy(good)
-    bad['resume_sections']['projects'][0]['fact_placements'] = {}
+    bad['resume_sections']['projects'][0]['expression_units'] = []
     prompts = []
     def network(prompt):
         prompts.append(prompt)

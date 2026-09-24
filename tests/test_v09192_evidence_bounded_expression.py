@@ -20,6 +20,15 @@ THIN = '个人项目：课程展示网站\n2026年5月，使用Vue制作课程�
 LIMITED = '课程项目：设备登记系统\n2026年4月，在三人小组中只负责前端页面。使用Vue实现设备列表和登记表单。系统仅在本地演示，没有真实用户。'
 
 
+def review_decision(verdict='supported', source=None, candidate=None, source_fact_id=None):
+    return {
+        'verdict': verdict,
+        'source_fact_id': source_fact_id if verdict in ('omitted_fact', 'changed_qualification') else None,
+        'source_excerpt': source if verdict in ('omitted_fact', 'changed_qualification') else None,
+        'candidate_excerpt': candidate if verdict in ('added_claim', 'changed_qualification', 'uncertain') else None,
+    }
+
+
 def expression_sample(raw=THIN, *, rewrite=True, position='detail'):
     case, build, data = detail_return(raw)
     projects = []
@@ -31,15 +40,21 @@ def expression_sample(raw=THIN, *, rewrite=True, position='detail'):
             if rewrite:
                 candidate = text.replace('我帮忙测试', '参与测试工作').replace('只负责', '仅负责').replace('协助排查', '协助定位与排查')
                 if candidate != text:
-                    changed[f.fact_id] = 'supported'
+                    changed[f.fact_id] = review_decision()
                     text = candidate
             placements[f.fact_id] = {'position': position, 'text': text}
-        projects.append({'source_experience_id': owner, 'fact_placements': placements})
+        projects.append({'source_experience_id': owner, 'expression_units': [
+            dict(fact_ids=[fid], **value) for fid, value in placements.items()
+        ]})
     data['resume_sections']['projects'] = projects
     data['resume_sections']['summary'] = ['具备项目实践经历。']
     for key in ('normal_version', 'bold_version', 'boundary_version', 'recommended_version'):
-        data[key] = ''
+        data[key] = '\n'.join(f.resume_ready_text for f in build.ledger.facts)
     return case, build, data, {'decisions': changed}
+
+
+def unit_for(project, fid):
+    return next(u for u in project['expression_units'] if u['fact_ids'] == [fid])
 
 
 def receive(monkeypatch, case, build, replies, *, long=False, review=None):
@@ -60,12 +75,12 @@ def test_reviewed_expression_keeps_lineage_and_frozen_evidence(raw, position, mo
     case, build, data, review = expression_sample(raw, position=position)
     payload, stats, sent = receive(monkeypatch, case, build, [data, review])
     assert len(sent) == stats['attempt'] == 2
-    assert 'canonical_fact_expressions_v1' in sent[0]['messages'][1]['content']
+    assert 'canonical_fact_compositions_v2' in sent[0]['messages'][1]['content']
     assert 'expression_review' in sent[1]['messages'][1]['content']
     for f in build.ledger.facts:
         p = next(p for p in payload.resume_sections.projects if p['source_experience_id'] == f.experience_id)
         assert f.fact_id in p['source_fact_ids'] and f.claim_id in p['source_claim_ids']
-        text = data['resume_sections']['projects'][int(f.experience_id.split('-')[1])-1]['fact_placements'][f.fact_id]['text']
+        text = unit_for(data['resume_sections']['projects'][int(f.experience_id.split('-')[1])-1], f.fact_id)['text']
         assert text.rstrip('。；;') in json.dumps(p, ensure_ascii=False)
 
 
@@ -80,7 +95,9 @@ def test_literal_echo_needs_only_writer(long, monkeypatch, isolated):
 def test_reviewer_rejection_is_not_rewritten_or_downgraded(verdict, monkeypatch, isolated):
     case, build, data, review = expression_sample()
     for fid in review['decisions']:
-        review['decisions'][fid] = verdict
+        fact = next(f for f in build.ledger.facts if f.fact_id == fid)
+        candidate = next(u['text'] for p in data['resume_sections']['projects'] for u in p['expression_units'] if u['fact_ids'] == [fid])
+        review['decisions'][fid] = review_decision(verdict, fact.resume_ready_text, candidate, fid)
     with pytest.raises(generation.GenerationServiceError) as caught:
         receive(monkeypatch, case, build, [data, review])
     assert caught.value.code.startswith('MODEL_')
@@ -89,7 +106,7 @@ def test_reviewer_rejection_is_not_rewritten_or_downgraded(verdict, monkeypatch,
 def test_format_retry_cannot_create_third_review_call(monkeypatch, isolated):
     case, build, data, _ = expression_sample()
     bad = deepcopy(data)
-    bad['resume_sections']['projects'][0]['fact_placements'].popitem()
+    bad['resume_sections']['projects'][0]['expression_units'].pop()
     sent = provider(monkeypatch, [(json.dumps(bad, ensure_ascii=False), 'stop'), (json.dumps(data, ensure_ascii=False), 'stop')])
     with pytest.raises(generation.GenerationServiceError) as caught:
         generation.build_llm_generation(request(case), build.long_input_context, consumer_views=build_canonical_consumer_views(build))
@@ -112,7 +129,7 @@ def test_thin_reviewed_body_survives_to_docx_without_old_expansion(monkeypatch, 
 def test_legacy_placement_strings_are_rejected(monkeypatch, isolated):
     case, build, data, _ = expression_sample(rewrite=False)
     for p in data['resume_sections']['projects']:
-        p['fact_placements'] = {fid: v['position'] for fid, v in p['fact_placements'].items()}
+        p['fact_placements'] = {u['fact_ids'][0]: u['position'] for u in p.pop('expression_units')}
     with pytest.raises(generation.GenerationServiceError) as caught:
         receive(monkeypatch, case, build, [data])
     assert caught.value.code == 'MODEL_EVIDENCE_FORMAT'
@@ -177,8 +194,9 @@ def test_controlled_review_rejection_prevents_save(candidate, verdict, monkeypat
     case, build, data, reply = expression_sample(LIMITED, rewrite=False)
     project = data['resume_sections']['projects'][0]
     fid = next(f.fact_id for f in build.ledger.facts if '只负责' in f.resume_ready_text)
-    project['fact_placements'][fid]['text'] = candidate
-    reply = {'decisions': {fid: verdict}}
+    unit_for(project, fid)['text'] = candidate
+    fact = next(f for f in build.ledger.facts if f.fact_id == fid)
+    reply = {'decisions': {fid: review_decision(verdict, fact.resume_ready_text, candidate, fid)}}
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(data), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['results'] == 0 and 'docx' not in outcome
     assert outcome['error'] == 'MODEL_EXPRESSION_REJECTED'
@@ -188,7 +206,7 @@ def test_controlled_review_rejection_prevents_save(candidate, verdict, monkeypat
 def test_retry_with_literal_body_uses_two_calls_no_review(monkeypatch, isolated):
     case, build, data, _ = expression_sample(rewrite=False)
     bad = deepcopy(data)
-    bad['resume_sections']['projects'][0]['fact_placements'].popitem()
+    bad['resume_sections']['projects'][0]['expression_units'].pop()
     _, stats, sent = receive(monkeypatch, case, build, [bad, data])
     assert len(sent) == stats['attempt'] == 2
 
@@ -202,8 +220,7 @@ def test_duplicate_expression_keys_rejected_before_overwrite(kind, monkeypatch, 
     elif kind == 'position_key':
         encoded = encoded.replace('"position":', '"position":"intro","position":', 1)
     else:
-        fid = next(iter(data['resume_sections']['projects'][0]['fact_placements']))
-        encoded = encoded.replace('"'+fid+'":', '"'+fid+'":{"position":"detail","text":"伪造正文"},"'+fid+'":', 1)
+        encoded = encoded.replace('"fact_ids":', '"fact_ids":["EXP-999-F001"],"fact_ids":', 1)
     with pytest.raises(generation.GenerationServiceError):
         receive(monkeypatch, case, build, [encoded])
 
@@ -225,9 +242,9 @@ def test_holdout_full_pipeline_preserves_team_scope(monkeypatch, tmp_path, isola
            '我协助整理书目文件，按照同学提供的格式登记阅读日期。工具仅供两人使用。')
     case, build, data, reply = expression_sample(raw, rewrite=False)
     fid = next(f.fact_id for f in build.ledger.facts if '我协助整理' in f.resume_ready_text)
-    value = data['resume_sections']['projects'][0]['fact_placements'][fid]
+    value = unit_for(data['resume_sections']['projects'][0], fid)
     value['text'] = value['text'].replace('我协助整理', '协助整理')
-    reply = {'decisions': {fid: 'supported'}}
+    reply = {'decisions': {fid: review_decision()}}
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(data), 'stop'), (json.dumps(reply), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome, outcome.get('error')
     text = json.dumps(outcome['saved']['resume_sections']['projects'], ensure_ascii=False)

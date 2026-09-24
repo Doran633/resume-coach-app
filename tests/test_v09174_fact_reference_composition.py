@@ -20,7 +20,7 @@ from test_v09162_model_output_evidence_contract import CASES, controlled_return,
 from test_v0916_canonical_model_evidence import evidence
 
 
-KEYS = ('source_experience_id', 'fact_placements')
+KEYS = ('source_experience_id', 'expression_units')
 
 
 def references(data):
@@ -82,11 +82,10 @@ def test_invalid_selection_never_enters_cleanup_or_save(kind, monkeypatch, isola
     _, body = controlled_return(case)
     data = references(body)
     p = data['resume_sections']['projects'][0]
-    fid = next(iter(p['fact_placements']))
-    if kind == 'missing': p['fact_placements'].popitem()
+    if kind == 'missing': p['expression_units'].pop()
     elif kind == 'duplicate': data['resume_sections']['projects'].append(deepcopy(p))
-    elif kind == 'foreign': p['fact_placements'][next(iter(data['resume_sections']['projects'][1]['fact_placements']))] = 'detail'
-    elif kind == 'unknown': p['fact_placements']['EXP-999-F001'] = 'detail'
+    elif kind == 'foreign': p['expression_units'][0]['fact_ids'] = data['resume_sections']['projects'][1]['expression_units'][0]['fact_ids']
+    elif kind == 'unknown': p['expression_units'][0]['fact_ids'] = ['EXP-999-F001']
     elif kind == 'old_body': p['intro'] = '独立主导系统架构'
     elif kind == 'trust': p['source_binding_locked'] = True
     elif kind == 'header': p['name'] = '模型决定的名称'
@@ -95,8 +94,8 @@ def test_invalid_selection_never_enters_cleanup_or_save(kind, monkeypatch, isola
     elif kind == 'extra': p['ignored'] = 'must reject'
     elif kind == 'wrong_order':
         # Model ordering is no longer a wire capability; old arrays are rejected.
-        p['intro_source_fact_ids'] = list(reversed(p['fact_placements']))
-    elif kind == 'wrong_shape': p['fact_placements'][fid] = ['intro','detail']
+        p['intro_source_fact_ids'] = [u['fact_ids'][0] for u in reversed(p['expression_units'])]
+    elif kind == 'wrong_shape': p['expression_units'][0] = ['intro','detail']
     elif kind == 'duplicate_owner': data['resume_sections']['projects'].append(deepcopy(p))
     elif kind == 'missing_owner': data['resume_sections']['projects'].pop()
     monkeypatch.setattr(generation, 'call_openai', lambda prompt: LLMResult(finish_reason="stop", text=json.dumps(data, ensure_ascii=False), model='controlled', latency_ms=0))
@@ -124,7 +123,7 @@ def test_combination_empty_rows_and_owner_order(monkeypatch, isolated):
     data = references(body)
     data['resume_sections']['projects'].reverse()
     for p in data['resume_sections']['projects']:
-        p['fact_placements'] = {fid: dict(p['fact_placements'][fid], position='detail') for fid in reversed(p['fact_placements'])}
+        p['expression_units'] = [dict(unit, position='detail') for unit in reversed(p['expression_units'])]
     (payload, _), _, build = receive(monkeypatch, CASES[0], [data])
     for p in payload.resume_sections.projects:
         facts = list(build.ledger.for_experience(p['source_experience_id']))
@@ -139,7 +138,7 @@ def test_retry_keeps_frozen_evidence_and_cannot_escape_via_json(monkeypatch, iso
     _, body = controlled_return(CASES[0])
     valid = references(body)
     bad = deepcopy(valid)
-    bad['resume_sections']['projects'][0]['fact_placements'].popitem()
+    bad['resume_sections']['projects'][0]['expression_units'].pop()
     (payload, log), sent, _ = receive(monkeypatch, CASES[0], [bad, valid])
     assert log['attempt'] == len(sent) == 2
     with pytest.raises(generation.GenerationServiceError, match='MODEL_EVIDENCE_'):
@@ -242,7 +241,7 @@ def test_actual_prompt_has_no_competing_project_prose_task(long_mode, monkeypatc
                       '按段允许的自然承接知识也必须结合本段经历'):
         assert forbidden not in sent[0]
     assert 'normal_version' in sent[0] and 'knowledge_checklist' in sent[0]
-    assert '全部 owner 提供的每个 eligible Fact 必须且只能分配一次' in sent[0]
+    assert '全部 owner 提供的每个 eligible Fact 必须至少完整表达一次' in sent[0]
 
 
 def test_reference_log_distinguishes_materialization_from_text_validation(monkeypatch, isolated):
@@ -251,7 +250,7 @@ def test_reference_log_distinguishes_materialization_from_text_validation(monkey
     rows = [json.loads(line) for line in slots.LOG_PATH.read_text(encoding='utf-8').splitlines()]
     composed = next(r for r in rows if r['stage'] == 'generation_model_expression_candidates_prepared')
     assert composed['required_fact_count'] == composed['assigned_fact_count'] == 12
-    assert composed['reference_protocol'] == 'canonical_fact_expressions_v1'
+    assert composed['reference_protocol'] == 'canonical_fact_compositions_v2'
     assert rows[-1]['stage'] == 'generation_model_evidence_received'
     assert rows[-1]['verified_field_count'] == 12 and rows[-1]['contract_passed'] is True
     text = slots.LOG_PATH.read_text(encoding='utf-8')

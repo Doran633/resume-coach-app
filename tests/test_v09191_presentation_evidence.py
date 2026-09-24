@@ -100,7 +100,7 @@ def test_full_existing_inputs_save_every_fact_and_export(monkeypatch, tmp_path, 
     case, build, data = detail_return(raw)
     data['resume_sections']['summary'] = ['具备项目开发实践。']
     for key in ('normal_version', 'bold_version', 'boundary_version', 'recommended_version'):
-        data[key] = ''
+        data[key] = '\n'.join(f.resume_ready_text for f in build.ledger.facts)
     before = deepcopy(build)
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(reference_return(data), ensure_ascii=False), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome, outcome
@@ -119,7 +119,7 @@ def test_retry_uses_same_full_evidence_and_rejects_omission(monkeypatch, isolate
     case, build, data = detail_return(RAW_INPUT)
     good = reference_return(data)
     bad = deepcopy(good)
-    bad['resume_sections']['projects'][0]['fact_placements'].popitem()
+    bad['resume_sections']['projects'][0]['expression_units'].pop()
     sent = provider(monkeypatch, [(json.dumps(bad, ensure_ascii=False), 'stop'), (json.dumps(good, ensure_ascii=False), 'stop')])
     views = build_canonical_consumer_views(build)
     before = deepcopy(build), repr(views)
@@ -160,7 +160,7 @@ def test_holdout_positive_work_and_independent_negation(monkeypatch, tmp_path, i
     assert any('17条记录' in f.resume_ready_text for f in build.ledger.facts)
     data['resume_sections']['summary'] = ['具备记录核对工具开发实践。']
     for key in ('normal_version', 'bold_version', 'boundary_version', 'recommended_version'):
-        data[key] = ''
+        data[key] = '\n'.join(f.resume_ready_text for f in build.ledger.facts)
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(reference_return(data), ensure_ascii=False), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome, outcome
     project = outcome['saved']['resume_sections']['projects'][0]

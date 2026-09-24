@@ -1,5 +1,33 @@
 # 版本历史
 
+## v0.9.19.3.1：Canonical Expression Source Reuse
+
+- 在未提交的 v0.9.19.3 工作区上实施，不覆盖既有改动。内部项目协议升为 `canonical_fact_compositions_v2`，覆盖按 Fact 集合核对，允许同 owner 来源在不同最终字段或详情行显式复用；同一单元与同一 intro/role 内重叠、完全重复单元仍拒绝。
+- 请求内复核凭据按表达单元的 owner、位置、完整来源和正文区分；复核器不写正文，未声明借用仍拒绝。经批准，Canonical 可读性步骤只评估、不按相似度删除有来源详情；mock/legacy 原清理路径保留。
+- 新专项、全量、黄金/DOCX及编译检查见 [阶段说明](canonical-expression-source-reuse.md)。历史 normal_A/limited_A 原始返回离线重放仍为 `MODEL_EXPRESSION_REJECTED`；未调用付费模型，真实成功率和表达收益尚未验收。
+
+## v0.9.19.3：Canonical Evidence-Bounded Composition
+
+- 在 main / 5957d5a 的未提交 v0.9.19.2.1 工作之上继续实施，保留已有修改；不将历史基线误写为已提交 v0.9.19.2.1。
+- 项目协议改为 expression_units：同 owner 连续完整 Fact、精确覆盖、不重复分配；不允许任意 owner 内融合，邻接不能代替语义支持。
+- 本轮业务增量仅 prompt_service、experience_slot_service 和既有复核模板。接收器、Binder 与最终来源校验复用既有请求内凭据；冻结语义、下游整理、Gate、公开字段不变。
+- 经批准迁移旧控制返回、复核对象与任务快照，保留历史返回及旧协议拒绝对照。专项47项、全量1773项、专项/黄金/DOCX联合62项通过，编译和本次文件范围diff check通过。API调用0，真实模型验收未完成，不建议部署。
+
+## v0.9.19.2.1：Expression Task Consistency
+
+- 2026-09-21离线收尾：仅按批准迁移两个Canonical任务快照、四处测试文件的空版本控制返回和一项Canonical重复版本拒绝契约；legacy解析及原项目/来源/复核/预算/Gate/保存断言保留。仓库1726项加隔离探针8项通过，专项/黄金/DOCX联合227项通过，编译与diff check通过。业务与Prompt不变，VERSION不升号，API为0。形成v0.9.19.3只读Brief，未实施；真实表达验收仍阻塞。
+
+- 最新增量：8次真实验收后，经批准对齐四版本实际JSON清单，在补默认值前拒绝缺失、空白、错误类型和重复字段；正常Canonical模型成功结果退出ensure_packaging_gain补写。仅修改prompt_service、generation及两个既有模板，不改专业化服务或新增写作者。专项/黄金/DOCX48项通过；首次全量1640通过、84项旧契约迁移待批准，尚不可发布。修改后未调用API；个人优势及完整输出预算限制保留。
+- 在同一未发布版本内继续收敛已有Expression Scope and Review Evidence Alignment，不另增版本。真实发送核对发现旧职责拉高、软事实动作扩充和自然承接规则仍与新单Fact边界竞争。
+- 本次增量仅调整prompt_service的既有模板分支和普通/长输入模板；以legacy-expression显式隔离旧任务，Canonical发送一份有明确字段用途的表达任务。legacy任务快照保持，四版本字段、项目协议、复核、两次调用、Gate及下游不变。
+- 新增实际发送/重试/完整证据、辅助表达保存与违规拒绝对照。经批准仅迁移两个Canonical任务快照哈希，全量1690项通过，legacy与事实断言保留。真实API未调用；输出负担和复核预算仍为发布阻塞，不以离线通过宣布真实验收完成。详情见阶段说明。
+
+- 基线 main / 5957d5a / 0.9.19.2。只调整 prompt_service、experience_slot_service、generation_service 及既有复核模板，不改变上游冻结语义、项目 Fact 位置协议或下游权限。
+- 写作与复核共用表达范围；结构证据与限制分离，保留完整原始角色和来源。背景/同 Claim 上下文不自动授权跨 Fact 搬用。
+- 复核字符串迁移为判定及精确片段，后端计算唯一字符范围；拒绝未知、重复、遗漏、非法或无法定位的映射。日志仅记录已知 ID、类别和局部位置，复核只判定、不写替代正文。
+- 经批准迁移三类旧测试契约：证据分类并集完整、Canonical任务哈希、复核对象格式；保留 legacy 哈希及原内容/来源/拒绝断言。
+- 四次新增真实调用额度全部使用：复杂样本截断及非法引用，薄样本语义拒绝，均未保存。**真实发布验收未通过**，未部署或自动提交；不能以离线通过宣布可用性改善。详情见 [阶段说明](expression-scope-and-review-evidence-alignment.md)。
+
 ## v0.9.19.2：Canonical Evidence-Bounded Expression
 
 - 基线 main / 7bd1cc6 / 0.9.19.1.1。新内部协议每个 Fact 对应 position/text；精确集合、owner、lineage、重复键和额外字段检查保留，不跨 Fact 融合或改变冻结资格。
