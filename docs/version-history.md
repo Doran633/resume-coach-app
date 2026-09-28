@@ -1,5 +1,11 @@
 # 版本历史
 
+## v0.9.19.4.2：Header-Aware Expression Coverage
+
+- 沿用 `canonical_fact_compositions_v2` 写作协议和 `canonical_expression_review_v5` 返回格式。仅在同 owner、qualified、精确原文范围与冻结 Fact 对齐且实际交付的名称/时间表头，参与该 Fact 的整体展示覆盖；其他事实仍须由声明的表达单元承载。
+- 复核输入新增表头覆盖证据，按原字段与来源核对；请求内覆盖凭据绑定表头，交付前表头被删改不得沿用。逐单元新增硬事实、职责和限定变化仍拒绝，Gate 与两次调用上限不变。
+- 测试 2 的准确输入与真实 Build 证明 F001 时间重合、F004 无表头抵扣。控制返回到保存/DOCX、全量及黄金回归结果见 [阶段说明](header-aware-expression-coverage.md)。线上原始候选未保存，本版不声称重放历史失败或真实模型已稳定通过。
+
 ## v0.9.19.4.1：Expression Unit Support and Owner Coverage Alignment
 
 - 项目写作协议及冻结 Fact/Claim 不变。复核协议升为 `canonical_expression_review_v5`：逐单元检查实际正文是否受声明来源支持，另按 Fact 核对同 owner 关联单元整体保留关键事实与限定；完整覆盖不再要求每个复用单元逐字表达整条复合 Fact。

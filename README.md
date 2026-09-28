@@ -1,6 +1,8 @@
 # Resume Coach App
 
-## 当前架构：v0.9.19.4.1
+## 当前架构：v0.9.19.4.2
+
+v0.9.19.4.2 在 v5 的 Fact 整体覆盖复核中纳入同 owner、qualified、原文片段可精确核对且实际交付的名称/时间表头。表头仅抵扣同一 Fact 的对应片段，不为逐单元越界、职责或状态变化提供支持；表头被改动后请求内覆盖凭据失效。测试 2 的 F001 日期与冻结时间表头重合，F004 没有表头证明，仍须正文完整表达。已做离线控制返回至保存/DOCX；缺少线上原始候选，真实模型验收未执行。详见 [阶段说明](docs/header-aware-expression-coverage.md)。
 
 v0.9.19.4.1 保留项目写作协议 `canonical_fact_compositions_v2`，将独立复核调整为 `canonical_expression_review_v5`：逐单元判断新增断言和限定变化，同 owner 引用该 Fact 的全部单元共同判断关键内容是否完整。后端核对单元映射和请求内凭据；详情同步重排可保留证明，删除、改写或附件错位会使证明失效。冻结证据、两次调用上限和 Gate 均不变。控制返回已验证接收至保存/DOCX，真实模型验收尚未执行，不能据此宣称线上生成成功率已提高。详见 [阶段说明](docs/expression-unit-support-and-owner-coverage-alignment.md)。
 

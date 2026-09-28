@@ -322,6 +322,7 @@ def build_expression_review_prompt(review, consumer_views) -> str:
         coverage[fact_id] = {
             'source_experience_id': owner, 'source_text': fact.resume_ready_text,
             'source_span': fact.source_span, 'unit_ids': unit_ids,
+            'delivered_header_evidence': review.header_coverage.get(fact_id, []),
             'units': [{'unit_id': key, 'position': review.candidates[key]['position'],
                        'candidate_text': review.candidates[key]['candidate']}
                       for key in unit_ids],

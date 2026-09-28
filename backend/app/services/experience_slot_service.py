@@ -233,6 +233,7 @@ class CanonicalExpressionReview:
     candidates: dict = field(default_factory=dict, repr=False)
     accepted: dict = field(default_factory=dict, repr=False)
     coverage_accepted: dict = field(default_factory=dict, repr=False)
+    header_coverage: dict = field(default_factory=dict, repr=False)
     project_snapshots: dict = field(default_factory=dict, repr=False)
     review_issues: list[dict] = field(default_factory=list, repr=False)
     editorial_accepted_count: int = 0
@@ -265,11 +266,14 @@ class CanonicalExpressionReview:
     def owner_signature(self, owner: str) -> str:
         units = [(key, row['signature']) for key, row in self.candidates.items()
                  if row['owner'] == owner]
-        coverage = [(fid, keys) for fid, keys in self.coverage_units().items()
+        coverage_units = self.coverage_units()
+        coverage = [(fid, keys) for fid, keys in coverage_units.items()
                     if self.candidates[keys[0]]['owner'] == owner]
         return stable_hash(json.dumps([
             EXPRESSION_REVIEW_PROTOCOL, self.build_fingerprint, self.build.raw_input_hash,
             owner, units, coverage,
+            [(fid, self.header_coverage[fid]) for fid, _ in coverage
+             if fid in self.header_coverage],
         ], ensure_ascii=False), purpose='expression_coverage')
 
     @staticmethod
@@ -286,6 +290,13 @@ class CanonicalExpressionReview:
         if expected is None or self.coverage_accepted.get(owner) != self.owner_signature(owner):
             return False
         actual = self.project_snapshot(project)
+        coverage_units = self.coverage_units()
+        for fact_id, rows in self.header_coverage.items():
+            keys = coverage_units.get(fact_id, ())
+            if not keys or self.candidates[keys[0]]['owner'] != owner:
+                continue
+            if any(project.get(row['field_key']) != row['display_text'] for row in rows):
+                return False
         for field in ('intro', 'role'):
             if not provenance_text_unchanged(actual[field], expected[field]):
                 return False
@@ -491,6 +502,7 @@ def compose_model_fact_references(
         expression_review.candidates.clear()
         expression_review.accepted.clear()
         expression_review.coverage_accepted.clear()
+        expression_review.header_coverage.clear()
         expression_review.project_snapshots.clear()
         expression_review.review_issues.clear()
         expression_review.editorial_accepted_count = 0
@@ -631,6 +643,21 @@ def compose_model_fact_references(
             ("name" if field.field_key == "organization" else field.field_key): field.display_text
             for field in header.fields
         }
+        if expression_review is not None:
+            for fact in facts:
+                for field in header.fields:
+                    if field.field_key not in ('name', 'time') or not field.qualified:
+                        continue
+                    start, end = field.source_span
+                    fact_start, fact_end = fact.source_span
+                    offset = start - fact_start
+                    if (fact_start <= start < end <= fact_end
+                            and fact.fact_text[offset:offset + end - start] == field.value
+                            and public_header.get(field.field_key) == field.display_text):
+                        expression_review.header_coverage.setdefault(fact.fact_id, []).append({
+                            'field_key': field.field_key, 'source_span': [start, end],
+                            'source_text': field.value, 'display_text': field.display_text,
+                        })
         result.append({
             **public_header, "meta": scope.canonical_experience_type,
             "source_experience_id": owner,
