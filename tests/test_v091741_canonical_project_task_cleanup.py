@@ -24,11 +24,11 @@ LEGACY_HASHES = {
     False: '6dbf53d7ccd1f1868d3597c542ce0e22f8883474e15ad72c7824667b299b1319',
     True: '9972ac822e336a89982dc62af8f3d77f6372aad41607aa0ea53cb2dea8d0bc09',
 }
-CONTRACT_HASH = 'f0d4de6432e574fe6a73b96e2df1cf2ba5106450dc83c459adb195c18d7efd24'
+CONTRACT_HASH = 'f8d1e5bde929484058e02931fb5c6eb44f0da360d7da422a99857e3444775c10'
 # Filled after reviewing the entire captured static task, not generated at test runtime.
 REVIEWED_TASK_HASHES = {
-    False: '476b3c0d46c7a6830a858efd734b9b33d0b86868b13501db0b39b7d7a0a1c47f',
-    True: 'e7390255ff6f771d41b7d8be8246d3ad8e7a060ddec35ff9e70ecf4909070eaa',
+    False: 'c8194dfa6296a9ea662b7458cafee7f7d1aeaca7ca41233a873691b989500ce1',
+    True: 'ff3b8ba08e829e9809f430c94d128e1b8190968e2b987cf00149009ede9cfb7d',
 }
 RETIRED = {
     False: (
@@ -91,7 +91,7 @@ def run_receiver(case, kind, long_mode, monkeypatch):
         p['expression_units'] = [dict(u, position=('intro' if i < 2 else 'detail')) for i, u in enumerate(p['expression_units'])]
     before = deepcopy(build), repr(views), deepcopy(wire)
     sent = []
-    def network(prompt):
+    def network(prompt, **kwargs):
         sent.append(prompt)
         response = good if kind == 'retry_corrected' and len(sent) == 2 else wire
         return LLMResult(finish_reason="stop", text=json.dumps(response, ensure_ascii=False), model='controlled-task-cleanup', latency_ms=0)
@@ -162,7 +162,7 @@ def test_full_legacy_template_and_actual_legacy_receiver_unchanged(long_mode, mo
     assert digest(prompts._generation_template(name)) == LEGACY_HASHES[long_mode]
     build, body = controlled_return(COURSE)
     sent = []
-    def network(prompt):
+    def network(prompt, **kwargs):
         sent.append(prompt)
         return LLMResult(finish_reason="stop", text=json.dumps(body,ensure_ascii=False),model='legacy-control',latency_ms=0)
     monkeypatch.setattr(generation,'call_openai',network)

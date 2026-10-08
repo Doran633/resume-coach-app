@@ -81,107 +81,15 @@ function completenessFallback(score: number) {
   return "建议先补充项目目标、负责内容、使用技术、结果数据和可验证证据。";
 }
 
-function splitReadableText(text: string, limit = 4) {
-  const cleaned = cleanDisplayText(text);
-  const parts = cleaned
-    .split(/(?<=[。！？；])\s*|(?<=\.)\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (parts.length <= 1) {
-    return cleaned
-      .split(/\s{2,}|[；;]/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .slice(0, limit);
-  }
-  return parts.slice(0, limit);
-}
-
-function ReadableTextBlock({ text, title = "完整内容" }: { text: string; title?: string }) {
-  const cleaned = cleanDisplayText(text);
-  const points = splitReadableText(cleaned, 4);
-  const summary = points[0] || cleaned;
-  const detailPoints = points.slice(1);
-
-  return (
-    <div className="readable-block">
-      <p className="readable-summary">{summary}</p>
-      {detailPoints.length > 0 && (
-        <ul className="readable-points">
-          {detailPoints.map((item) => <li key={item}>{item}</li>)}
-        </ul>
-      )}
-      <Collapse
-        className="soft-collapse"
-        ghost
-        items={[
-          {
-            key: "full",
-            label: title,
-            children: <p className="full-text">{cleaned}</p>
-          }
-        ]}
-      />
-    </div>
-  );
-}
-
-function versionReminder(title: string) {
-  if (title.includes("边界")) return "这一版主要用于判断表达边界，不建议直接照抄投递。";
-  if (title.includes("重点")) return "推荐优先使用这一档，但需要同步准备证据、技术细节和面试回答。";
-  return "适合先把经历写完整、写专业，再根据目标岗位继续增强。";
-}
-
-function VersionSection({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="version-section">
-      <small>{label}</small>
-      {children}
-    </div>
-  );
-}
-
-function VersionCard({ title, tone, text }: { title: string; tone: string; text: string }) {
-  const cleaned = cleanDisplayText(text);
-  const points = splitReadableText(cleaned, 5);
-  const core = points[0] || cleaned;
-  const expressionPoints = points.slice(1, 3);
-  const reminder = points.slice(3).join(" ") || versionReminder(title);
-
+function VersionCard({ title, tone, text, boundary = false }: { title: string; tone: string; text: string; boundary?: boolean }) {
   return (
     <div className="version-card">
       <div className="version-head">
         <span>{title}</span>
         <small>{tone}</small>
       </div>
-      <div className="version-sections">
-        <VersionSection label="核心定位">
-          <p>{core}</p>
-        </VersionSection>
-        <VersionSection label="简历表达">
-          {expressionPoints.length > 0 ? (
-            <ul>
-              {expressionPoints.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          ) : (
-            <p>{core}</p>
-          )}
-        </VersionSection>
-        <VersionSection label="使用提醒">
-          <p>{reminder}</p>
-        </VersionSection>
-      </div>
-      <Collapse
-        className="soft-collapse"
-        ghost
-        items={[
-          {
-            key: "full",
-            label: "展开完整版本",
-            children: <p className="full-text">{cleaned}</p>
-          }
-        ]}
-      />
+      {boundary && <Alert type="warning" showIcon message="风险示例与待核实表达，不建议直接用于投递。" />}
+      <p className="full-text">{replaceInternalFieldMarkers(compactText(text))}</p>
     </div>
   );
 }
@@ -416,9 +324,9 @@ export default function ResultPage() {
   const result = generation.result;
 
   const copy = async () => {
-    await navigator.clipboard.writeText(result.recommended_version);
+    await navigator.clipboard.writeText(result.bold_version);
     await trackEvent(identity, "copy_result", { generation_result_id: generation.generation_result_id });
-    message.success("已复制推荐版本");
+    message.success("已复制大胆版");
   };
 
   const regenerateWithFollowup = async () => {
@@ -548,13 +456,12 @@ export default function ResultPage() {
           <Card className="panel recommended-panel">
             <div className="section-title">
               <div>
-                <Typography.Title level={4}>最终推荐版本</Typography.Title>
-                <p>建议优先使用这一版，再根据面试准备情况微调。</p>
+                <Typography.Title level={4}>大胆主简历</Typography.Title>
               </div>
-              <Button onClick={copy}>复制</Button>
+              <Button onClick={copy}>复制大胆版</Button>
             </div>
             <div className="recommended-text">
-              <ReadableTextBlock text={result.recommended_version} title="查看完整推荐版本" />
+              <p className="full-text">{replaceInternalFieldMarkers(compactText(result.bold_version))}</p>
             </div>
           </Card>
 
@@ -564,17 +471,14 @@ export default function ResultPage() {
     },
     {
       key: "versions",
-      label: "三档包装",
+      label: "大胆版与边界版",
       children: (
         <Row gutter={[16, 16]} className="version-grid">
-          <Col xs={24} md={8}>
-            <VersionCard title="基础增强版" tone="写完整、写专业" text={result.normal_version} />
+          <Col xs={24} md={12}>
+            <VersionCard title="大胆版" tone="主简历" text={result.bold_version} />
           </Col>
-          <Col xs={24} md={8}>
-            <VersionCard title="重点放大版" tone="推荐使用" text={result.bold_version} />
-          </Col>
-          <Col xs={24} md={8}>
-            <VersionCard title="边界测试版" tone="知道哪里别越界" text={result.boundary_version} />
+          <Col xs={24} md={12}>
+            <VersionCard title="边界版" tone="待核实风险" text={result.boundary_version} boundary />
           </Col>
         </Row>
       )

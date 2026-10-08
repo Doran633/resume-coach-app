@@ -147,7 +147,7 @@ def test_real_receiving_failure_logs_locations_not_text(verdict, source, candida
     assert outcome['error'] == code and outcome['results'] == 0
     rows = [json.loads(line) for line in (log_dir / 'llm_calls.jsonl').read_text(encoding='utf-8').splitlines()]
     row = next(r for r in rows if r.get('stage') == 'generation_expression_review_validated')
-    assert row['review_protocol'] == 'canonical_expression_review_v5'
+    assert row['review_protocol'] == 'canonical_expression_review_v6'
     assert row['review_issues'][0]['fact_id'] == 'EXP-001-F006'
     assert row['review_issues'][0]['verdict'] == verdict
     assert row['request_id'] and row['attempt_id']

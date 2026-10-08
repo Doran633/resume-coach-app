@@ -276,5 +276,5 @@ def test_normal_and_long_review_same_compound_fact_without_extra_calls(
     )
     assert len(sent) == 2
     assert "canonical_fact_compositions_v2" in sent[0]["messages"][1]["content"]
-    assert "canonical_expression_review_v5" in sent[1]["messages"][1]["content"]
+    assert "canonical_expression_review_v6" in sent[1]["messages"][1]["content"]
     assert payload.resume_sections.projects[0]["detail_fact_ids"] == [[fact.fact_id]] * 3

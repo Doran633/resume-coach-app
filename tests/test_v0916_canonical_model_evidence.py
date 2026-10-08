@@ -139,7 +139,7 @@ def capture_generation(raw, monkeypatch, tmp_path, *, forbid_rebuild=False, deli
         assert captured["build"] == captured["before"]
         return result
 
-    def intercept(prompt):
+    def intercept(prompt, **kwargs):
         captured["prompt"] = prompt
         captured["prompts"].append(prompt)
         assert captured["build"] == captured["before"]
@@ -343,7 +343,7 @@ def test_retry_does_not_call_prompt_preparation_again(monkeypatch):
         calls.append(1)
         assert len(calls) == 1
         return original(*args, **kwargs)
-    def call(prompt):
+    def call(prompt, **kwargs):
         prompts.append(prompt)
         return LLMResult(finish_reason="stop", text="not json" if len(prompts) == 1 else declared_network_return(request_for(raw), prompt), model="offline", latency_ms=0)
     monkeypatch.setenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")

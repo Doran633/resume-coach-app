@@ -7,7 +7,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .. import schemas
-from .resume_skill_evidence_aggregation_service import AggregatedSkillEvidence, skill_evidence_display
+from .resume_skill_evidence_aggregation_service import (
+    AggregatedSkillEvidence, _SKILL_DECLARATION, skill_evidence_display,
+)
 from .technical_term_disambiguation_service import (
     ResolvedTechnicalTerm,
     best_resolution,
@@ -74,6 +76,37 @@ def _write_log(stats: SkillTaxonomyStats) -> None:
         pass
 
 
+def _compact_declarations(rows: list[AggregatedSkillEvidence]) -> list[str]:
+    values: list[str] = []
+    groups: dict[tuple, tuple[int, str, list[str]]] = {}
+    for row in rows:
+        value = skill_evidence_display(row)
+        declarations = row.declarations
+        match = _SKILL_DECLARATION.fullmatch(value)
+        proof = declarations[0] if len(declarations) == 1 else None
+        span = proof.get("source_span") if proof else None
+        if (
+            proof and proof.get("qualified") and match and match.group("prefix")
+            and span and len(span) == 2 and not match.group("restriction")
+            and not re.search(r"[，,。；;！？]", match.group("items"))
+            and row.term.lower() != "token"
+        ):
+            # Only display items from the very same qualified declaration share a prefix.
+            prefix, item = match.group("prefix"), match.group("items")
+            key = (tuple(span), prefix)
+            if key in groups:
+                index, shared_prefix, items = groups[key]
+                if item not in items:
+                    items.append(item)
+                values[index] = shared_prefix + "、".join(items)
+            else:
+                groups[key] = (len(values), prefix, [item])
+                values.append(value)
+        elif value not in values:
+            values.append(value)
+    return values
+
+
 def calibrate_resume_skill_taxonomy(
     payload: schemas.GenerationPayload,
     target_role: str = "",
@@ -84,18 +117,21 @@ def calibrate_resume_skill_taxonomy(
     generation_result_id: int | None = None,
     write_log: bool = True,
     aggregated_evidence: list[AggregatedSkillEvidence] | None = None,
+    compact_declarations: bool = False,
 ) -> schemas.GenerationPayload:
     """Categorize only skills already admitted by the evidence guard."""
     updated = payload.model_copy(deep=True)
     stats = SkillTaxonomyStats(stage=stage, generation_result_id=generation_result_id)
     stats.skills_before_count = len(updated.resume_sections.skills)
     if aggregated_evidence is not None:
-        grouped: dict[str, list[str]] = {name: [] for name in CATEGORIES}
+        evidence_by_category: dict[str, list[AggregatedSkillEvidence]] = {name: [] for name in CATEGORIES}
         for row in aggregated_evidence:
-            value = skill_evidence_display(row)
-            category = _category(row.term)
-            if value not in grouped[category]:
-                grouped[category].append(value)
+            evidence_by_category[_category(row.term)].append(row)
+        grouped = {
+            name: _compact_declarations(rows) if compact_declarations else list(dict.fromkeys(
+                skill_evidence_display(row) for row in rows
+            )) for name, rows in evidence_by_category.items()
+        }
         updated.resume_sections.skills = [f"{name}：{'、'.join(values)}" for name, values in grouped.items() if values]
         stats.skills_after_count = len(updated.resume_sections.skills)
         if write_log:

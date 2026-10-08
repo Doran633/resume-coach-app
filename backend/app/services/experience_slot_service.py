@@ -221,7 +221,7 @@ class ModelJSONObject(dict):
 
 
 EXPRESSION_PROTOCOL = "canonical_fact_compositions_v2"
-EXPRESSION_REVIEW_PROTOCOL = "canonical_expression_review_v5"
+EXPRESSION_REVIEW_PROTOCOL = "canonical_expression_review_v6"
 
 
 @dataclass
@@ -237,6 +237,7 @@ class CanonicalExpressionReview:
     project_snapshots: dict = field(default_factory=dict, repr=False)
     review_issues: list[dict] = field(default_factory=list, repr=False)
     editorial_accepted_count: int = 0
+    editorial_observed_count: int = 0
 
     def signature(self, facts, position, text) -> str:
         return stable_hash(json.dumps([
@@ -253,6 +254,11 @@ class CanonicalExpressionReview:
 
     def coverage_units(self) -> dict[str, list[str]]:
         review_owners = {row['owner'] for row in self.pending.values()}
+        # Literal units already prove complete source text. Other units reusing
+        # these facts still need their own support assessment, not a second vote
+        # on whether the unchanged fact is present.
+        literal_facts = {fact_id for row in self.candidates.values() if row['literal']
+                         for fact_id in row['sources']}
         return {
             fact_id: [key for key, row in self.candidates.items()
                       if row['owner'] == owner and fact_id in row['sources']]
@@ -261,6 +267,7 @@ class CanonicalExpressionReview:
                 fact_id for row in self.candidates.values() if row['owner'] == owner
                 for fact_id in row['sources']
             )
+            if fact_id not in literal_facts
         }
 
     def owner_signature(self, owner: str) -> str:
@@ -329,6 +336,7 @@ class CanonicalExpressionReview:
         self.coverage_accepted.clear()
         self.review_issues.clear()
         self.editorial_accepted_count = 0
+        self.editorial_observed_count = 0
         if (not isinstance(decisions, dict) or set(decisions) != {'decisions', 'coverage'}
                 or getattr(decisions, 'duplicate_keys', ())):
             raise ModelEvidenceContractError({'format_expression_review': 1})
@@ -343,6 +351,7 @@ class CanonicalExpressionReview:
         issues = []
         rejected = {}
         editorial_count = 0
+        observed_count = 0
         editorial_checks = {
             'source_meaning_preserved', 'owner_scope_preserved',
             'qualification_preserved', 'no_new_concrete_action', 'no_new_hard_claim',
@@ -352,7 +361,7 @@ class CanonicalExpressionReview:
                 raise ModelEvidenceContractError({'format_expression_review': 1})
             verdict = value.get('verdict')
             expected = {'verdict', 'source_fact_id', 'source_excerpt', 'candidate_excerpt'}
-            if verdict == 'editorial_expansion':
+            if verdict in ('editorial_expansion', 'editorial_observe'):
                 expected.add('checks')
                 checks = value.get('checks')
                 if (not isinstance(checks, dict) or getattr(checks, 'duplicate_keys', ())
@@ -389,6 +398,7 @@ class CanonicalExpressionReview:
             valid = {
                 'supported': source is None and candidate is None,
                 'editorial_expansion': source is not None and candidate is not None,
+                'editorial_observe': source is not None and candidate is not None,
                 'added_claim': source is None and candidate is not None,
                 'omitted_fact': source is not None and candidate is None,
                 'changed_qualification': source is not None and candidate is not None,
@@ -396,8 +406,15 @@ class CanonicalExpressionReview:
             }[verdict]
             if not valid:
                 raise ModelEvidenceContractError({'format_expression_review': 1})
-            if verdict == 'editorial_expansion':
+            if verdict in ('editorial_expansion', 'editorial_observe'):
                 editorial_count += 1
+                if verdict == 'editorial_observe':
+                    observed_count += 1
+                    issues.append({'unit_id': fid, 'source_fact_id': source_id,
+                                   'source_fact_ids': list(sources),
+                                   'source_experience_id': self.pending[fid]['owner'],
+                                   'verdict': verdict, 'source_span': source,
+                                   'candidate_span': candidate})
             elif verdict != 'supported':
                 code = f'expression_review_{verdict}'
                 rejected[code] = rejected.get(code, 0) + 1
@@ -440,6 +457,7 @@ class CanonicalExpressionReview:
         if rejected:
             raise ModelEvidenceContractError(rejected)
         self.editorial_accepted_count = editorial_count
+        self.editorial_observed_count = observed_count
         self.accepted = {fid: (row['signature'], row['candidate']) for fid, row in self.candidates.items()}
         self.coverage_accepted = {
             owner: self.owner_signature(owner)
@@ -506,6 +524,7 @@ def compose_model_fact_references(
         expression_review.project_snapshots.clear()
         expression_review.review_issues.clear()
         expression_review.editorial_accepted_count = 0
+        expression_review.editorial_observed_count = 0
     facts_by_owner = {
         owner: consumer_views.facts_for_owner(owner)
         for owner in consumer_views.experience_ids

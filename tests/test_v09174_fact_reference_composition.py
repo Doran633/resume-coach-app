@@ -45,7 +45,7 @@ def receive(monkeypatch, case, replies, long_mode=False):
     views = build_canonical_consumer_views(build)
     before, snapshot = deepcopy(build), repr(views)
     sent = []
-    def network(prompt):
+    def network(prompt, **kwargs):
         reply = replies[min(len(sent), len(replies)-1)]
         sent.append(prompt)
         return LLMResult(finish_reason="stop", text=reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False), model='controlled', latency_ms=0)
@@ -98,7 +98,7 @@ def test_invalid_selection_never_enters_cleanup_or_save(kind, monkeypatch, isola
     elif kind == 'wrong_shape': p['expression_units'][0] = ['intro','detail']
     elif kind == 'duplicate_owner': data['resume_sections']['projects'].append(deepcopy(p))
     elif kind == 'missing_owner': data['resume_sections']['projects'].pop()
-    monkeypatch.setattr(generation, 'call_openai', lambda prompt: LLMResult(finish_reason="stop", text=json.dumps(data, ensure_ascii=False), model='controlled', latency_ms=0))
+    monkeypatch.setattr(generation, 'call_openai', lambda prompt, **kwargs: LLMResult(finish_reason="stop", text=json.dumps(data, ensure_ascii=False), model='controlled', latency_ms=0))
     calls = []
     for name in ('cleanup_generation_payload', 'plan_canonical_project_projections', 'build_stable_generation_fallback'):
         fn = getattr(generation, name)

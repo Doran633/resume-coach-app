@@ -168,6 +168,7 @@ def professionalize_resume_language(
     access_stats: CanonicalConsumerViewAccessStats | None = None,
     packaging_level: str = "大胆",
     preserve_project_expressions: bool = False,
+    preserve_summary_expressions: bool = False,
 ) -> schemas.GenerationPayload:
     updated = payload.model_copy(deep=True)
     level = packaging_level if packaging_level in PACKAGING_LEVELS else "大胆"
@@ -188,7 +189,9 @@ def professionalize_resume_language(
 
     updated.resume_sections.summary = [
         clean(item, f"summary.{index}")
-        if presentation_view is None or presentation_view.supports_global_text(item)
+        if not preserve_summary_expressions and (
+            presentation_view is None or presentation_view.supports_global_text(item)
+        )
         else item
         for index, item in enumerate(updated.resume_sections.summary)
         if item

@@ -89,13 +89,16 @@ def test_short_valid_versions_are_not_replaced_by_old_derivations(monkeypatch, t
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome
     for field, expected in VERSIONS.items():
-        assert outcome['saved'][field].rstrip('。') == expected.rstrip('。')
+        if field != 'bold_version':
+            assert outcome['saved'][field].rstrip('。') == expected.rstrip('。')
     serialized = json.dumps(outcome['saved'], ensure_ascii=False)
     assert '问题定位与交付质量保障' not in serialized
     assert body == before
     project = outcome['saved']['resume_sections']['projects'][0]
     assert set(project['source_fact_ids']) == {f.fact_id for f in build.ledger.facts}
     assert '我帮忙测试' in project['details']
+    assert all(text in outcome['saved']['bold_version'] for text in (
+        project['intro'], project['role'], *project['details']) if text)
 
 
 def test_format_retry_leaves_no_third_call_for_rewrite_review(monkeypatch, isolated):
@@ -127,13 +130,15 @@ def test_short_versions_survive_reviewed_project_expression(monkeypatch, tmp_pat
     }})
     outcome = deliver(monkeypatch, tmp_path, case, [(json.dumps(body), 'stop'), (json.dumps(review), 'stop')])
     assert outcome['results'] == 1 and 'docx' in outcome and len(outcome['sent']) == 2
-    assert {key: outcome['saved'][key].rstrip('。') for key in VERSIONS} == {
-        key: value.rstrip('。') for key, value in VERSIONS.items()
+    assert {key: outcome['saved'][key].rstrip('。') for key in VERSIONS if key != 'bold_version'} == {
+        key: value.rstrip('。') for key, value in VERSIONS.items() if key != 'bold_version'
     }
     project = outcome['saved']['resume_sections']['projects'][0]
     index = project['details'].index('协助开展测试工作')
     assert project['detail_fact_ids'][index] == [fact.fact_id]
     assert project['detail_claim_ids'][index] == [fact.claim_id]
+    assert all(text in outcome['saved']['bold_version'] for text in (
+        project['intro'], project['role'], *project['details']) if text)
 
 
 def test_independent_legacy_receiver_keeps_default_and_duplicate_compatibility(monkeypatch, isolated):

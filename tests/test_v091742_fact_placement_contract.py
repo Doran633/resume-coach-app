@@ -29,7 +29,7 @@ def receive(case, replies, monkeypatch, long_mode=False):
     views = build_canonical_consumer_views(build)
     before = deepcopy(build), repr(views), deepcopy(replies)
     sent = []
-    def network(prompt):
+    def network(prompt, **kwargs):
         reply = replies[min(len(sent), len(replies)-1)]
         sent.append(prompt)
         return LLMResult(finish_reason="stop", text=reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False), model='placement-control', latency_ms=0)
@@ -182,7 +182,7 @@ def test_duplicate_keys_cannot_reach_fallback_or_persistence(monkeypatch, isolat
     text = json.dumps(placements(body),ensure_ascii=False)
     text = text.replace('"expression_units":', '"expression_units": [], "expression_units":',1)
     replies = iter([text,'not json'])
-    monkeypatch.setattr(generation,'call_openai',lambda prompt: LLMResult(finish_reason="stop", text=next(replies),model='control',latency_ms=0))
+    monkeypatch.setattr(generation,'call_openai',lambda prompt, **kwargs: LLMResult(finish_reason="stop", text=next(replies),model='control',latency_ms=0))
     touched = []
     for name in ('cleanup_generation_payload','build_stable_generation_fallback'):
         original = getattr(generation,name)

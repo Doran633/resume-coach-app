@@ -44,13 +44,22 @@ def get_openai_model() -> str:
     return os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
 
 
-def call_openai(prompt: str) -> LLMResult:
+def call_openai(prompt: str, *, role: str | None = None) -> LLMResult:
     _load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
     model = get_openai_model()
     timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "75"))
-    max_tokens = int(os.getenv("LLM_MAX_TOKENS", "8192"))
+    if role not in (None, "writer", "reviewer"):
+        raise LLMServiceError("Unknown model call role.")
+    token_setting = {
+        None: ("LLM_MAX_TOKENS", "8192"),
+        "writer": ("LLM_WRITER_MAX_TOKENS", "8192"),
+        "reviewer": ("LLM_REVIEW_MAX_TOKENS", "4096"),
+    }[role]
+    max_tokens = int(os.getenv(*token_setting))
+    if max_tokens <= 0:
+        raise LLMServiceError("Model output limit must be positive.")
     thinking_mode = os.getenv("LLM_THINKING", "disabled").strip().lower()
 
     if not api_key:

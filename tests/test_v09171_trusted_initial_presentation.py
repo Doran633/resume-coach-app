@@ -40,7 +40,7 @@ def isolated(monkeypatch, tmp_path):
 
 def network(monkeypatch, replies):
     sent = []
-    def call(prompt):
+    def call(prompt, **kwargs):
         reply = replies[min(len(sent), len(replies) - 1)]
         sent.append(prompt)
         return LLMResult(finish_reason="stop", text=reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False), model="controlled", latency_ms=0)
@@ -319,7 +319,7 @@ def test_full_inputs_use_actual_sent_evidence_for_controlled_response(raw, monke
     before = deepcopy(build)
     case = dict(CASES[0], raw_input=raw)
     sent = []
-    def call(prompt):
+    def call(prompt, **kwargs):
         sent.append(prompt)
         return LLMResult(finish_reason="stop", text=declared_network_return(request(case), prompt), model="controlled-protocol", latency_ms=0)
     monkeypatch.setattr(generation, "call_openai", call)

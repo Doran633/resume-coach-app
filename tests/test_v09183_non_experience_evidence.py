@@ -73,7 +73,7 @@ def test_full_inputs_keep_background_evidence_through_save_and_docx(index, monke
     for term in SKILLS[index]:
         assert term in skill_text, (term, skill_text)
     if index == 2:
-        assert '接触过PyTorch' in skill_text
+        assert '数据分析与机器学习：接触过Pandas、PyTorch' in skill_text
     for name, stage in snapshots:
         if name in {'calibrate_resume_skill_taxonomy', 'guard_resume_output_relevance'}:
             assert stage['resume_sections']['skills'] == sections['skills']
@@ -255,7 +255,7 @@ def test_actual_prompt_and_retry_reuse_build_views_and_background(monkeypatch, t
     bad = deepcopy(good)
     bad['resume_sections']['projects'][0]['expression_units'] = []
     prompts = []
-    def network(prompt):
+    def network(prompt, **kwargs):
         prompts.append(prompt)
         return LLMResult(text=json.dumps(bad if len(prompts) == 1 else good, ensure_ascii=False),
                          finish_reason='stop', model='offline-control', latency_ms=0)

@@ -607,6 +607,7 @@ body {
 
 .version-card {
   height: 100%;
+  min-width: 0;
   min-height: 260px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -704,6 +705,11 @@ body {
   color: #334155;
   line-height: 1.85;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.version-card .ant-alert {
+  margin-bottom: 16px;
 }
 
 .soft-collapse {

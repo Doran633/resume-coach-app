@@ -133,7 +133,7 @@ def test_generation_service_uses_fallback_when_llm_json_fails():
             os.environ["LLM_MODE"] = "openai"
             generation_service.LOG_DIR = Path(tmpdir)
 
-            def fake_call_openai(prompt: str) -> LLMResult:
+            def fake_call_openai(prompt: str, **kwargs) -> LLMResult:
                 return LLMResult(finish_reason="stop", text="not a json response", model="fake-model", latency_ms=12)
 
             generation_service.call_openai = fake_call_openai

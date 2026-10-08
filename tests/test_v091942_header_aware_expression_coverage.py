@@ -70,7 +70,7 @@ def test_only_exact_delivered_header_spans_enter_coverage(isolated):
         ("name", list(views.planner_view.experience_header_decision_for_owner("EXP-001").field("name").source_span), "课程展示网站"),
         ("time", list(views.planner_view.experience_header_decision_for_owner("EXP-001").field("time").source_span), "2026年5月"),
     ]
-    assert coverage[facts[3].fact_id]["delivered_header_evidence"] == []
+    assert facts[3].fact_id not in coverage
     reply = full_reply(review)
     review.accept(reply)
     slots.validate_model_project_evidence(composed, views, expression_review=review,
@@ -88,7 +88,14 @@ def test_header_change_invalidates_coverage_receipt(isolated):
 
 
 def test_f004_omission_and_unit_overclaim_still_rejected(isolated):
-    _, _, facts, review, _ = prepared()
+    build, views, facts, review, _ = prepared()
+    units = [dict(fact_ids=list(row['sources']), position=row['position'],
+                  text=row['candidate']) for row in review.candidates.values()]
+    units[-1]['text'] = '项目用于课程结课展示'
+    review = slots.CanonicalExpressionReview(build, views.build_fingerprint)
+    slots.compose_model_fact_references({'resume_sections': {'projects': [
+        {'source_experience_id': 'EXP-001', 'expression_units': units}
+    ]}}, views, expression_review=review)
     reply = full_reply(review)
     reply["coverage"][facts[3].fact_id].update(
         verdict="omitted", source_excerpt="展示后没有继续运营")
@@ -163,4 +170,4 @@ def test_controlled_receipt_reaches_save_and_docx(monkeypatch, tmp_path, isolate
     sent_coverage = json.loads(outcome["sent"][1]["messages"][1]["content"].split(
         "<fact_coverage>\n", 1)[1].split("\n</fact_coverage>", 1)[0])
     assert sent_coverage[facts[0].fact_id]["delivered_header_evidence"]
-    assert not sent_coverage[facts[3].fact_id]["delivered_header_evidence"]
+    assert facts[3].fact_id not in sent_coverage

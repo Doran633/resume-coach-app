@@ -1,0 +1,37 @@
+{
+  "evidence_kind": "Selected candidate and reviewer fields from fresh stage-196 calls 11/12 and 15/16; not a historical production request replay",
+  "raw_input": "个人项目：活动报名页面\n2026年6月，和一位同学一起制作活动报名页面。我只负责使用 Vue 完成活动列表和报名表单，按同学提供的接口显示提交结果。检查了空输入和重复点击时的页面提示。页面在课堂上演示过。\n\n技能：\n会使用 Vue 和 Git，了解基础接口联调。",
+  "projects": [
+    {
+      "source_experience_id": "EXP-001",
+      "expression_units": [
+        {"fact_ids": ["EXP-001-F001"], "position": "intro", "text": "活动报名页面，2026年6月，与一位同学合作完成。"},
+        {"fact_ids": ["EXP-001-F002"], "position": "role", "text": "负责使用 Vue 完成活动列表和报名表单，按同学提供的接口显示提交结果。"},
+        {"fact_ids": ["EXP-001-F003"], "position": "detail", "text": "检查了空输入和重复点击时的页面提示。"},
+        {"fact_ids": ["EXP-001-F004"], "position": "detail", "text": "页面在课堂上演示过。"}
+      ]
+    }
+  ],
+  "reviews": [
+    {
+      "decisions": {
+        "EXP-001-F001": {"verdict": "supported", "source_fact_id": null, "source_excerpt": null, "candidate_excerpt": null},
+        "EXP-001-F002": {"verdict": "changed_qualification", "source_fact_id": "EXP-001-F002", "source_excerpt": "我只负责使用 Vue 完成活动列表和报名表单", "candidate_excerpt": "负责使用 Vue 完成活动列表和报名表单"}
+      },
+      "coverage": {
+        "EXP-001-F001": {"verdict": "complete", "unit_ids": ["EXP-001-F001"], "source_excerpt": null},
+        "EXP-001-F002": {"verdict": "complete", "unit_ids": ["EXP-001-F002"], "source_excerpt": null}
+      }
+    },
+    {
+      "decisions": {
+        "EXP-001-F001": {"verdict": "supported", "source_fact_id": null, "source_excerpt": null, "candidate_excerpt": null},
+        "EXP-001-F002": {"verdict": "changed_qualification", "source_fact_id": "EXP-001-F002", "source_excerpt": "我只负责使用 Vue 完成活动列表和报名表单", "candidate_excerpt": "负责使用 Vue 完成活动列表和报名表单"}
+      },
+      "coverage": {
+        "EXP-001-F001": {"verdict": "complete", "unit_ids": ["EXP-001-F001"], "source_excerpt": null},
+        "EXP-001-F002": {"verdict": "omitted", "unit_ids": ["EXP-001-F002"], "source_excerpt": "我只负责"}
+      }
+    }
+  ]
+}

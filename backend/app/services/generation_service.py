@@ -446,7 +446,10 @@ def build_llm_generation(
     if consumer_views is not None and expression_review is None:
         expression_review = CanonicalExpressionReview(consumer_views._build, consumer_views.build_fingerprint)
 
-    max_attempts = max(1, min(int(os.getenv("MAX_LLM_CALLS_PER_ATTEMPT", "2")), 2))
+    canonical = consumer_views is not None
+    max_calls = max(1, min(int(os.getenv("MAX_LLM_CALLS_PER_ATTEMPT", "3" if canonical else "2")),
+                           3 if canonical else 2))
+    max_attempts = min(2, max_calls)
     calls_used = 0
     usage = dict(input_tokens=0, output_tokens=0, estimated_cost_cny=0.0, latency_ms=0)
 
@@ -460,7 +463,7 @@ def build_llm_generation(
         )
 
     for attempt in range(max_attempts):
-        if calls_used >= max_attempts:
+        if calls_used >= max_calls:
             break
         review_result = None
         if expression_review is not None:
@@ -470,12 +473,13 @@ def build_llm_generation(
             expression_review.project_snapshots.clear()
             expression_review.review_issues.clear()
             expression_review.editorial_accepted_count = 0
+            expression_review.editorial_observed_count = 0
         budget = resource_protection.check_daily_budget()
         if not budget.allowed:
             raise GenerationServiceError("Daily model budget reached.", code="DAILY_BUDGET_REACHED")
         try:
             calls_used += 1
-            llm_result = call_openai(prompt)
+            llm_result = call_openai(prompt, role="writer") if canonical else call_openai(prompt)
             record_result(llm_result)
             if consumer_views is not None:
                 finish_reason = llm_result.finish_reason
@@ -535,20 +539,21 @@ def build_llm_generation(
                 )
                 review_result = None
                 if expression_review.pending:
-                    if calls_used >= max_attempts:
+                    if calls_used >= max_calls:
                         raise GenerationServiceError('No call budget remains for expression review.', code='MODEL_EXPRESSION_REVIEW_BUDGET')
                     if not resource_protection.check_daily_budget().allowed:
                         raise GenerationServiceError('Daily model budget reached.', code='DAILY_BUDGET_REACHED')
                     try:
                         calls_used += 1
-                        review_result = call_openai(build_expression_review_prompt(expression_review, consumer_views))
+                        review_result = call_openai(build_expression_review_prompt(expression_review, consumer_views),
+                                                    role="reviewer")
                         record_result(review_result)
                         finish = review_result.finish_reason
                         _write_llm_log({
                             'stage': 'generation_expression_review_received', 'request_id': request_id,
                             'review_protocol': EXPRESSION_REVIEW_PROTOCOL,
                             'created_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
-                            'attempt_id': request.attempt_id or '', 'model_attempt': attempt + 2,
+                            'attempt_id': request.attempt_id or '', 'model_attempt': calls_used,
                             'finish_reason': finish if finish in ('stop', 'length', 'content_filter', None) else 'unknown',
                             'candidate_count': len(expression_review.pending),
                             'input_tokens': review_result.input_tokens, 'output_tokens': review_result.output_tokens,
@@ -563,6 +568,8 @@ def build_llm_generation(
                                        'attempt_id': request.attempt_id or '', 'review_passed': True,
                                        'candidate_count': len(expression_review.pending),
                                        'editorial_accepted_count': expression_review.editorial_accepted_count,
+                                       'editorial_observed_count': expression_review.editorial_observed_count,
+                                       'review_issues': expression_review.review_issues,
                                        'coverage_fact_count': len(expression_review.coverage_units())})
                     except (ModelEvidenceContractError, JSONRepairError, ValueError) as exc:
                         reason_counts = exc.reason_counts if isinstance(exc, ModelEvidenceContractError) else {'format_expression_review': 1}
@@ -639,6 +646,23 @@ def _check_final_expression_evidence(payload, views, review, request_id):
     except ModelEvidenceContractError as exc:
         raise GenerationServiceError('Final expression evidence changed after validation.',
                                      code='DELIVERY_EXPRESSION_CHANGED') from exc
+
+
+def _align_formal_bold_version(payload: schemas.GenerationPayload) -> schemas.GenerationPayload:
+    """Render the existing formal fields, without another semantic writer."""
+    sections = payload.resume_sections
+    parts = [_to_text(sections.personal_info), '教育经历', _to_text(sections.education)]
+    for title, values in (('个人优势', sections.summary), ('技能与能力', sections.skills)):
+        if values:
+            parts.extend([title, *('- ' + text for text in values)])
+    for project in sections.projects:
+        heading = '｜'.join(str(project.get(key) or '') for key in
+                           ('name', 'position' if project.get('meta') == '实习经历' else 'meta', 'time'))
+        parts.append(heading)
+        parts.extend('- ' + text for text in (
+            project.get('intro') or '', project.get('role') or '', *project.get('details', [])
+        ) if text)
+    return payload.model_copy(update={'bold_version': '\n'.join(part for part in parts if part)})
 
 
 def create_generation(
@@ -1006,6 +1030,7 @@ def create_generation(
         access_stats=consumer_view_access_stats,
         packaging_level=request.packaging_level,
         preserve_project_expressions=active_expression_review is not None,
+        preserve_summary_expressions=active_expression_review is not None,
     )
     mutation_tracer.checkpoint(payload, "after_professionalization", parent_stage="professionalize_resume_language")
     payload = guard_resume_skill_evidence(
@@ -1021,6 +1046,7 @@ def create_generation(
         aggregated_evidence=skill_evidence,
         term_resolutions=technical_term_resolutions,
         stage="generation",
+        compact_declarations=active_expression_review is not None,
     )
     mutation_tracer.checkpoint(payload, "after_skill_taxonomy", parent_stage="skill_evidence_and_taxonomy")
     payload = guard_resume_output_relevance(
@@ -1088,6 +1114,7 @@ def create_generation(
     )
     mutation_tracer.checkpoint(payload, "after_final_owner_delivery_contract", parent_stage="ownerless_project_containment")
     if active_expression_review is not None:
+        payload = _align_formal_bold_version(payload)
         _check_final_expression_evidence(payload, consumer_views, active_expression_review, request_id)
     repair_plan_evaluation = validate_resume_delivery_quality(
         payload,
@@ -1116,6 +1143,7 @@ def create_generation(
     )
     mutation_tracer.checkpoint(payload, "after_quality_repair_owner_delivery_contract", parent_stage="ownerless_project_containment")
     if active_expression_review is not None:
+        payload = _align_formal_bold_version(payload)
         _check_final_expression_evidence(payload, consumer_views, active_expression_review, request_id)
     repair_recheck_evaluation = validate_resume_delivery_quality(
         payload,
