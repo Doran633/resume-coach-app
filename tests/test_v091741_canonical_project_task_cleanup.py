@@ -27,8 +27,8 @@ LEGACY_HASHES = {
 CONTRACT_HASH = 'f8d1e5bde929484058e02931fb5c6eb44f0da360d7da422a99857e3444775c10'
 # Filled after reviewing the entire captured static task, not generated at test runtime.
 REVIEWED_TASK_HASHES = {
-    False: 'c8194dfa6296a9ea662b7458cafee7f7d1aeaca7ca41233a873691b989500ce1',
-    True: 'ff3b8ba08e829e9809f430c94d128e1b8190968e2b987cf00149009ede9cfb7d',
+    False: '5805d0dc0159f0c9e48cf8c7ae176ba45b17c0f96fe45c938203cedafecda5ad',
+    True: '7d1915ba53271f78ed59d059e4d70bc2370f7a37821af4c1f36758656c9c537d',
 }
 RETIRED = {
     False: (

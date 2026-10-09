@@ -48,7 +48,11 @@ def test_actual_tasks_retire_competing_permissions(case, long_mode, kind, monkey
         assert 'resume_sections.projects' in task and 'expression_scope' in task
         assert all(field in task for field in ('normal_version', 'bold_version', 'recommended_version', 'boundary_version'))
         assert '四个必需的顶层字符串字段' in task
-        assert '辅助性质' in task and '不以字数、相似度或必须改写' in task
+        contract = json.loads(text.split('<canonical_model_output_contract>')[1].split('</canonical_model_output_contract>')[0])
+        scope = '\n'.join(contract['expression_scope'])
+        brief = text.split('<canonical_writing_brief>')[1].split('</canonical_writing_brief>')[0]
+        assert '辅助性质' in scope and '职责范围' in scope
+        assert '不以字数、改写率或接近原句' in brief and '不要求把每句话都改写' in brief
         assert '不是新增行动或职责的授权' in task
         assert '不能作为正式项目的事实来源' in task
         assert 'interview_plan' in task and 'knowledge_checklist' in task
